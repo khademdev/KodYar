@@ -61,7 +61,19 @@ type Settings struct {
 	RecentUsage      []int64          `json:"recentUsage"`
 
 	// ---- امکانات جدید ----
-	ConfirmFileWrites bool         `json:"confirmFileWrites"` // تأیید Diff قبل از write/edit (پیش‌فرض روشن)
+	ConfirmFileWrites bool `json:"confirmFileWrites"` // همگام با EditMode (review_each = true)
+
+	// EditMode حالت ویرایش (۴.۱): "review_each" = مودال Diff برای هر تغییر؛
+	// "auto" = اعمال فوریِ تغییرات داخل پوشه + بازبینی در پایان نوبت.
+	// پیش‌فرض نصب‌های تازه: "auto". فایل‌های قدیمی: از ConfirmFileWrites مشتق می‌شود.
+	EditMode string `json:"editMode,omitempty"`
+
+	// ProtectedGlobs مسیرهای محافظت‌شده (نسبی/glob) که حتی در auto هم تأیید
+	// می‌خواهند. خالی = فهرست پیش‌فرض (turnreview.go).
+	ProtectedGlobs []string `json:"protectedGlobs,omitempty"`
+
+	// MaxTurnTokens سقف مصرف توکن هر نوبت (۵.۳؛ ۰ = خاموش).
+	MaxTurnTokens     int64        `json:"maxTurnTokens,omitempty"`
 	PlanMode          bool         `json:"planMode"`          // حالت برنامه‌ریزی قبل از اجرا
 	ContextFiles      int          `json:"contextFiles"`      // سقف فایل‌های خودکار افزوده به کانتکست @
 	ProjectRules      string       `json:"projectRules"`      // قوانین پروژه تعریف‌شده از داخل اپ
@@ -125,7 +137,10 @@ func defaultSettings() *Settings {
 		TokenLimit:        200000,
 		TokensByProvider:  map[string]int64{},
 		RecentUsage:       []int64{},
-		ConfirmFileWrites: true,
+		ConfirmFileWrites: false, // همگام با EditMode=auto (پیش‌فرض ۱.۸.۰)
+		EditMode:          "auto",
+		ProtectedGlobs:    defaultProtectedGlobs,
+		MaxTurnTokens:     defaultMaxTurnTokens,
 		PlanMode:          false,
 		ContextFiles:      4,
 		RulesEnabled:      true,
@@ -258,13 +273,22 @@ func (a *App) loadSettings() error {
 	}
 	s := defaultSettings()
 	hadFile := false
+	// آیا فایل واقعاً کلید editMode را دارد؟ (unmarshal روی پیش‌فرض‌ها
+	// انجام می‌شود؛ نبودِ کلید را فقط با probe می‌شود از مقدار پیش‌فرض
+	// تشخیص داد — مهاجرتِ ۴۱ به همین وابسته است؛ فایل خراب =مانند فایل قدیمی.)
+	hadEditMode := false
 	raw, err := os.ReadFile(path)
 	if err == nil {
 		hadFile = true
+		var probe map[string]json.RawMessage
+		if json.Unmarshal(raw, &probe) == nil {
+			_, hadEditMode = probe["editMode"]
+		}
 		if jerr := json.Unmarshal(raw, s); jerr != nil {
 			// فایل خراب را کنار می‌گذاریم تا کلیدهای API از بین نروند
 			_ = os.Rename(path, path+".corrupt")
 			s = defaultSettings()
+			hadEditMode = false
 		}
 	}
 	if s.Providers == nil {
@@ -319,6 +343,23 @@ func (a *App) loadSettings() error {
 	if s.MaxConvKB <= 0 {
 		s.MaxConvKB = 2048
 	}
+	// حالت ویرایش (۴.۱) — مهاجرت: فایل‌های قدیمی EditMode ندارند؛ از
+	// ConfirmFileWrites مشتق می‌شود (true → review_each، false → auto) و هر
+	// دو فیلد همیشه همگام می‌مانند. مقدار نامعتبر → auto.
+	if !hadEditMode {
+		if s.ConfirmFileWrites {
+			s.EditMode = "review_each"
+		} else {
+			s.EditMode = "auto"
+		}
+	}
+	s.EditMode = normalizeEditMode(s.EditMode)
+	if s.EditMode == "" {
+		s.EditMode = "auto"
+	}
+	s.ConfirmFileWrites = s.EditMode == "review_each"
+	// سقف مصرف توکن هر نوبت (۵.۳)
+	s.MaxTurnTokens = clampMaxTurnTokens(s.MaxTurnTokens)
 	// سقف دورهای ایجنت — فایل‌های قدیمی فیلد را ندارند (صفر) و به پیش‌فرض
 	// برمی‌گردند؛ مقادیر خارج از محدوده به نزدیک‌ترین حد مجاز می‌چسبند.
 	s.MaxAgentRounds = clampMaxAgentRounds(s.MaxAgentRounds)
@@ -460,6 +501,74 @@ func (a *App) SetConfirmFileWrites(on bool) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.settings.ConfirmFileWrites = on
+	if on {
+		a.settings.EditMode = "review_each"
+	} else {
+		a.settings.EditMode = "auto"
+	}
+	return a.saveSettings()
+}
+
+// SetEditMode حالت ویرایش را ذخیره می‌کند (۴.۱): "review_each" یا "auto".
+// ConfirmFileWrites همیشه همگام نگه داشته می‌شود.
+func (a *App) SetEditMode(mode string) error {
+	mode = normalizeEditMode(strings.TrimSpace(mode))
+	if mode == "" {
+		return errors.New("حالت ویرایش نامعتبر است (review_each | auto)")
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.settings.EditMode = mode
+	a.settings.ConfirmFileWrites = mode == "review_each"
+	return a.saveSettings()
+}
+
+// normalizeEditMode مقدار معتبر حالت ویرایش (خالی = نامعتبر).
+func normalizeEditMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "review_each", "review-each", "revieweach":
+		return "review_each"
+	case "auto":
+		return "auto"
+	}
+	return ""
+}
+
+// editModeLocked حالت ویرایش نرمال‌شده. باید با a.mu قفل‌شده صدا زده شود.
+func (a *App) editModeLocked() string {
+	if m := normalizeEditMode(a.settings.EditMode); m != "" {
+		return m
+	}
+	if a.settings.ConfirmFileWrites {
+		return "review_each"
+	}
+	return "auto"
+}
+
+// defaultMaxTurnTokens پیش‌فرض سقف توکن هر نوبت (۵.۳).
+const defaultMaxTurnTokens = 2000000
+
+// clampMaxTurnTokens سقف توکن هر نوبت در محدوده‌ی مجاز
+// (۵۰ هزار تا ۱۰ میلیون؛ صفر = خاموش).
+func clampMaxTurnTokens(v int64) int64 {
+	if v == 0 {
+		return 0
+	}
+	if v < 50000 {
+		return 50000
+	}
+	if v > 10000000 {
+		return 10000000
+	}
+	return v
+}
+
+// SetMaxTurnTokens سقف مصرف توکن هر نوبت را ذخیره می‌کند (۵.۳).
+// ۰ = خاموش؛ محدوده‌ی مجاز ۵۰ هزار تا ۱۰ میلیون (clamp).
+func (a *App) SetMaxTurnTokens(v int64) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.settings.MaxTurnTokens = clampMaxTurnTokens(v)
 	return a.saveSettings()
 }
 
@@ -504,41 +613,45 @@ func (a *App) SettingsView() map[string]interface{} {
 		limit = p.ContextWindow
 	}
 	return map[string]interface{}{
-		"provider":           s.Provider,
-		"model":              s.Model,
-		"environment":        s.Environment,
-		"providers":          copyProviders(s.Providers),
-		"workspace":          s.WorkspacePath,
-		"allowCommands":      s.AllowCommands,
-		"agentMode":          s.AgentMode,
-		"tokensUsed":         s.TokensUsed,
-		"tokenLimit":         limit,
-		"providerTokensUsed": s.TokensByProvider[s.Provider],
-		"tokensByProvider":   copyInt64Map(s.TokensByProvider),
-		"recentUsage":        copyInt64s(s.RecentUsage),
-		"temperature":        s.Temperature,
-		"systemPrompt":       s.SystemPrompt,
-		"hasKeys":            a.hasKeysMap(),
-		"configDir":          a.mustConfigDir(),
-		"confirmFileWrites":  s.ConfirmFileWrites,
-		"planMode":           s.PlanMode,
-		"contextFiles":       s.ContextFiles,
-		"projectRules":       s.ProjectRules,
-		"rulesEnabled":       s.RulesEnabled,
-		"maxTokens":          s.MaxTokens,
-		"toolResultKeep":     s.ToolResultKeep,
-		"maxConvKb":          s.MaxConvKB,
-		"maxAgentRounds":     clampMaxAgentRounds(s.MaxAgentRounds),
-		"maxSubagentRounds":  clampMaxSubagentRounds(s.MaxSubagentRounds),
-		"maxHistory":         s.MaxHistory,
-		"theme":              s.Theme,
-		"fontSize":           s.FontSize,
-		"density":            s.Density,
-		"customTools":        copyCustomTools(s.CustomTools),
-		"mcpServers":         maskedMCPServers(s.MCPServers),
-		"pendingChanges":     pending,
-		"proxyMode":          normalizeProxyMode(s.ProxyMode),
-		"proxyURL":           s.ProxyURL,
+		"provider":              s.Provider,
+		"model":                 s.Model,
+		"environment":           s.Environment,
+		"providers":             copyProviders(s.Providers),
+		"workspace":             s.WorkspacePath,
+		"allowCommands":         s.AllowCommands,
+		"agentMode":             s.AgentMode,
+		"tokensUsed":            s.TokensUsed,
+		"tokenLimit":            limit,
+		"providerTokensUsed":    s.TokensByProvider[s.Provider],
+		"tokensByProvider":      copyInt64Map(s.TokensByProvider),
+		"recentUsage":           copyInt64s(s.RecentUsage),
+		"temperature":           s.Temperature,
+		"systemPrompt":          s.SystemPrompt,
+		"hasKeys":               a.hasKeysMap(),
+		"configDir":             a.mustConfigDir(),
+		"confirmFileWrites":     s.ConfirmFileWrites,
+		"editMode":              a.editModeLocked(),
+		"protectedGlobs":        append([]string(nil), a.protectedGlobsLocked()...),
+		"defaultProtectedGlobs": defaultProtectedGlobs,
+		"maxTurnTokens":         clampMaxTurnTokens(s.MaxTurnTokens),
+		"planMode":              s.PlanMode,
+		"contextFiles":          s.ContextFiles,
+		"projectRules":          s.ProjectRules,
+		"rulesEnabled":          s.RulesEnabled,
+		"maxTokens":             s.MaxTokens,
+		"toolResultKeep":        s.ToolResultKeep,
+		"maxConvKb":             s.MaxConvKB,
+		"maxAgentRounds":        clampMaxAgentRounds(s.MaxAgentRounds),
+		"maxSubagentRounds":     clampMaxSubagentRounds(s.MaxSubagentRounds),
+		"maxHistory":            s.MaxHistory,
+		"theme":                 s.Theme,
+		"fontSize":              s.FontSize,
+		"density":               s.Density,
+		"customTools":           copyCustomTools(s.CustomTools),
+		"mcpServers":            maskedMCPServers(s.MCPServers),
+		"pendingChanges":        pending,
+		"proxyMode":             normalizeProxyMode(s.ProxyMode),
+		"proxyURL":              s.ProxyURL,
 	}
 }
 

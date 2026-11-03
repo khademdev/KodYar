@@ -1591,8 +1591,10 @@ func (a *App) toolRunCommand(parent context.Context, command string, timeoutSec 
 
 	// استریم تدریجی خروجی به UI (chat:tool_output؛ ≤ ۱۰ رویداد/ثانیه)
 	emit, flush := a.shellOutputEmitter(ctx)
-	out, _, err := runShell(ctx, dir, command, time.Duration(timeoutSec)*time.Second, emit)
+	out, exitCode, err := runShell(ctx, dir, command, time.Duration(timeoutSec)*time.Second, emit)
 	flush()
+	// ثبت در خلاصه‌ی واقعی نوبت (۴.۲) — از رکورد ابزار، نه متن مدل
+	turnRecorderFrom(parent).recordCommand(command, exitCode, err == nil)
 	result := truncateToolOutput(strings.TrimRight(out, "\n"))
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {

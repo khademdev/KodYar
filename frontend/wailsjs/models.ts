@@ -139,6 +139,17 @@ export namespace main {
 		rejected?: boolean;
 		reverted?: boolean;
 		revertedAt?: number;
+		turnId?: number;
+		protected?: boolean;
+		heavyDelete?: boolean;
+		contentSha256?: string;
+		confirmNote?: string;
+	}
+
+	export class TurnChangesReport {
+		reverted: string[];
+		conflicts: string[];
+		errors: string[];
 	}
 
 	export class RulesInfo {

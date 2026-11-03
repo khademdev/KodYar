@@ -172,6 +172,11 @@ export namespace main {
 	    rejected?: boolean;
 	    reverted?: boolean;
 	    revertedAt?: number;
+	    turnId?: number;
+	    protected?: boolean;
+	    heavyDelete?: boolean;
+	    contentSha256?: string;
+	    confirmNote?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new FileChange(source);
@@ -192,6 +197,27 @@ export namespace main {
 	        this.rejected = source["rejected"];
 	        this.reverted = source["reverted"];
 	        this.revertedAt = source["revertedAt"];
+	        this.turnId = source["turnId"];
+	        this.protected = source["protected"];
+	        this.heavyDelete = source["heavyDelete"];
+	        this.contentSha256 = source["contentSha256"];
+	        this.confirmNote = source["confirmNote"];
+	    }
+	}
+	export class TurnChangesReport {
+	    reverted: string[];
+	    conflicts: string[];
+	    errors: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new TurnChangesReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.reverted = source["reverted"];
+	        this.conflicts = source["conflicts"];
+	        this.errors = source["errors"];
 	    }
 	}
 	export class MentionItem {

@@ -216,6 +216,9 @@ func TestRevertAllFileChanges(t *testing.T) {
 
 func TestConfirmFlowReject(t *testing.T) {
 	a := newTestApp(t)
+	// از ۱.۸.۰ حالت ویرایش مرجع تصمیم است: این تست چرخه‌ی مودالِ کامل را
+	// می‌آزماید → review_each (تغییر عمدی رفتار پیش‌فرض، PROGRESS.md مرحله‌ی ۲).
+	a.settings.EditMode = "review_each"
 	a.settings.ConfirmFileWrites = true
 	ws := a.settings.WorkspacePath
 	a.ctx = context.Background() // شبیه‌سازی UI فعال
@@ -257,6 +260,8 @@ func TestConfirmFlowReject(t *testing.T) {
 
 func TestConfirmFlowAccept(t *testing.T) {
 	a := newTestApp(t)
+	// مثل بالا: مسیر مودال کامل → review_each.
+	a.settings.EditMode = "review_each"
 	a.settings.ConfirmFileWrites = true
 	ws := a.settings.WorkspacePath
 	a.ctx = context.Background()
@@ -302,11 +307,25 @@ func TestSetConfirmFileWrites(t *testing.T) {
 	if a.settings.ConfirmFileWrites {
 		t.Fatal("setter did not disable confirm")
 	}
+	// همگامی دوطرفه با EditMode (۴.۱): خاموش = auto
+	if a.settings.EditMode != "auto" {
+		t.Fatalf("EditMode must sync to auto, got %q", a.settings.EditMode)
+	}
 	// باید روی دیسک هم ذخیره شده باشد
 	a2 := NewApp()
 	os.Setenv("MYAI_CONFIG_DIR", a.mustConfigDir())
 	_ = a2.loadSettings()
 	if a2.settings.ConfirmFileWrites {
 		t.Fatal("confirmFileWrites must be persisted to disk")
+	}
+	if a2.settings.EditMode != "auto" {
+		t.Fatalf("EditMode must persist as auto, got %q", a2.settings.EditMode)
+	}
+	// و روشن‌کردن دوباره → review_each
+	if err := a.SetConfirmFileWrites(true); err != nil {
+		t.Fatal(err)
+	}
+	if a.settings.EditMode != "review_each" {
+		t.Fatalf("EditMode must sync to review_each, got %q", a.settings.EditMode)
 	}
 }

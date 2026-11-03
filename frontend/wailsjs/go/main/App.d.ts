@@ -36,6 +36,8 @@ export function GetFileChangeDiff(arg1:string):Promise<string>;
 
 export function GetFileChanges():Promise<Array<main.FileChange>>;
 
+export function GetTurnChanges(arg1:string,arg2:number):Promise<Array<main.FileChange>>;
+
 export function GetProviders():Promise<Array<main.Provider>>;
 
 export function GetRulesInfo():Promise<main.RulesInfo>;
@@ -68,6 +70,8 @@ export function RevertAllFileChanges():Promise<number>;
 
 export function RevertFileChange(arg1:string):Promise<void>;
 
+export function RevertTurnChanges(arg1:string,arg2:number):Promise<main.TurnChangesReport>;
+
 export function RunCommand(arg1:string):Promise<string>;
 
 export function SaveConnection(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
@@ -92,9 +96,13 @@ export function SetAppearance(arg1:number,arg2:string):Promise<void>;
 
 export function SetConfirmFileWrites(arg1:boolean):Promise<void>;
 
+export function SetEditMode(arg1:string):Promise<void>;
+
 export function SetMaxAgentRounds(arg1:number):Promise<void>;
 
 export function SetMaxSubagentRounds(arg1:number):Promise<void>;
+
+export function SetMaxTurnTokens(arg1:number):Promise<void>;
 
 export function SetMessagePinned(arg1:string,arg2:string,arg3:boolean):Promise<main.Conversation>;
 

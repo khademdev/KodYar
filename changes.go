@@ -65,6 +65,13 @@ type FileChange struct {
 	Rejected   bool   `json:"rejected,omitempty"` // کاریر تغییر را رد کرد
 	Reverted   bool   `json:"reverted,omitempty"` // تغییر برگردانده شد
 	RevertedAt int64  `json:"revertedAt,omitempty"`
+
+	// ---- ۱.۸.۰: مدل نوبت و حالت ویرایش (Stage 2) ----
+	TurnID        int64  `json:"turnId,omitempty"`        // شناسه‌ی نوبتِ سازنده‌ی تغییر
+	Protected     bool   `json:"protected,omitempty"`     // مسیر محافظت‌شده → حتی در auto تأیید می‌خواهد
+	HeavyDelete   bool   `json:"heavyDelete,omitempty"`   // حذف سنگین (پوشه/حجیم/بدون بکاپ) → تأیید
+	ContentSHA256 string `json:"contentSha256,omitempty"` // هشِ چیزی که ایجنت نوشت (تشخیص تعارض)
+	ConfirmNote   string `json:"confirmNote,omitempty"`   // یادداشت فارسیِ دلیل حساسیت برای مودال
 }
 
 // pendingConfirm یک درخواست تأیید در انتظار پاسخ کاربر.
@@ -216,18 +223,27 @@ func (a *App) loadChangesLocked() []FileChange {
 
 // ---------------------------------------------------------------- تأیید تعاملی
 
+// changeNeedsConfirm آیا این تغییر به تأیید تعاملی نیاز دارد؟ (۴.۱):
+// review_each همه‌چیز؛ auto فقط مسیر محافظت‌شده و حذف سنگین.
+func (a *App) changeNeedsConfirm(ch *FileChange) bool {
+	a.mu.Lock()
+	mode := a.editModeLocked()
+	a.mu.Unlock()
+	return mode == "review_each" || ch.Protected || ch.HeavyDelete
+}
+
 // requestFileConfirm رویداد agent:confirm را می‌فرستد و منتظر پاسخ کاربر
 // می‌ماند. اگر تأیید در تنظیمات خاموش باشد یا UI در دسترس نباشد، true
 // (اجازه) برمی‌گرداند — مگر اینکه timeout یا لغو کاربر رخ دهد.
 func (a *App) requestFileConfirm(ctx context.Context, ch *FileChange) bool {
-	a.mu.Lock()
-	confirmOn := a.settings.ConfirmFileWrites
-	a.mu.Unlock()
-	if !confirmOn {
+	// حالت ویرایش (۴.۱): «review_each» همه‌چیز را می‌پرسد؛ «auto» فقط
+	// مسیرهای محافظت‌شده و حذف‌های سنگین را.
+	if !a.changeNeedsConfirm(ch) {
 		return true
 	}
-	// اجازه موقت: این نوبت پاسخ‌دهی یا کل نشست برنامه
-	if a.genAllowWrites.Load() || a.sessionAllowWrites.Load() {
+	// اجازه موقت (این نوبت پاسخ‌دهی / کل نشست) فقط پرسش‌های عادی را رد
+	// می‌کند — مسیر محافظت‌شده و حذف سنگین همیشه می‌پرسند.
+	if !ch.Protected && !ch.HeavyDelete && (a.genAllowWrites.Load() || a.sessionAllowWrites.Load()) {
 		return true
 	}
 	// بدون UI (تست/هدلس) — منتظر ماندن بی‌معناست؛ رد کن
@@ -260,6 +276,15 @@ func (a *App) requestFileConfirm(ctx context.Context, ch *FileChange) bool {
 	case <-timer.C:
 		return false
 	}
+}
+
+// changeApprovalNote جمله‌ی صادقِ وضعیت تأیید در پیام نتیجه (۴.۱): مودال واقعاً
+// پرسیده شده → «approved by the user»؛ auto بدون پرسش → «auto-applied».
+func changeApprovalNote(asked bool) string {
+	if asked {
+		return "approved by the user"
+	}
+	return "auto-applied (edit mode 'auto'; review the end-of-turn summary)"
 }
 
 // RespondFileConfirm پاسخ کاربر به مودال تأیید تغییر را تحویل می‌دهد.
@@ -421,6 +446,10 @@ func (a *App) writeFileWithConfirm(ctx context.Context, rel, afterContent string
 		Removed: removed,
 		Diff:    diffText,
 		At:      timeNow(),
+		TurnID:  turnIDFrom(ctx),
+	}
+	if preview.Protected = a.pathIsProtected(rel); preview.Protected {
+		preview.ConfirmNote = "این مسیر محافظت‌شده است (مخزن/راز/فایل تعریف ساخت) و حتی در حالت ویرایش خودکار تأیید می‌خواهد."
 	}
 
 	if !a.requestFileConfirm(ctx, &preview) {
@@ -443,9 +472,11 @@ func (a *App) writeFileWithConfirm(ctx context.Context, rel, afterContent string
 
 	rec := preview
 	rec.BackupFile = backupName
+	rec.ContentSHA256 = sha256Hex([]byte(afterContent))
 	a.recordAppliedChange(rec)
-	return fmt.Sprintf("OK: %s '%s' (+%d/-%d lines) — approved by the user; revertible from the «file changes» panel.",
-		map[string]string{ChangeCreate: "created", ChangeModify: "updated"}[kind], rel, added, removed), true
+	turnRecorderFrom(ctx).recordFileChange()
+	return fmt.Sprintf("OK: %s '%s' (+%d/-%d lines) — %s; revertible from the «file changes» panel.",
+		map[string]string{ChangeCreate: "created", ChangeModify: "updated"}[kind], rel, added, removed, changeApprovalNote(a.changeNeedsConfirm(&rec))), true
 }
 
 // movePathWithConfirm جابه‌جایی/تغییرنام با تأیید و بکاپ.
@@ -473,6 +504,12 @@ func (a *App) movePathWithConfirm(ctx context.Context, from, to string) (string,
 		Kind:    ChangeMove,
 		MovedTo: to,
 		At:      timeNow(),
+		TurnID:  turnIDFrom(ctx),
+	}
+	// منبع یا مقصدِ محافظت‌شده → تأیید حتی در auto
+	if a.pathIsProtected(from) || a.pathIsProtected(to) {
+		preview.Protected = true
+		preview.ConfirmNote = "مبدأ یا مقصد جابه‌جایی مسیر محافظت‌شده است و تأیید می‌خواهد."
 	}
 	preview.Diff = "--- " + from + "\n+++ " + to + "\n(renamed/moved)\n"
 
@@ -492,8 +529,13 @@ func (a *App) movePathWithConfirm(ctx context.Context, from, to string) (string,
 	}
 	rec := preview
 	rec.BackupFile = backupName
+	// محتوا پس از rename در مقصد است — هش تعارض از dst خوانده می‌شود.
+	if data, rerr := os.ReadFile(dst); rerr == nil {
+		rec.ContentSHA256 = sha256Hex(data)
+	}
 	a.recordAppliedChange(rec)
-	return fmt.Sprintf("OK: moved '%s' to '%s' — approved by the user; revertible from the «file changes» panel.", from, to), true
+	turnRecorderFrom(ctx).recordFileChange()
+	return fmt.Sprintf("OK: moved '%s' to '%s' — %s; revertible from the «file changes» panel.", from, to, changeApprovalNote(a.changeNeedsConfirm(&rec))), true
 }
 
 // deletePathWithConfirm حذف با تأیید و بکاپ (حتی برای پوشه‌ی خالی).
@@ -515,18 +557,35 @@ func (a *App) deletePathWithConfirm(ctx context.Context, rel string) (string, bo
 		Path:   rel,
 		Kind:   ChangeDelete,
 		At:     timeNow(),
+		TurnID: turnIDFrom(ctx),
+	}
+	if a.pathIsProtected(rel) {
+		preview.Protected = true
+		preview.ConfirmNote = "این مسیر محافظت‌شده است و حذفش تأیید می‌خواهد."
 	}
 	if !isDir {
 		preview.Diff = "--- " + rel + "\n+++ /dev/null\n(file deleted)\n"
+	}
+	// بکاپ «پیش از» تأیید گرفته می‌شود تا شکستِ بکاپ خودش به یک پرسش
+	// تبدیل شود (۴.۱: حذفِ بدون‌بکاپ همیشه می‌پرسد، نه اینکه بی‌صدا رد شود).
+	// حذفِ پوشه و فایل بزرگ‌تر از ۵ مگابایت هم طبق ۴.۱ همیشه می‌پرسد.
+	// (حذف بیش از ۲۰ فایل ساختاراً ناممکن است: حذف بازگشتی مسدود است.)
+	backupName, berr := a.backupOriginal(p) // برای پوشه‌ی خالی خالی برمی‌گردد
+	if berr != nil {
+		preview.HeavyDelete = true
+		preview.ConfirmNote = "از این مسیر نسخه‌ی پشتیبان گرفته نشد؛ حذفش بازگشت‌ناپذیر خواهد بود."
+		backupName = ""
+	} else if isDir {
+		preview.HeavyDelete = true
+		preview.ConfirmNote = "حذف پوشه همیشه تأیید می‌خواهد."
+	} else if info.Size() > 5*1024*1024 {
+		preview.HeavyDelete = true
+		preview.ConfirmNote = "حجم این فایل بیش از ۵ مگابایت است؛ حذفش تأیید می‌خواهد."
 	}
 
 	if !a.requestFileConfirm(ctx, &preview) {
 		a.recordRejectedChange(preview)
 		return "ERROR: the user REJECTED deleting '" + rel + "'.", false
-	}
-	backupName, berr := a.backupOriginal(p) // برای پوشه‌ی خالی خالی برمی‌گردد
-	if berr != nil {
-		return "ERROR: could not back up: " + berr.Error(), false
 	}
 	if err := os.Remove(p); err != nil {
 		if isDir {
@@ -537,7 +596,8 @@ func (a *App) deletePathWithConfirm(ctx context.Context, rel string) (string, bo
 	rec := preview
 	rec.BackupFile = backupName
 	a.recordAppliedChange(rec)
-	return fmt.Sprintf("OK: deleted '%s' — approved by the user; revertible from the «file changes» panel.", rel), true
+	turnRecorderFrom(ctx).recordFileChange()
+	return fmt.Sprintf("OK: deleted '%s' — %s; revertible from the «file changes» panel.", rel, changeApprovalNote(a.changeNeedsConfirm(&rec))), true
 }
 
 // recordAppliedChange رکورد نهایی تغییر + رویداد UI.

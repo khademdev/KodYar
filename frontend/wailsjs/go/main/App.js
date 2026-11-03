@@ -70,6 +70,10 @@ export function GetFileChanges() {
   return window['go']['main']['App']['GetFileChanges']();
 }
 
+export function GetTurnChanges(arg1, arg2) {
+  return window['go']['main']['App']['GetTurnChanges'](arg1, arg2);
+}
+
 export function GetProviders() {
   return window['go']['main']['App']['GetProviders']();
 }
@@ -134,6 +138,10 @@ export function RevertFileChange(arg1) {
   return window['go']['main']['App']['RevertFileChange'](arg1);
 }
 
+export function RevertTurnChanges(arg1, arg2) {
+  return window['go']['main']['App']['RevertTurnChanges'](arg1, arg2);
+}
+
 export function RunCommand(arg1) {
   return window['go']['main']['App']['RunCommand'](arg1);
 }
@@ -182,12 +190,20 @@ export function SetConfirmFileWrites(arg1) {
   return window['go']['main']['App']['SetConfirmFileWrites'](arg1);
 }
 
+export function SetEditMode(arg1) {
+  return window['go']['main']['App']['SetEditMode'](arg1);
+}
+
 export function SetMaxAgentRounds(arg1) {
   return window['go']['main']['App']['SetMaxAgentRounds'](arg1);
 }
 
 export function SetMaxSubagentRounds(arg1) {
   return window['go']['main']['App']['SetMaxSubagentRounds'](arg1);
+}
+
+export function SetMaxTurnTokens(arg1) {
+  return window['go']['main']['App']['SetMaxTurnTokens'](arg1);
 }
 
 export function SetMessagePinned(arg1, arg2, arg3) {

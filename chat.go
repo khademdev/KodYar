@@ -1021,6 +1021,12 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 	// خودِ نوبت جمع می‌شود. قالب‌های ذخیره‌شده تغییری نمی‌کنند.
 	usageTally := &usageTally{}
 	ctx = withUsageTally(ctx, usageTally)
+	// مدل نوبت (۴.۲): شناسه‌ی صعودی + ضبط‌کننده‌ی دستورات/تغییرات — از
+	// طریق ctx به همه‌ی ابزارها (و زیرایجنت) می‌رسد؛ خلاصه‌ی پایان نوبت
+	// فقط از همین رکوردها ساخته می‌شود (ground truth، نه متن مدل).
+	turnID := a.nextTurnID()
+	turnRec := &turnRecorder{}
+	ctx = withTurnContext(ctx, turnID, turnRec)
 	var allContent strings.Builder
 	var promptTokens, completionTokens, estTotal int64
 	aborted := false
@@ -1074,6 +1080,7 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 	finish := func(content string, isAborted bool) {
 		sp, sc := usageTally.snapshot()
 		a.finishChat(myGen, content, isAborted, promptTokens+sp, completionTokens+sc, estTotal)
+		a.emitTurnSummary(convID, turnID, turnRec, promptTokens+sp, completionTokens+sc)
 	}
 	// شمارش توکن تاریخچه با کش — هر پیام فقط یک‌بار تخمین زده می‌شود؛
 	// tool_calls هم حساب می‌شود (قرابت نزدیک‌تر با prompt_tokens واقعی).
@@ -1330,6 +1337,7 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 			promptTokens += roundPrompt
 			completionTokens += roundCompletion
 			a.savePartial(convID, allContent.String()[persistedLen:]+roundContent.String(), promptTokens, completionTokens)
+			a.emitTurnSummary(convID, turnID, turnRec, promptTokens, completionTokens)
 			a.emitChatError(myGen, "خطای مدل: "+roundModelErr)
 			return
 		}
@@ -1337,6 +1345,7 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 			promptTokens += roundPrompt
 			completionTokens += roundCompletion
 			a.savePartial(convID, allContent.String()[persistedLen:]+roundContent.String(), promptTokens, completionTokens)
+			a.emitTurnSummary(convID, turnID, turnRec, promptTokens, completionTokens)
 			a.emitChatError(myGen, "جریان پاسخ قطع شد: "+scanErr.Error())
 			return
 		}
@@ -1422,6 +1431,7 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 
 		pc, _ := cleanAssistantContent(roundContent.String())
 		if !a.persistAgentRound(convID, pc, calls, toolMsgs) {
+			a.emitTurnSummary(convID, turnID, turnRec, promptTokens, completionTokens)
 			a.emitChatError(myGen, "ذخیره‌ی نتیجه‌ی ابزار ناموفق بود (گفتگو حذف شد یا دیسک در دسترس نیست).")
 			return
 		}

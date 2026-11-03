@@ -63,11 +63,30 @@ func TestSettingsViewNoDeadlockWithRevert(t *testing.T) {
 
 // TestDeleteAndRevertEmptyDir: حذف پوشه‌ی خالی باید موفق شود و برگرداندن،
 // همان پوشه را بازسازی کند (قبلاً backupOriginal روی پوشه خطای EISDIR می‌داد).
+// از ۱.۸.۰ (۴.۱) حذفِ پوشه «سنگین» است و حتی در auto تأیید می‌خواهد —
+// پس این تست یک تأییدگر خودکار می‌بندد.
 func TestDeleteAndRevertEmptyDir(t *testing.T) {
 	a := newTestApp(t)
 	if err := os.MkdirAll(filepath.Join(a.settings.WorkspacePath, "emptydir"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	a.ctx = context.Background() // بدون UI، درخواست تأیید رد می‌شود
+	go func() {                  // تأییدگر خودکار: اولین درخواست را «اجازه» جواب می‌دهد
+		for i := 0; i < 200; i++ {
+			a.changes.mu.Lock()
+			var id string
+			for k := range a.changes.confirms {
+				id = k
+				break
+			}
+			a.changes.mu.Unlock()
+			if id != "" {
+				_ = a.RespondFileConfirm(id, true)
+				return
+			}
+			SleepShort()
+		}
+	}()
 	out, ok := a.toolDeletePath(context.Background(), "emptydir")
 	if !ok {
 		t.Fatalf("delete of empty dir failed: %s", out)

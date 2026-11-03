@@ -80,6 +80,10 @@ type App struct {
 	// genAllowWrites اگر true باشد، تأیید نوشتن فقط تا پایان پاسخ‌دهی
 	// جاری (finishChat / خطا / Stop) لازم نیست.
 	genAllowWrites atomic.Bool
+
+	// turnCounter شمارنده‌ی صعودیِ شناسه‌ی نوبت‌ها (turnreview.go) — atomic،
+	// بدون قفل؛ هر streamChat یک مقدار می‌گیرد.
+	turnCounter atomic.Int64
 }
 
 // NewApp ساخت نمونه‌ی اپ.

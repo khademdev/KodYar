@@ -72,6 +72,10 @@ type Conversation struct {
 	// گفتگوهای قدیمی که این فیلد را ندارند بدون خطا بارگذاری می‌شوند
 	// (json.Unmarshal فیلد غایب را نادیده می‌گیرد) و گفتگوی تازه خالی است.
 	Todos []TodoItem `json:"todos,omitempty"`
+
+	// TurnSummaries خلاصه‌ی واقعیِ نوبت‌ها (۴.۲) — حداکثر ۵۰ موردِ اخیر؛
+	// فیلد اختیاری برای سازگاری با گفتگوهای قدیمی.
+	TurnSummaries []TurnSummary `json:"turnSummaries,omitempty"`
 }
 
 // ConversationMeta خلاصه‌ی گفتگو برای سایدبار.
@@ -528,8 +532,22 @@ func (a *App) GetConversations() []ConversationMeta {
 // GetConversation یک گفتگوی کامل را برمی‌گرداند.
 func (a *App) GetConversation(id string) (*Conversation, error) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.loadConversation(id)
+	conv, err := a.loadConversation(id)
+	var summaries []TurnSummary
+	if err == nil && len(conv.TurnSummaries) > 0 {
+		summaries = append([]TurnSummary(nil), conv.TurnSummaries...)
+	}
+	a.mu.Unlock()
+	// با بازکردن گفتگو، خلاصه‌ی نوبت‌های ذخیره‌شده هم به UI می‌رسد تا
+	// کارت «خلاصه‌ی واقعی این نوبت» دوباره ساخته شود (۴.۲). emit بیرون
+	// از a.mu — قاعده‌ی معماری.
+	if len(summaries) > 0 {
+		runtimeEmit(a, "chat:turn_summaries", map[string]interface{}{
+			"conversationId": id,
+			"summaries":      summaries,
+		})
+	}
+	return conv, err
 }
 
 // DeleteConversation حذف کامل یک گفتگو: فایل گفتگو، entry مربوطه در
