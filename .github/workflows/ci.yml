@@ -1,0 +1,121 @@
+# .github/workflows/ci.yml — CI برای MyAI.
+#
+# NOTE: این فایل با بازخوانی دقیق و parse آفلاین YAML اعتبارسنجی شده؛ روی
+# GitHub Actions اجرا نشده است (رانر محلی در دسترس نبود).
+#
+#   - windows (اصلی): gofmt + vet + test -race — محصول روی ویندوز است.
+#   - linux (ثانویه): پکیج‌های GTK/WebKit که وایلز برای کامپایل لازم دارد؛
+#     اوبونتو ۲۴.۰۴ فقط webkit2gtk-4.1 دارد، پس تگ webkit2_41 لازم است.
+#   - windows-build (اختیاری): بیلد واقعی با Wails CLI پین‌شده به go.mod.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------- ویندوز (اصلی)
+  windows:
+    name: Test (windows-latest, race)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go (from go.mod)
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt check (must be clean)
+        shell: bash
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt found unformatted files:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test (race)
+        run: go test -race -count=1 ./...
+
+      # کامپایل واقعی اپ ویندوزی (WebView2 — بدون نیاز به پکیج سیستمی)
+      - name: Desktop compile check (production)
+        run: go build -tags production ./...
+
+  # ---------------------------------------------------------------- لینوکس (ثانویه)
+  linux:
+    name: Test (ubuntu-latest, webkit2_41)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install GTK / WebKit2GTK dev packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libglib2.0-dev \
+            pkg-config \
+            build-essential
+
+      - name: Setup Go (from go.mod)
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test -count=1 ./...
+
+      # کامپایل واقعی فرانت‌اند دسکتاپ (GTK/WebKit با cgo) — تگ production
+      # است که فرانت‌اند دسکتاپ را وارد کامپایل می‌کند و webkit2_41 پکیج
+      # ۴.۱ اوبونتو ۲۴.۰۴ را انتخاب می‌کند (بدون این تگ‌ها cgo اجرا نمی‌شود).
+      - name: Desktop compile check (production, webkit2_41)
+        run: go build -tags "production webkit2_41" ./...
+
+  # ---------------------------------------------------------------- بیلد ویندوز (اختیاری)
+  windows-build:
+    name: Wails build (windows/amd64)
+    runs-on: ubuntu-latest
+    continue-on-error: true # build-only؛ کیفیت کد در دو job بالایی تضمین می‌شود
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go (from go.mod)
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Wails CLI (pinned to go.mod version)
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1
+
+      - name: Wails build (windows/amd64, skipbindings)
+        run: wails build -platform windows/amd64 -skipbindings -ldflags "-s -w -X main.version=1.7.1"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MyAI-windows-amd64
+          path: build/bin/MyAI.exe
+          if-no-files-found: error

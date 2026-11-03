@@ -1,0 +1,141 @@
+/* MyAI — پنل «کارهای ایجنت» (todo_write).
+   چیدمان کاملاً RTL با ویژگی‌های منطقی (margin-inline-start و…) تا در
+   هر جهت متن درست باشد. پنل وقتی فهرست خالی است کاملاً hidden است. */
+
+.todos-panel {
+	margin: 0 14px 8px;
+	padding: 8px 10px 6px;
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+.todos-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	cursor: pointer;
+	user-select: none;
+	padding-inline-end: 2px;
+}
+
+.todos-title {
+	font-size: calc(var(--ui-size) - 1px);
+	font-weight: 600;
+	color: var(--text);
+}
+
+.todos-count {
+	font-size: calc(var(--ui-size) - 2px);
+	color: var(--text2);
+	background: var(--accent-softer);
+	border-radius: 999px;
+	padding: 1px 8px;
+	margin-inline-start: 2px;
+}
+
+.todos-chev {
+	margin-inline-start: auto;
+	background: transparent;
+	border: 0;
+	color: var(--text3);
+	font-size: calc(var(--ui-size) - 2px);
+	cursor: pointer;
+	padding: 2px 6px;
+	border-radius: var(--radius-xs);
+	line-height: 1;
+}
+
+.todos-chev:hover {
+	color: var(--text);
+	background: var(--card-hover);
+}
+
+.todos-list {
+	list-style: none;
+	margin: 6px 0 2px;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+}
+
+.todos-list[hidden] {
+	display: none;
+}
+
+.todo-item {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	padding: 3px 4px;
+	border-radius: var(--radius-xs);
+	font-size: calc(var(--ui-size) - 1px);
+	line-height: 1.9;
+}
+
+.todo-item:hover {
+	background: var(--card-hover);
+}
+
+/* نشانگر وضعیت — ثابت می‌ماند تا ستون بندی متن شکل نگیرد */
+.todo-mark {
+	flex: none;
+	width: 1.2em;
+	text-align: center;
+	font-size: calc(var(--ui-size) - 2px);
+	align-self: center;
+}
+
+.todo-item.wait .todo-mark { color: var(--text3); }
+.todo-item.active .todo-mark { color: var(--accent-h); }
+.todo-item.done .todo-mark { color: var(--ok); }
+
+.todo-text {
+	flex: 1 1 auto;
+	min-width: 0;
+	color: var(--text);
+	overflow-wrap: anywhere;
+	white-space: pre-wrap;
+}
+
+/* متن مدل همیشه به‌صورت ایزوله نمایش می‌شود (dir="auto" روی خود عنصر) */
+.todo-text:dir(ltr) {
+	text-align: start;
+}
+
+.todo-item.done .todo-text {
+	color: var(--text3);
+	text-decoration: line-through;
+	text-decoration-color: var(--border-strong);
+}
+
+.todo-item.active .todo-text {
+	font-weight: 600;
+}
+
+/* برچسب وضعیت فارسی — کوچک و کم‌رنگ */
+.todo-status {
+	flex: none;
+	font-size: calc(var(--ui-size) - 3.5px);
+	padding: 1px 7px;
+	border-radius: 999px;
+	margin-inline-start: auto;
+	white-space: nowrap;
+}
+
+.todo-status.s-wait {
+	color: var(--text3);
+	background: var(--bg-soft);
+}
+
+.todo-status.s-active {
+	color: var(--accent-h);
+	background: var(--accent-soft);
+}
+
+.todo-status.s-done {
+	color: var(--ok);
+	background: var(--ok-soft);
+}

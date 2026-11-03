@@ -1,0 +1,199 @@
+// هسته‌ی اپلیکیشن MyAI — ساختار App و متدهای متصل به فرانت‌اند (Wails Bind).
+package main
+
+import (
+	"context"
+	"os"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
+)
+
+// App وضعیت سراسری برنامه.
+type App struct {
+	ctx context.Context
+
+	mu       sync.Mutex // محافظ تنظیمات و گفتگوها
+	genMu    sync.Mutex // محافظ وضعیت پاسخ‌دهی جاری
+	gen      *genState  // پاسخ‌دهی فعال (nil = هیچ)
+	settings *Settings
+
+	startedAt int64
+
+	// مدیریت تغییرات فایل ایجنت (diff/تأیید/revert)
+	changes *changesStore
+
+	// permAskMu سریال‌سازی مودال‌های مجوز: اجرای موازی ابزارهای
+	// فقط‌خواندنی ممکن است چند تأیید هم‌زمان بخواهد (مثلاً دو read_file روی
+	// فایل حساس)؛ فقط requestPermissionConfirm این قفل را می‌گیرد و عمداً در
+	// طول انتظار پاسخ کاربر نگهش می‌دارد (کارش همین است). در طول آن هیچ
+	// قفلی جز changes.mu لحظه‌ای گرفته نمی‌شود — ترتیب: permAskMu → changes.mu
+	// (سند ترتیب قفل‌ها در ARCHITECTURE.md).
+	permAskMu sync.Mutex
+
+	// هشدار حجم گفتگو — فقط یک‌بار برای هر گفتگو در هر اجرا
+	sizeWarned map[string]bool
+
+	// uiReady فقط پس از startup واقعی Wails true می‌شود؛ رویدادها در
+	// حالت تست/هدلس هرگز emit نمی‌شوند (EventsEmit با ctx نامعتبر → log.Fatal).
+	uiReady atomic.Bool
+
+	// Cache مسیر configDir — یک‌بار محاسبه و برای عمر برنامه نگه‌داری می‌شود.
+	// sync.Once تضمین می‌کند حتی اگر چند goroutine هم‌زمان configDir را صدا
+	// بزنند، computeConfigDir فقط یک‌بار اجرا شود.
+	configDirOnce   sync.Once
+	cachedConfigDir string
+	configDirErr    error
+
+	// rulesCache کش محتوای فایل قوانین پروژه بر اساس (workspace، مسیر،
+	// حجم، mtime) — با a.mu محافظت می‌شود (context.go).
+	rulesCache rulesFileCache
+
+	// todosEmit جایگزین تست برای انتشار رویداد chat:todos (todos.go)؛
+	// در حالت عرفی nil است و مسیر استاندارد runtimeEmit اجرا می‌شود.
+	// باید فقط پیش از شروع هم‌زمانی‌ها (در تست) تنظیم شود — بدون قفل
+	// خوانده می‌شود. هیچ قفل دیگری هنگام نگه‌داشتن آن گرفته نمی‌شود.
+	todosEmit func(convID string, items []TodoItem)
+
+	// permAskEmit مشاهده‌گر تستی askهای دسترسی (permissions.go): payload
+	// مودال (kind/message/url/…) بدون UI واقعی قابل بررسی می‌شود. همان
+	// قرارداد todosEmit — فقط پیش از هم‌زمانی‌ها تنظیم شود.
+	permAskEmit func(ask *permissionAsk)
+
+	// mcp مدیر سرورهای MCP (mcpmanager.go). قفل برگ (mcp.mu) — هرگز
+	// گرفته‌شده‌ی a.mu حرف با سرور نمی‌زند؛ ترتیب کامل در ARCHITECTURE.md.
+	mcp *mcpManager
+
+	// sessionAllowWrites اگر true باشد، تأیید نوشتن فایل برای بقیه‌ی عمر
+	// برنامه (یا تا خاموش شدن صریح) رد می‌شود — از مودال Diff با
+	// «اجازه تا پایان نشست». جدا از ConfirmFileWrites در settings است.
+	sessionAllowWrites atomic.Bool
+
+	// genAllowWrites اگر true باشد، تأیید نوشتن فقط تا پایان پاسخ‌دهی
+	// جاری (finishChat / خطا / Stop) لازم نیست.
+	genAllowWrites atomic.Bool
+}
+
+// NewApp ساخت نمونه‌ی اپ.
+func NewApp() *App {
+	a := &App{}
+	a.initMCPManager()
+	return a
+}
+
+// startup هنگام راه‌اندازی پنجره فراخوانی می‌شود.
+func (a *App) startup(ctx context.Context) {
+	a.ctx = ctx
+	a.startedAt = timeNow()
+	a.uiReady.Store(true)
+	a.initChangesStore()
+
+	// نمونه‌ی فعال برای لاگ خطاها (logAppError بدون گیرنده App)
+	appForLogs = a
+
+	// راه‌اندازی رمزنگاری: I/O مربوط به Keyring اینجا و «بیرون از قفل‌ها»
+	// انجام می‌شود تا decryptKey بعداً فقط از کلید کش‌شده استفاده کند.
+	initCrypto()
+
+	// مسیر config را cache می‌کنیم تا فراخوانی‌های بعدی از os.MkdirAll معاف باشند.
+	// (خود sync.Once هم lazy است؛ این pre-warm صرفاً خطاهای اولیه را زودتر آشکار می‌کند.)
+	_, _ = a.configDir()
+
+	if err := a.loadSettings(); err != nil {
+		runtime.LogWarningf(ctx, "load settings: %v", err)
+		a.settings = defaultSettings()
+	}
+
+	// جاروی فایل‌های.tmp جامانده از نوشتن‌های اتمیک نیم‌کاره (کرش بین
+	// نوشتن و rename). کل درخت config، بازگشتی، best-effort.
+	if cdir, cerr := a.configDir(); cerr == nil {
+		if n := sweepStaleTempFiles(cdir); n > 0 {
+			runtime.LogWarningf(ctx, "startup: swept %d stale .tmp file(s)", n)
+		}
+	}
+}
+
+// shutdown هنگام بستن پنجره.
+func (a *App) shutdown(ctx context.Context) {
+	a.StopGeneration()
+	// انتظار کوتاه برای خروج کامل goroutine استریم — بدون این، ذخیره‌ی
+	// آخرین نوبت گفتگو وسط کار رها می‌شد (نوشتن اتمیک، فایل را سازگار
+	// نگه می‌دارد ولی آخرین partial-save از دست می‌رفت).
+	a.stopGenerationAndWait(2 * time.Second)
+	// کشتن کل درخت فرایند سرورهای MCP — بدون زامبی، پیش از ذخیره‌ی تنظیمات
+	// (mcp.mu قفل برگ است؛ کشتن بیرون از هر دو قفل انجام می‌شود).
+	if a.mcp != nil {
+		a.mcp.stopAll()
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.settings != nil {
+		_ = a.saveSettings()
+	}
+}
+
+// ToggleFullscreen وضعیت تمام‌صفحه‌ی واقعی پنجره را برمی‌گرداند (F11).
+// جدا از «بیشینه» (maximize) است: نوار عنوان و حاشیه‌ی پنجره مخفی می‌شوند.
+func (a *App) ToggleFullscreen() {
+	if a.ctx == nil {
+		return
+	}
+	if runtime.WindowIsFullscreen(a.ctx) {
+		runtime.WindowUnfullscreen(a.ctx)
+	} else {
+		runtime.WindowFullscreen(a.ctx)
+	}
+}
+
+// supportURL صفحه‌ی حمایت از پروژه (دکمه‌ی قلب در صفحه‌ی اصلی).
+const supportURL = "https://www.coffeebede.com/khademdev"
+
+// OpenSupportPage صفحه‌ی حمایت از پروژه را در مرورگر پیش‌فرض سیستم باز
+// می‌کند. در محیط تست (بدون Wails) بی‌خطر است و کاری نمی‌کند.
+func (a *App) OpenSupportPage() {
+	if a.ctx == nil {
+		return
+	}
+	runtime.BrowserOpenURL(a.ctx, supportURL)
+}
+
+// SelectFolder دیالوگ انتخاب پوشه‌ی سیستم‌عامل را باز می‌کند.
+// در صورت لغو توسط کاربر، رشته خالی و خطای nil برمی‌گردد.
+func (a *App) SelectFolder() (string, error) {
+	a.mu.Lock()
+	current := strings.TrimSpace(a.settings.WorkspacePath)
+	a.mu.Unlock()
+
+	if current != "" {
+		if st, err := os.Stat(current); err != nil || !st.IsDir() {
+			current = ""
+		}
+	}
+	if current == "" {
+		if home, herr := os.UserHomeDir(); herr == nil {
+			current = home
+		}
+	}
+
+	path, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+		Title:            "انتخاب پوشه‌ی کاری (مسیر پروژه)",
+		DefaultDirectory: current,
+	})
+	if err != nil {
+		return "", nil
+	}
+	return strings.TrimSpace(path), nil
+}
+
+// runtimeEmit رویداد Wails را فقط در محیط واقعی UI می‌فرستد.
+// در تست‌ها (بدون Wails) EventsEmit با log.Fatal از بین می‌برد؛ فلگ uiReady
+// این مسیر را قطع می‌کند.
+func runtimeEmit(a *App, name string, data ...interface{}) {
+	if a == nil || a.ctx == nil || !a.uiReady.Load() {
+		return
+	}
+	runtime.EventsEmit(a.ctx, name, data...)
+}
