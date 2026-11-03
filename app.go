@@ -72,6 +72,11 @@ type App struct {
 	// «اجازه تا پایان نشست». جدا از ConfirmFileWrites در settings است.
 	sessionAllowWrites atomic.Bool
 
+	// sessionRules قاعده‌های دستورِ «اجازه تا پایان نشست» (permissions.go):
+	// حافظه‌ای، با بستن برنامه محو می‌شوند؛ با a.mu محافظت می‌شوند و
+	// پس از قاعده‌های ماندگارِ settings ارزیابی می‌شوند.
+	sessionRules []PermissionRule
+
 	// genAllowWrites اگر true باشد، تأیید نوشتن فقط تا پایان پاسخ‌دهی
 	// جاری (finishChat / خطا / Stop) لازم نیست.
 	genAllowWrites atomic.Bool

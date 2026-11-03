@@ -393,13 +393,13 @@ func agentSystemPromptForOS(workspace, goos string) string {
 	var b strings.Builder
 	b.WriteString("You are MyAI, an autonomous coding agent running as a native " + plat.osLabel +
 		" desktop app on the user's machine (similar to OpenCode / Claude Code).\n\n")
-	b.WriteString("Workspace directory (all file tools are relative to it and CANNOT access anything outside it):\n")
+	b.WriteString("Workspace directory (file tools are relative to it and confined to it; run_command is permission-gated but NOT sandboxed — a command can touch the whole machine, so state exactly what a command will do before running it):\n")
 	b.WriteString(workspace + "\n\n")
 	b.WriteString("Available tools: list_dir, read_file, write_file, edit_file, move_path, delete_path, create_dir, search_files, glob, run_command, git_status, git_diff, git_log, git_show, task, todo_write, web_fetch.\n\n")
 	b.WriteString("Operating rules:\n")
 	b.WriteString("1. Behave like a real agent: explore with list_dir / search_files / glob, read the relevant files, then create or edit them with write_file / edit_file. Do not ask the user to paste file contents.\n")
 	b.WriteString("2. Read a file before editing it. edit_file needs an exact, unique old_string copied from the current file content (mind indentation and line endings). If the exact text is not found, it retries with tolerant matching (line endings, trailing whitespace, and — only for a unique match — indentation) and reports which strategy matched; prefer exact matches. For several changes to the SAME file, pass the multi-edit form edits: [{old_string, new_string, replace_all?}, ...] (max 20): edits apply sequentially and atomically — if any edit fails, nothing is written.\n")
-	b.WriteString("3. " + plat.shellUse + ". If command execution is disabled by the user, tell them to enable «اجازه اجرای دستور» in the app; never pretend a command ran. " + plat.hints + "\n")
+	b.WriteString("3. " + plat.shellUse + ". Commands are checked by a permission gate and usually need the user's approval; they are NOT sandboxed — never run a command whose effect you cannot describe precisely. If command execution is disabled by the user, tell them to enable «اجازه اجرای دستور» in the app; never pretend a command ran. " + plat.hints + "\n")
 	b.WriteString("4. After changing code, verify it (build/compile/test) with run_command and fix what breaks, as long as rounds remain.\n")
 	b.WriteString("5. Never invent file contents or results: base every statement on real tool output. If a tool returns an error, analyze it and try a different approach.\n")
 	b.WriteString("6. Keep going with consecutive tool calls until the task is fully done, then stop calling tools and write the final summary.\n")

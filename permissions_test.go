@@ -76,41 +76,8 @@ func TestNormalizeSegment(t *testing.T) {
 	}
 }
 
-func TestSplitCommandSegments(t *testing.T) {
-	cases := []struct {
-		in   string
-		want []string
-		ok   bool
-	}{
-		{"echo a && echo b", []string{"echo a", "echo b"}, true},
-		{"echo a; echo b", []string{"echo a", "echo b"}, true},
-		{"echo a | wc", []string{"echo a", "wc"}, true},
-		{"echo a || echo b", []string{"echo a", "echo b"}, true},
-		{"echo a\necho b", []string{"echo a", "echo b"}, true},
-		{`echo "a; b"`, []string{`echo "a; b"`}, true}, // جداکننده داخل کوتیشن نه
-		// محتوای فرمان‌جایگزینی بلافاصله صادر می‌شود (پیش از flush جزء بیرونی)؛
-		// «$» در جزء بیرونی می‌ماند (در نرمال‌سازی حذف می‌شود)
-		{"echo $(rm -rf /)", []string{"rm -rf /", "echo $"}, true},
-		{"echo `rm -rf /`", []string{"rm -rf /", "echo"}, true},
-		{`echo "unclosed`, nil, false},
-		{"echo 'unclosed", nil, false},
-		{"echo $(unclosed", nil, false},
-		{"echo (unclosed", nil, false},
-	}
-	for _, c := range cases {
-		got, ok := splitCommandSegments(c.in)
-		if ok != c.ok {
-			t.Errorf("split(%q) ok=%v, want %v", c.in, ok, c.ok)
-			continue
-		}
-		if !c.ok {
-			continue
-		}
-		if strings.Join(got, "|") != strings.Join(c.want, "|") {
-			t.Errorf("split(%q) = %v, want %v", c.in, got, c.want)
-		}
-	}
-}
+// (TestSplitCommandSegments حذف شد — splitCommandSegments از ۱.۸.۰ وجود
+// ندارد؛ جایگزین آن parseShellCommand در shellparse_test.go تست می‌شود.)
 
 func TestEvaluateCommandPermissions(t *testing.T) {
 	rules := []PermissionRule{
@@ -158,8 +125,10 @@ func TestEvaluateCommandPermissions(t *testing.T) {
 		{"rm foo.txt", rules, permDeny, "قاعده"},
 		// قاعده هیچ‌وقت لیست سیاه را دور نمی‌زند
 		{"rm -rf /", []PermissionRule{{Pattern: "rm*", Decision: "allow"}}, permDeny, "لیست سیاه"},
-		// قاعده‌ی allow صریح، الگوی پرریسک را دور می‌زند (انتخاب آگاهانه‌ی کاربر)
-		{"git push --force origin", []PermissionRule{{Pattern: "git push*", Decision: "allow"}}, permAllow, ""},
+		// D4(b): قاعده‌ی allow عام («git push*») دیگر الگوی پرریسک را دور
+		// نمی‌زند — فقط وقتی خودِ الگوی قاعده توکن پرریسک را صریح داشته باشد
+		{"git push --force origin", []PermissionRule{{Pattern: "git push*", Decision: "allow"}}, permAsk, "پرریسک"},
+		{"git push --force origin", []PermissionRule{{Pattern: "git push --force*", Decision: "allow"}}, permAllow, ""},
 		// بدون قاعده: پرریسک → ask
 		{"git reset --hard", nil, permAsk, ""},
 		{"git push --force origin", nil, permAsk, ""},
@@ -180,9 +149,12 @@ func TestEvaluateCommandPermissions(t *testing.T) {
 
 func TestDeriveAlwaysPattern(t *testing.T) {
 	cases := []struct{ in, want string }{
-		{"cargo build --release", "cargo build*"},
-		{"git push origin main", "git push*"},
-		{"ls", "ls*"},
+		{"cargo build --release", "cargo build*"},        // جفت تأییدشده
+		{"go mod tidy", "go mod tidy*"},                  // جفت سه‌توکنی
+		{"make build", "make build*"},                    // make <target>
+		{"git push origin main", "git push origin main"}, // خارج از فهرست → دقیق (بدون wildcard)
+		{"ls", "ls"},                       // فقط-خواندنیِ ساده هم دقیق
+		{"docker push x", "docker push x"}, // هرگز الگوی عام برای push
 	}
 	for _, c := range cases {
 		if got := deriveAlwaysPattern(c.in); got != c.want {
@@ -198,7 +170,7 @@ func TestAlwaysAllowPersistsRule(t *testing.T) {
 	a.ctx = context.Background()
 	answerNextPermAsk(t, a, "always")
 
-	if !a.requestCommandPermission(context.Background(), "cargo build --release") {
+	if !a.requestCommandPermission(context.Background(), "cargo build --release", false) {
 		t.Fatal("expected allow-always")
 	}
 	// قاعده ساخته شده؟
@@ -307,7 +279,7 @@ func TestConcurrentPermissionAsks(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			results[i] = a.requestCommandPermission(context.Background(), "cargo build")
+			results[i] = a.requestCommandPermission(context.Background(), "cargo build", false)
 		}(i)
 	}
 	wg.Wait()

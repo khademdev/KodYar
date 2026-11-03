@@ -39,14 +39,17 @@ var hardBlockedPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`>\s*/dev/sd[a-z]`),                                                // نوشتن مستقیم روی دیسک
 	regexp.MustCompile(`(^|\s)chmod\s+(-R\s+)?777\s+/(\s|$)`),                             // chmod 777 /
 	regexp.MustCompile(`(^|\s)(format|diskpart)\b`),                                       // ویندوز: فرمت دیسک
-	// del/rd ویندوز — فلگ‌ها با فاصله یا بدون فاصله (‎/f/s/q‎)؛ درایوهای همه‌ی حروف
-	regexp.MustCompile(`del\s+(/[sq][\s/]+)+[a-z]:\\`), // del /f /s /q C:\
-	regexp.MustCompile(`rd\s+(/[sq][\s/&]+)+[a-z]:\\`), // rd /s /q C:\
+	// del/rd ویندوز — فلگ‌ها با فاصله یا بدون فاصله (‎/f/s/q‎)؛ درایوهای همه‌ی حروف.
+	// توجه: ورودی از قبل normalize شده و بک‌اسلش‌ها حذف شده‌اند — پس الگو هم
+	// نباید بک‌اسلش بخواهد (باگ قدیمی: ‎del /f /s /q C:\‎ هرگز گرفته نمی‌شد).
+	regexp.MustCompile(`del\s+(/[fsq][\s/]+)+[a-z]:`), // del /f /s /q C:
+	regexp.MustCompile(`rd\s+(/[sq][\s/&]+)+[a-z]:`),  // rd /s /q C:\
 	// پاورشل: حذف بازگشتی نیرومند و اجرای دستور از اینترنت
 	regexp.MustCompile(`remove-item\s+[^;|&]*(-recurse|-force)`),                   // Remove-Item -Recurse -Force
 	regexp.MustCompile(`(^|\s)(iwr|invoke-webrequest|invoke-expression|iex)\b`),    // iwr / iex
 	regexp.MustCompile(`(^|\s)curl[^|;&]*\|\s*(sudo\s+)?(ba)?sh\b`),                // curl | sh
 	regexp.MustCompile(`(^|\s)wget[^|;&]*\|\s*(sudo\s+)?(ba)?sh\b`),                // wget | sh
+	regexp.MustCompile(`[^|;&]*\|\s*(sudo\s+)?(ba|z|da|k)?sh\b`),                   // هر چیز | sh — خروجیِ بالا کد اجرا می‌شود
 	regexp.MustCompile(`git\s+push\s+.*(--force|-f)\b.*\s+--(all|mirror)`),         // push --force --all
 	regexp.MustCompile(`(^|\s)(cipher|format)\s+[a-z]:`),                           // format C: / cipher
 	regexp.MustCompile(`(^|\s)reg\s+(delete|add)\s+hklm`),                          // تغییر رجیستری سیستم

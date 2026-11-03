@@ -650,3 +650,101 @@ deferred to the next regeneration of those bundles.
 `GOOS=windows GOARCH=amd64 go vet ./...` ok ·
 `GOOS=linux GOARCH=amd64 go vet ./...` ok.
 Test suite size: **369 test functions** (was 360). Version → **1.7.1**.
+
+---
+
+# مأموریت ۲ — «ایجنت قابل‌اعتماد» (امنیت، UX، دقت، اثبات) — v1.7.1 → v1.8.0
+
+ثبت خودکار ادامه‌ی پروژه مطق مشخصات «Make the Agent Trustworthy». اصل
+محصولی همه‌ی تصمیم‌ها: «از کاربر کمتر بپرس — کارها را ایمن، برگشت‌پذیر،
+مرئی و راستی‌آزمایی‌شده کن. فقط وقتی بپرس که کاری خطرناک، برگشت‌ناپذیر
+یا خارج از پوشه‌ی کاری باشد.»
+
+## محیط (برای همه‌ی مراحل این مأموریت)
+
+- Sandbox لینوکس (Debian 13, amd64)؛ Go 1.26.10 مجدداً زیر ‎/home/z/sdk/go‎
+  نصب شد (چون sandbox بازی‌چرخشده بود و SDK بیرون از پوشه‌ی مانده حذف
+  شده بود). gcc موجود → ‎-race‎ واقعی.
+- Baseline (کامیت ‎4dd7949‎) قبل از شروع Stage 1 دوباره سبز تأیید شد.
+
+## Stage 1 — سخت‌سازی دروازه‌ی دستورات (SECURITY) — DONE (2026-11-03)
+
+**چه شد:** جایگزینی کامل «glob روی رشته‌ی نرمال‌شده» با تجزیه‌گر واقعیِ
+شله‌آگاه + لیست‌سفید ساختاری.
+
+- `shellparse.go` (بازنویسی کامل؛ پیش‌نویس نیمه‌کاره‌ی همین فایل از
+  نشست قبلی مکمل/جایگزین شد): `parseShellCommand(cmd, flavor)` — دو شله‌ی
+  `cmd`/`posix` (تست‌ها هر دو را روی هر OS اجرا می‌کنند از طریق
+  `currentCommandFlavor`). قواعد واقعی: کوتیشن‌ها (‎'…"…"‎، ‎""…""‎ در cmd)،
+  escape (بک‌اسلش/caret)، جداکننده‌ها (‎&& || | |& ; & \n‎ — «&» تکی در
+  «هر دو» شله جداکننده است، «;» در cmd نویسه‌ی عادی)، تغییرمسیرها با
+  پیشوند fd و شکل‌های dup (‎2>&1‎/‎>&2‎) و مقصد کوتیشن‌آگاه، heredoc و
+  هر ساختار باز → عدم قطعیت → ask. گسترش‌ها: ‎$(cmd)‎/backtick/(…)/<(…)‎
+  با payload بازگشتی؛ ‎${…}‎/‎$VAR‎/‎$((…))‎/‎%VAR%‎/‎!VAR!‎ (هر % یا ! در
+  cmd محافظه‌کارانه) → پرچم hasExpansion. «نما» (view) بازسازی‌شده از
+  argv برای لایه‌های regex — یعنی escape/کوتیشن دیگر regex ها را دور
+  نمی‌زند.
+- `cmdgate.go` (جدید): لیست‌سفید ساختاری `safeCommandSpec` (argv0/sub/
+  sub2/flags whitelist/denied/positional) — git status|diff|log|show|
+  branch(فقط فهرست)|rev-parse|remote(-v) با لیست پرچم صریح و
+  ‎--output/--ext-diff/-c/--upload-pack/-C/--git-dir/--work-tree‎ ممنوع؛
+  go build|test|vet با ‎-v -run -count -race -short -timeout -cover
+  -bench -tags -p‎ و ‎-exec/-toolexec/-vettool/-o‎ ممنوع؛ npm test و
+  npm run test|lint|build|typecheck بدون پاس‌دادن آرگومان (‎--‎ ممنوع)؛
+  ls/dir/echo/pwd/whoami/hostname/where/which؛ نسخه‌های ‎--version‎ دقیق.
+  **cat/type/head/tail/wc/npx حذف شدند** (ایجنت read_file دارد — D3).
+  تغییرمسیر فقط به NUL/‎/dev/null‎/dup (D2). positional مطلق فقط داخل
+  پوشه‌ی کاری، «..» گذرنده و «~» ممنوع. توکن/مقصد حساس (الگوهای حساس +
+  پوشه‌های ‎.ssh/.aws/.gnupg/.kube/.config/gcloud‎ + ‎%APPDATA%‎ + ‎~/‎)
+  → حداقل ask با دلیل «دسترسی به فایل حساس» و بدون گزینه‌ی «همیشه»
+  (فیلد `NoAlways` در payload مودال + مخفی‌شدن دکمه در permissions.js).
+- قواعد D4: لیست سیاه هرگز قابل override نیست؛ الگوی پرریسک حتی با
+  قاعده‌ی allow عام → ask مگر خودِ متن الگو توکن پرریسک را صریح داشته
+  باشد («git push --force*» پذیرفته می‌شود، «git push*» نه)؛ **و
+  کاهش سطح مشابه برای خطر ساختاری** (تغییرمسیر فایل/پرچم ممنوع/
+  گسترش/پس‌زمینه) حتی زیر قاعده‌ی allow عام — مگر قاعده همان توکن را
+  صریح داشته باشد. `deriveAlwaysPattern` فقط برای جفت‌های تأییدشده
+  (git add|commit|status|diff|log|fetch، npm install|run|test، go build|
+  test|vet|mod tidy، cargo build|test|check، dotnet build|test، pip
+  install، pytest، make <target>) الگوی عام می‌سازد؛ برای بقیه فقط
+  قاعده‌ی «دستورِ دقیق» — هرگز برای push/reset/clean/rm/del/curl/wget/
+  powershell/cmd/sh/bash/python -c/node -e/npx/sudo/chmod/kill/taskkill.
+- `deriveAlwaysPattern`/`requestCommandPermission`/`gateCommand` — امضای
+  `evaluateCommandPermissions(cmd, rules)` حفظ شد؛ `evalCommandPerm`
+  حالا با الگوهای حساس کاربر + پوشه‌ی کاری + قاعده‌های نشست ارزیابی
+  می‌کند. پاسخ جدید «session» (اجازه تا پایان نشست، حافظه‌ای —
+  `appendSessionCommandRule`) + دکمه‌ی «در این نشست» در مودال.
+- ۳.۲.۸: پرامپت سیستمی درست شد — ابزارهای فایل محدود به پوشه‌اند اما
+  run_command «gated but NOT sandboxed» و مدل باید قبل از اجرا اثر
+  دستور را دقیق بگوید.
+- باگ‌های قدیمی پیدا و رفع شد ضمن کار: الگوی hard-block «‎del /f /s /q
+  C:\‎» هرگز match نمی‌شد (regex بک‌اسلش می‌خواست در حالی که
+  normalizeSegment بک‌اسلش را حذف می‌کند؛ همچنین ‎/f‎ در کلاس نبود) —
+  هر دو اصلاح شد؛ الگوی عمومی «هرچیز | sh» به لیست سیاه اضافه شد
+  (خروجیِ سمت چپ pipe به‌عنوان کد اجرا می‌شود).
+
+**تست‌ها:** `shellparse_test.go` (۹ تابع: جداکننده‌ها/کوتیشن/تغییرمسیر/
+caret/گسترش/پس‌زمینه/fork bomb/payload مفسر/مرزها + متن فارسی و ZWNJ) و
+`cmdgate_test.go` (بازتولید D1–D6 با و بدون قواعد عام کاربر؛ **کورپوس
+۲۷۶ موردی** در هر دو شله؛ خاصیت ترکیب «هرگز شل‌ترنشدن» روی همه‌ی
+جداکننده‌ها × ۱۵ دستور + تساوی کامل برای ترکیب‌های بدون الگوی
+چندجزئی؛ ۴۰۰ ترکیب تصادفی با seed ثابت ۲۰۲۶۱۱۰۳ چاپ‌شونده هنگام خطا؛
+ترتیب قواعد؛ حساس بدون always؛ قاعده‌ی نشست؛ جدول never-list الگو؛
+سازگاری مشخصه‌ها؛ مسیرهای فارسی). `permissions_test.go` به‌روزرسانی
+مشروع شد: TestSplitCommandSegments حذف (تابع حذف شده)، مورد «git push*
+  allow → git push --force» از allow به ask تغییر یافت (دقیقاً D4-b)،
+  جدول TestDeriveAlwaysPattern برای مشتق امن جدید، فراخوانی‌های
+  requestCommandPermission با پارامتر sens.
+
+**انحراف مستندشده:** خاصیت «تساوی کامل» ترکیب فقط برای ترکیب‌های بدون
+الگوی چندجزئی (خانواده‌ی ‎curl|sh‎ و «هرچیز|sh») برقرار است — این
+الگوها ترکیب را «سخت‌گیرانه‌تر» از اجزا می‌کنند که جهتِ امن درست است؛
+تست، عدم‌شل‌شدن (‎>=‎) را برای همه‌ی جداکننده‌ها اثبات می‌کند. قاعده‌ی
+«دستورِ دقیق» برای دستورهای مرکب فقط جزء اول را پوشش می‌دهد (قواعد
+per-simple ارزیابی می‌شوند — عمداً، تا «git status*» نتواند «git status
+&& rm -rf ~» را تأیید کند).
+
+**نتیجه‌ی گیت:** سبز — ‎gofmt -l .‎ خالی · ‎go vet ./...‎ ok ·
+‎go build ./...‎ ok · ‎go test -race -count=1 ./...‎ ok (19.2s) ·
+‎GOOS=windows GOARCH=amd64 go vet ./...‎ ok · ‎GOOS=linux GOARCH=amd64
+go vet ./...‎ ok.

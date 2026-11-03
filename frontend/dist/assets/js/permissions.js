@@ -1,12 +1,14 @@
 /* MyAI — مودال دسترسی (فاز ۱: سیستم Permissions)
  *
  * رویداد agent:permission_ask از بک‌اند می‌آید و سه نوع دارد:
- *   - kind=command       → «اجازه یک‌بار / همیشه اجازه بده / رد»
+ *   - kind=command       → «اجازه یک‌بار / در این نشست / همیشه اجازه بده / رد»
+ *     (اگر ask.noAlways یا ask.pattern خالی باشد، گزینه‌های نشست/همیشه
+ *      نمایش داده نمی‌شوند — مثلاً ارجاع به فایل حساس؛ ۳.۲.۴)
  *   - kind=sensitive_read→ «اجازه خواندن / رد» (فایل حساس مثل .env)
  *   - kind=tool          → «اجازه اجرای ابزار / رد»
  *
  * پاسخ از طریق RespondPermissionConfirm(id, decision) برمی‌گردد:
- *   allow | always | reject
+ *   allow | session | always | reject
  *
  * نکات ایمنی:
  *   - همه‌ی متن‌های پویا با textContent درج می‌شوند (هرگز innerHTML خام).
@@ -82,7 +84,7 @@
       hint.className = "hint-row";
       hint.style.marginTop = "8px";
       var hintTxt = document.createElement("span");
-      hintTxt.textContent = "«همیشه اجازه بده» قاعده‌ی " + ask.pattern + " را ذخیره می‌کند.";
+      hintTxt.textContent = "«همیشه اجازه بده» قاعده‌ی " + ask.pattern + " را ذخیره می‌کند؛ «در این نشست» فقط تا بستن برنامه فعال می‌ماند.";
       hint.appendChild(hintTxt);
       body.appendChild(hint);
     }
@@ -108,7 +110,12 @@
 
     if (ask.kind === "command") {
       foot.appendChild(btn("رد", "btn btn-danger", "reject"));
-      foot.appendChild(btn("همیشه اجازه بده", "btn btn-ghost", "always"));
+      // بدون الگو (حساس/محافظت‌شده) فقط «اجازه یک‌بار» — «همیشه» و «نشست»
+      // برای این دستورها هرگز پیشنهاد نمی‌شود (۳.۲.۴).
+      if (ask.pattern && !ask.noAlways) {
+        foot.appendChild(btn("در این نشست", "btn btn-ghost", "session"));
+        foot.appendChild(btn("همیشه اجازه بده", "btn btn-ghost", "always"));
+      }
       foot.appendChild(btn("اجازه یک‌بار", "btn btn-primary", "allow"));
     } else {
       foot.appendChild(btn("رد", "btn btn-danger", "reject"));

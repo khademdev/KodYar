@@ -12,9 +12,9 @@
 // امن → allow؛ در غیر این صورت ask (پیش‌فرض جدید به‌جای «همه مجاز»).
 //
 // صداقت امنیتی: این لایه defense-in-depth است و جایگزین sandbox نیست —
-// نرمال‌سازی regex-محور با هدفهندی می‌تواند دور زده شود؛ اجرای واقعی همچنان
-// در پوشه‌ی کاری و با SAME رشته‌ای است که ارزیابی شده (تقسیم quote-آگاه
-// پیش از نرمال‌سازی انجام می‌شود تا معنای shell حفظ شود).
+// تجزیه‌ساز واقعی (shellparse.go) + لیست‌سفید ساختاری (cmdgate.go) هدفهندی
+// را بسیار سخت‌تر کرده اما اجرای واقعی همچنان با همان رشته‌ای است که ارزیابی
+// شده، روی ماشین کاربر و بدون sandbox (README: مدل امنیتی).
 package main
 
 import (
@@ -55,18 +55,10 @@ var defaultSensitiveGlobs = []string{
 	".npmrc", ".netrc",
 }
 
-// defaultSafeCommands لیست‌سفید امن پیش‌فرض (الگو glob روی جزءِ نرمال‌شده).
-// عمداً کوچک و فقط-خواندنی/بی‌خطر نگه داشته شده است.
-var defaultSafeCommands = []string{
-	"git status*", "git diff*", "git log*", "git show*",
-	"go test*", "go build*", "go vet*", "go version",
-	"npm test*", "npm run test*", "npx --no-install*",
-	"ls*", "dir*", "cat*", "type*",
-	"echo*", "pwd", "true", "false",
-	"head*", "tail*", "wc*", "which*", "whoami", "hostname",
-	"node --version", "python* --version", "git --version", "go version",
-	"cargo --version", "rustc --version", "java -version",
-}
+// لیست‌سفید دستورات از ۱.۸.۰ «ساختاری» است (cmdgate.go: safeCommandSpecs):
+// تصمیم allow روی argv/پرچم/تغییرمسیرِ تجزیه‌شده گرفته می‌شود، نه glob
+// روی رشته‌ی نرمال. cat/type/head/tail/wc حذف شده‌اند (ایجنت read_file دارد
+// که قواعد فایل حساس را اجباری می‌کند — D3).
 
 // normalizePermissionDecision مقدار رشته‌ای تصمیم را اعتبارسنجی می‌کند.
 func normalizePermissionDecision(s string) string {
@@ -140,153 +132,15 @@ func (a *App) toolPermDecisionLocked(tool string) permDecision {
 }
 
 // ---------------------------------------------------------------- تجزیه‌ی دستور مرکب
-
-// splitCommandSegments دستور را به اجزای quote-آگاه تقسیم می‌کند.
-// جداکننده‌ها بیرون از کوتیشن: && || ; | و خط جدید.
-// محتوای $(...) و backtick جداگانه استخراج و به‌صورت بازگشتی تجزیه می‌شود
-// (تا $(echo a; rm -rf /) هم ارزیابی شود).
-// ok=false یعنی کوتیشن‌ها متوازن نیستند (→ ask).
-// توجه: نرمال‌سازی بعدی برای «تطبیق» است؛ حتی الگوهای داخل کوتیشن هم
-// دیده می‌شوند (محافظه‌کارانه — ممکن است false-positive بدهد، هرگز
-// false-negative نمی‌دهد).
-func splitCommandSegments(cmd string) ([]string, bool) {
-	var segs []string
-	var cur strings.Builder
-	var quote byte // 0 یا '"' یا '\''
-	subDepth := 0  // عمق $(...) یا (...) بیرون از کوتیشن
-	var subCur strings.Builder
-	flush := func() {
-		if s := strings.TrimSpace(cur.String()); s != "" {
-			segs = append(segs, s)
-		}
-		cur.Reset()
-	}
-	appendSub := func(content string) bool {
-		subSegs, ok := splitCommandSegments(content)
-		if !ok {
-			return false
-		}
-		segs = append(segs, subSegs...)
-		return true
-	}
-	runes := []rune(cmd)
-	for i := 0; i < len(runes); i++ {
-		c := runes[i]
-		if subDepth > 0 {
-			switch {
-			case c == '(':
-				subDepth++
-			case c == ')':
-				subDepth--
-				if subDepth == 0 {
-					content := subCur.String()
-					subCur.Reset()
-					if !appendSub(content) {
-						return nil, false
-					}
-					continue
-				}
-			}
-			subCur.WriteRune(c)
-			continue
-		}
-		if quote != 0 {
-			if c == '\\' && quote == '"' && i+1 < len(runes) {
-				cur.WriteRune(c)
-				i++
-				cur.WriteRune(runes[i])
-				continue
-			}
-			if byte(c) == quote {
-				quote = 0
-			}
-			cur.WriteRune(c)
-			continue
-		}
-		switch {
-		case c == '"' || c == '\'':
-			quote = byte(c)
-			cur.WriteRune(c)
-		case c == '`':
-			// محتوای backtick تا backtick بعدی
-			j := i + 1
-			for j < len(runes) && runes[j] != '`' {
-				subCur.WriteRune(runes[j])
-				j++
-			}
-			if j >= len(runes) {
-				return nil, false // backtick بسته نشد
-			}
-			if !appendSub(subCur.String()) {
-				return nil, false
-			}
-			subCur.Reset()
-			i = j
-		case c == '(':
-			// فرمان‌جایگزینی $(...) و زیرپوسته‌ی لخت (...) — هر دو محتوایشان
-			// جداگانه ارزیابی می‌شوند
-			subDepth++
-		case c == '&' && i+1 < len(runes) && runes[i+1] == '&':
-			flush()
-			i++
-		case c == '|' && i+1 < len(runes) && runes[i+1] == '|':
-			flush()
-			i++
-		case c == ';' || c == '|' || c == '\n' || c == '\r':
-			flush()
-		default:
-			cur.WriteRune(c)
-		}
-	}
-	if quote != 0 || subDepth > 0 {
-		return nil, false
-	}
-	flush()
-	return segs, true
-}
-
-// shellPayloadRegex تشخیص مفسر/زبان با پرچم اجرای کد و دریافت payload.
-var shellPayloadRegex = regexp.MustCompile(
-	`(?i)^(sh|bash|zsh|dash|ksh|cmd|powershell|pwsh|python3?|python\.[0-9]+|node|deno|bun)(\s+(-[^\s]+|/[^\s]+|-[^\s]*))*\s+(-c|-e|-command|-enc|-encodedcommand|--command|--eval)\s+(.+)$`)
-
-// expandShellPayloads اجزای «مفسر -c payload» را به payload خام گسترش می‌دهد.
-// هم جزء اصلی و هم payload برگردانده می‌شود (هر دو ارزیابی می‌شوند).
-func expandShellPayloads(seg string) []string {
-	out := []string{seg}
-	// توکن‌های ابتدایی را جدا می‌کنیم (بدون شکستن کوتیشن payload)
-	trimmed := strings.TrimSpace(seg)
-	m := shellPayloadRegex.FindStringSubmatch(trimmed)
-	if m != nil {
-		payload := strings.TrimSpace(m[5])
-		// حذف کوتیشن سرتاسری payload
-		if len(payload) >= 2 &&
-			((payload[0] == '"' && payload[len(payload)-1] == '"') ||
-				(payload[0] == '\'' && payload[len(payload)-1] == '\'')) {
-			payload = payload[1 : len(payload)-1]
-		}
-		if payload != "" {
-			out = append(out, payload)
-		}
-		return out
-	}
-	// cmd /c payload (پرچم بدون خط تیره)
-	if lt := strings.ToLower(trimmed); strings.HasPrefix(lt, "cmd ") {
-		rest := strings.TrimSpace(trimmed[len("cmd"):])
-		if strings.HasPrefix(strings.ToLower(rest), "/c ") {
-			payload := strings.TrimSpace(rest[len("/c "):])
-			if payload != "" {
-				out = append(out, payload)
-			}
-		}
-	}
-	return out
-}
+// از ۱.۸.۰ تجزیه‌ی واقعی در shellparse.go است (parseShellCommand) و
+// ارزیابی ساختاری در cmdgate.go (evaluateCommandDetailed). splitCommandSegments
+// و expandShellPayloads حذف شدند — هر دو با تجزیه‌ساز واقعی جایگزین شده‌اند.
 
 // normalizeSegment نرمال‌سازی برای «تطبیق الگو» (نه اجرا):
 // حروف کوچک، ${IFS}/$IFS → فاصله، حذف escape/کوتیشن/$/backtick
 // (مقاوم‌سازی در برابر r""m، rm${IFS}-rf و...) و جمع‌کردن فاصله‌ها.
 // پرانتزها حفظ می‌شوند — الگوی fork bomb به آن‌ها نیاز دارد؛ محتوای
-// فرمان‌جایگزینی از قبل توسط splitCommandSegments جزءِ جدا شده است.
+// فرمان‌جایگزینی از قبل توسط parseShellCommand جدا و بازگشتی ارزیابی می‌شود.
 func normalizeSegment(seg string) string {
 	s := strings.ToLower(seg)
 	s = strings.ReplaceAll(s, "${ifs}", " ")
@@ -338,114 +192,41 @@ func commandGlobMatch(pattern, s string) bool {
 	return px == len(pattern)
 }
 
-// evaluateCommandPermissions ارزیابی کامل دستور (تابع خالص — قابل تست).
-// ترتیب برای «هر جزء/پایلود»: ۱) لیست سیاه سخت (بازگشت فوری، هرگز قابل
-// override نیست) ۲) قاعده‌ی کاربر — اولین تطبیق، تصمیم نهایی همان جزء
-// (allow صریح، الگوی پرریسک را هم دور می‌زند؛ انتخاب آگاهانه‌ی کاربر)
-// ۳) بدون قاعده: پرریسک → ask؛ لیست‌سفید امن → allow؛ در غیر این صورت ask.
-// سخت‌گیرترین تصمیم بین اجزا برنده می‌شود.
+// evaluateCommandPermissions ارزیابی کامل دستور (نقطه‌ی ورود خالص — امضای
+// قبلی حفظ شده تا فراخوانی‌ها/تست‌ها کار کنند). جزئیات و قواعد ترتیب در
+// cmdgate.go (evaluateCommandDetailed) است: لیست سیاه سخت روی رشته‌ی خام و
+// روی نمای هر دستور ساده؛ ارجاع حساس → حداقل ask بدون «همیشه»؛ قاعده‌ی
+// کاربر (اولین تطبیق؛ allow صریح فقط با پوشش صریح توکن پرریسک)؛ پرریسک →
+// ask؛ لیست‌سفید ساختاری → allow؛ غیر این → ask. سخت‌گیرترین بخش برنده است.
 // خروجی: تصمیم + دلیل فارسی برای deny/ask.
 func evaluateCommandPermissions(cmd string, rules []PermissionRule) (permDecision, string) {
-	segs, ok := splitCommandSegments(cmd)
-	if !ok {
-		return permAsk, "" // کوتیشن نامتوازن → بپرس
-	}
-	if len(segs) == 0 {
-		return permAllow, ""
-	}
-	const hardBlockText = "این دستور در لیست سیاه دستورات خطرناک MyAI است و هرگز اجرا نمی‌شود."
-	// پیش‌فیلتر: لیست سیاه روی «کل رشته‌ی» نرمال‌شده هم اعمال می‌شود —
-	// الگوهای چندجزئی مثل «curl … | sh» با تقسیم اجزا از دست نمی‌روند.
-	if fullNorm := normalizeSegment(cmd); fullNorm != "" {
-		for _, re := range hardBlockedPatterns {
-			if re.MatchString(fullNorm) {
-				return permDeny, hardBlockText
-			}
-		}
-	}
-	worst := permAllow
-	reason := ""
-	for _, seg := range segs {
-		for _, s := range expandShellPayloads(seg) {
-			norm := normalizeSegment(s)
-			if norm == "" {
-				continue
-			}
-			// ۱) لیست سیاه سخت
-			for _, re := range hardBlockedPatterns {
-				if re.MatchString(norm) {
-					return permDeny, hardBlockText
-				}
-			}
-			// ۲) قاعده‌ی کاربر — اولین تطبیق، تصمیم نهایی همین جزء
-			segDecision := permDecision(-1)
-			segReason := ""
-			for _, r := range rules {
-				if commandGlobMatch(strings.ToLower(strings.TrimSpace(r.Pattern)), norm) {
-					switch normalizePermissionDecision(r.Decision) {
-					case "allow":
-						segDecision = permAllow
-					case "deny":
-						segDecision = permDeny
-						segReason = "این دستور با قاعده‌ی دسترسی شما («" + r.Pattern + "») مسدود شده است."
-					case "ask":
-						segDecision = permAsk
-						segReason = "اجرای این دستور طبق قاعده‌ی شما تأیید می‌خواهد."
-					}
-					break
-				}
-			}
-			// ۳) بدون قاعده → پرریسک / لیست‌سفید / ask
-			if segDecision < 0 {
-				segDecision = permAsk
-				segReason = ""
-				for _, re := range riskyPatterns {
-					if re.MatchString(norm) {
-						segReason = "این دستور پرریسک است (تغییرات مخرب احتمالی در فایل‌ها یا مخزن)."
-						break
-					}
-				}
-				if segReason == "" {
-					for _, p := range defaultSafeCommands {
-						if commandGlobMatch(p, norm) {
-							segDecision = permAllow
-							break
-						}
-					}
-				}
-			}
-			if segDecision > worst {
-				worst = segDecision
-				reason = segReason
-			}
-		}
-	}
-	return worst, reason
+	e := evaluateCommandDetailed(cmd, rules, defaultSensitiveGlobs, "")
+	return e.decision, e.reason
 }
 
-// deriveAlwaysPattern الگوی «همیشه اجازه بده» را از دستور می‌سازد:
-// دو توکن اول + «*» (مثل «cargo build*»). در مودال به کاربر نشان داده می‌شود.
-func deriveAlwaysPattern(command string) string {
-	norm := normalizeSegment(strings.TrimSpace(command))
-	fields := strings.Fields(norm)
-	if len(fields) >= 2 {
-		return fields[0] + " " + fields[1] + "*"
-	}
-	if len(fields) == 1 {
-		return fields[0] + "*"
-	}
-	return "*"
-}
+// deriveAlwaysPattern الگوی «همیشه اجازه بده» — پیاده‌سازی جدید در
+// cmdgate.go: فقط برای جفت‌های تأییدشده الگوی عام، برای بقیه قاعده‌ی
+// «دستورِ دقیق» (۳.۲.۶-ج؛ هیچ‌وقت برای push/reset/clean/… الگوی عام).
 
 // ---------------------------------------------------------------- دروازه‌ی اجرا
 
 // evalCommandPerm ارزیابی دستور با قاعده‌های فعلی (a.mu کوتاه گرفته می‌شود).
 func (a *App) evalCommandPerm(command string) (permDecision, string) {
+	e := a.evalCommandPermDetailed(command)
+	return e.decision, e.reason
+}
+
+// evalCommandPermDetailed ارزیابی کامل با الگوهای حساسِ کاربر، پوشه‌ی کاری
+// و قاعده‌های نشست (حافظه‌ای) — wrapper ای‌ برای evaluateCommandDetailed.
+func (a *App) evalCommandPermDetailed(command string) commandEval {
 	a.mu.Lock()
-	rules := make([]PermissionRule, len(a.settings.Permissions.CommandRules))
-	copy(rules, a.settings.Permissions.CommandRules)
+	rules := make([]PermissionRule, 0, len(a.settings.Permissions.CommandRules)+len(a.sessionRules))
+	rules = append(rules, a.settings.Permissions.CommandRules...)
+	rules = append(rules, a.sessionRules...)
+	globs := a.sensitiveGlobsLocked()
+	ws := strings.TrimSpace(a.settings.WorkspacePath)
 	a.mu.Unlock()
-	return evaluateCommandPermissions(command, rules)
+	return evaluateCommandDetailed(command, rules, globs, ws)
 }
 
 // gateCommand دروازه‌ی واحد اجرای دستور — هم برای ابزار ایجنت، هم RunCommand
@@ -453,15 +234,16 @@ func (a *App) evalCommandPerm(command string) (permDecision, string) {
 // rejectMsg: پیام «رد شدن به‌دست کاربر» — انگلیسی/فنی برای مدل، فارسی برای UI.
 // خروجی: (مجاز؟, پیام خطا با پیشوند ERROR:).
 func (a *App) gateCommand(ctx context.Context, command string, forceAsk bool, rejectMsg string) (bool, string) {
-	decision, why := a.evalCommandPerm(command)
+	e := a.evalCommandPermDetailed(command)
+	decision := e.decision
 	if forceAsk && decision == permAllow {
 		decision = permAsk
 	}
 	switch decision {
 	case permDeny:
-		return false, "ERROR: " + why
+		return false, "ERROR: " + e.reason
 	case permAsk:
-		if !a.requestCommandPermission(ctx, command) {
+		if !a.requestCommandPermission(ctx, command, e.sensitive) {
 			return false, "ERROR: " + rejectMsg
 		}
 	}
@@ -472,21 +254,23 @@ func (a *App) gateCommand(ctx context.Context, command string, forceAsk bool, re
 
 // پیام‌های تصمیم مودال دسترسی (از فرانت‌اند)
 const (
-	permRespondAllow  = "allow"  // یک‌بار
-	permRespondAlways = "always" // همیشه برای این الگو
-	permRespondReject = "reject" // رد
+	permRespondAllow   = "allow"   // یک‌بار
+	permRespondAlways  = "always"  // همیشه برای این الگو (ماندگار)
+	permRespondSession = "session" // تا پایان این نشست (حافظه‌ای)
+	permRespondReject  = "reject"  // رد
 )
 
 // permissionAsk یک درخواست تأیید دسترسی در انتظار پاسخ کاربر.
 type permissionAsk struct {
-	ID      string `json:"id"`
-	Kind    string `json:"kind"` // command | sensitive_read
-	Command string `json:"command,omitempty"`
-	Pattern string `json:"pattern,omitempty"` // الگوی «همیشه اجازه» (فقط kind=command)
-	Path    string `json:"path,omitempty"`    // فایل حساس (فقط kind=sensitive_read)
-	URL     string `json:"url,omitempty"`     // آدرس درخواستی (فقط ابزار web_fetch) — نمایش با ایزوله‌سازی bidi
-	Message string `json:"message"`           // فارسی — نمایش به کاربر
-	At      int64  `json:"at"`
+	ID       string `json:"id"`
+	Kind     string `json:"kind"` // command | sensitive_read
+	Command  string `json:"command,omitempty"`
+	Pattern  string `json:"pattern,omitempty"`  // الگوی «همیشه اجازه» (فقط kind=command)
+	NoAlways bool   `json:"noAlways,omitempty"` // حساس: بدون گزینه‌ی «همیشه/نشست»
+	Path     string `json:"path,omitempty"`     // فایل حساس (فقط kind=sensitive_read)
+	URL      string `json:"url,omitempty"`      // آدرس درخواستی (فقط ابزار web_fetch) — نمایش با ایزوله‌سازی bidi
+	Message  string `json:"message"`            // فارسی — نمایش به کاربر
+	At       int64  `json:"at"`
 }
 
 // requestPermissionConfirm رویداد agent:permission_ask را می‌فرستد و منتظر
@@ -544,12 +328,12 @@ func (a *App) requestPermissionConfirm(ctx context.Context, ask *permissionAsk) 
 }
 
 // RespondPermissionConfirm پاسخ کاربر به مودال دسترسی را تحویل می‌دهد.
-// decision: allow | always | reject (مقدار نامعتبر = reject).
+// decision: allow | always | session | reject (مقدار نامعتبر = reject).
 func (a *App) RespondPermissionConfirm(askID, decision string) error {
 	switch strings.ToLower(strings.TrimSpace(decision)) {
-	case permRespondAllow, permRespondAlways, permRespondReject:
+	case permRespondAllow, permRespondAlways, permRespondSession, permRespondReject:
 	default:
-		return errors.New("تصمیم نامعتبر است (allow | always | reject)")
+		return errors.New("تصمیم نامعتبر است (allow | always | session | reject)")
 	}
 	a.changes.mu.Lock()
 	ch := a.changes.permAsks[askID]
@@ -566,25 +350,53 @@ func (a *App) RespondPermissionConfirm(askID, decision string) error {
 }
 
 // requestCommandPermission مودال «اجازه اجرای دستور» را نشان می‌دهد.
-// تصمیم always به قاعده‌ی ماندگار تبدیل و ذخیره می‌شود.
-func (a *App) requestCommandPermission(ctx context.Context, command string) bool {
+// sens=true (ارجاع حساس): بدون الگو و بدون گزینه‌های «همیشه/نشست» (۳.۲.۴).
+// پاسخ‌ها: allow یک‌بار؛ session قاعده‌ی حافظه‌ایِ همین نشست؛ always قاعده‌ی
+// ماندگار با مشتق امن الگو (فقط جفت‌های تأییدشده — cmdgate.go).
+func (a *App) requestCommandPermission(ctx context.Context, command string, sens bool) bool {
+	pattern := ""
+	if !sens {
+		pattern = deriveAlwaysPattern(command)
+	}
 	ask := &permissionAsk{
-		ID:      "perm-" + newID(),
-		Kind:    "command",
-		Command: command,
-		Pattern: deriveAlwaysPattern(command),
-		Message: "اجازه‌ی اجرای این دستور در پوشه‌ی کاری؟",
-		At:      timeNow(),
+		ID:       "perm-" + newID(),
+		Kind:     "command",
+		Command:  command,
+		Pattern:  pattern,
+		NoAlways: sens,
+		Message:  "اجازه‌ی اجرای این دستور در پوشه‌ی کاری؟",
+		At:       timeNow(),
 	}
 	switch a.requestPermissionConfirm(ctx, ask) {
 	case permRespondAllow:
 		return true
+	case permRespondSession:
+		if pattern != "" {
+			a.appendSessionCommandRule(pattern)
+		}
+		return true
 	case permRespondAlways:
-		a.appendCommandRule(ask.Pattern, "allow")
+		if pattern != "" {
+			a.appendCommandRule(pattern, "allow")
+		}
 		return true
 	default:
 		return false
 	}
+}
+
+// appendSessionCommandRule قاعده‌ی «اجازه تا پایان نشست» را در حافظه ذخیره
+// می‌کند (بدون نوشتن دیسک؛ با بستن برنامه محو می‌شود). محافظت: a.mu.
+func (a *App) appendSessionCommandRule(pattern string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for i := range a.sessionRules {
+		if a.sessionRules[i].Pattern == pattern {
+			a.sessionRules[i].Decision = "allow"
+			return
+		}
+	}
+	a.sessionRules = append(a.sessionRules, PermissionRule{Pattern: pattern, Decision: "allow"})
 }
 
 // appendCommandRule قاعده‌ی «همیشه اجازه» را ذخیره می‌کند (پایدار).
