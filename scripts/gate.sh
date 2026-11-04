@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Full quality gate for MyAI (run after every stage).
-# Usage: scripts/gate.sh [note]   — prints each command and its result.
+# Usage: scripts/gate.sh   — prints each command and its result.
+#
+# از ۱.۸.۰: gofmt باید «خروجی خالی» بدهد؛ پیش‌تر فقط exit code بررسی می‌شد
+# و gofmt با فایلِ غیرفرمت هم صفر برمی‌گرداند (گیت سبزِ دروغین).
 set -u
 cd "$(dirname "$0")/.."
-export PATH=/home/z/sdk/go/bin:$PATH
 FAIL=0
 
 run() {
@@ -18,7 +20,24 @@ run() {
   fi
 }
 
-run gofmt -l .
+run_expect_empty() {
+  echo "=== $* ==="
+  if out=$("$@" 2>&1); then
+    if [ -n "$out" ]; then
+      echo "$out"
+      echo "[FAIL] $* (must print nothing)"
+      FAIL=1
+      return
+    fi
+    echo "[OK] $*"
+  else
+    echo "$out"
+    echo "[FAIL] $*"
+    FAIL=1
+  fi
+}
+
+run_expect_empty gofmt -l .
 run go vet ./...
 run go build ./...
 run go test -race -count=1 ./...

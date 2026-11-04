@@ -164,12 +164,13 @@ func TestPathMatchesProtectedGlobs(t *testing.T) {
 		{"packaged.json", false},
 		{"mypackage.jsonx", false},
 		{"docs/package.json.md", false},
-		{"my.git/config", false},   // «.git» باید جزء مسیر باشد، نه پسوند
-		{"src/.git/config", false}, // الگوی مسیردار از ریشه تطبیق می‌کند (submodule)
+		{"my.git/config", false}, // «.git» باید جزء مسیر باشد، نه پسوند
+		// C.5 (تغییر عمدی رفتار): مخزن تودرتو هم محافظت می‌شود (**/.git/**)
+		{"src/.git/config", true},
 		{"environment.txt", false},
 		{"makerfile", false},
 		// جداکننده‌ی ویندوزی
-		{`src\.git\config`, false}, // مثل بالا
+		{`src\.git\config`, true}, // مثل بالا (C.5)
 		{`src\app\package.json`, true},
 	}
 	for _, tc := range cases {
@@ -678,5 +679,38 @@ func TestTurnIDsDistinct(t *testing.T) {
 			t.Fatalf("turn ids must be unique and non-zero: %v", ids)
 		}
 		seen[id] = true
+	}
+}
+
+// ------------------------------------ C.5: محافظت از .git تودرتو (submodule)
+
+// TestProtectedNestedGitPaths: «**/.git/**» مسیرهای مخزن‌های تودرتو را هم
+// محافظت می‌کند، ولی مسیرهای عادی را نه.
+func TestProtectedNestedGitPaths(t *testing.T) {
+	protected := []string{
+		".git/config",
+		"src/.git/config", // submodule
+		"a/b/c/.git/HEAD", // عمق دلخواه
+		"vendor/dep/.git/hooks/pre-commit",
+		"package.json",
+		".env",
+		".env.local",
+	}
+	for _, p := range protected {
+		if !pathMatchesProtectedGlobs(p, defaultProtectedGlobs) {
+			t.Errorf("%q must be protected", p)
+		}
+	}
+	notProtected := []string{
+		"src/git/config", // بدون نقطه — فایل معمولی
+		"src/.gitignore", // .gitignore عادی است، خودِ پوشه‌ی .git نه
+		"src/main.go",
+		"README.md",
+		"docs/.github-notes.md",
+	}
+	for _, p := range notProtected {
+		if pathMatchesProtectedGlobs(p, defaultProtectedGlobs) {
+			t.Errorf("%q must not be protected", p)
+		}
 	}
 }

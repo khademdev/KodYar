@@ -547,6 +547,9 @@ func sha256Hex(data []byte) string {
 // که دستکاری‌شان کدِ بعدیِ کاملاً امن را به اجرای کد دلخواه تبدیل می‌کند.
 var defaultProtectedGlobs = []string{
 	".git/**", ".github/**", ".myai/**", ".vscode/**", ".idea/**",
+	// C.5: مخزن تودرتو (submodule) — «src/.git/config» هم محافظت‌شده است؛
+	// الگوهای بالا فقط از ریشه‌ی پوشه‌ی کاری تطبیق می‌شدند.
+	"**/.git/**",
 	".env*", "*.pem", "*.key", "*.pfx",
 	"package.json", "Makefile", "makefile", "*.mk", "justfile",
 	"Taskfile.y*ml", "*.csproj", "pom.xml", "build.gradle*",

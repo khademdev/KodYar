@@ -540,3 +540,80 @@ func TestMCPConcurrentStartSingleFlight(t *testing.T) {
 		}
 	}
 }
+
+// ------------------------------------------ C.4: محیط فرزند MCP (allow-list)
+
+// TestMCPChildEnvAllowList: متغیرهای پروکسی/TLS و ویندوزی لازم منتقل می‌شوند
+// ولی هیچ رازِ برنامه (کلیدهای API) به فرزند نمی‌رسد.
+func TestMCPChildEnvAllowList(t *testing.T) {
+	required := []string{
+		"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
+		"http_proxy", "https_proxy", "no_proxy", "all_proxy",
+		"SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
+		"SystemDrive", "windir", "ProgramFiles(x86)", "ProgramW6432",
+		"ALLUSERSPROFILE", "PROCESSOR_ARCHITECTURE", "NUMBER_OF_PROCESSORS",
+	}
+	// env فرایند تست را دستکاری می‌کنیم و پس برمی‌گردانیم
+	old := map[string]*string{}
+	for _, k := range append(append([]string{}, required...), "MYAI_TEST_SECRET_KEY", "OPENAI_API_KEY") {
+		if v, ok := os.LookupEnv(k); ok {
+			vv := v
+			old[k] = &vv
+		} else {
+			old[k] = nil
+		}
+	}
+	t.Cleanup(func() {
+		for k, v := range old {
+			if v == nil {
+				os.Unsetenv(k)
+				continue
+			}
+			os.Setenv(k, *v)
+		}
+	})
+	for _, k := range required {
+		os.Setenv(k, "v-"+k)
+	}
+	os.Setenv("MYAI_TEST_SECRET_KEY", "sk-should-never-leak")
+	os.Setenv("OPENAI_API_KEY", "sk-should-never-leak")
+
+	env, err := mcpChildEnv(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// ویندوز نام متغیرها را case-insensitive می‌داند (HTTP_PROXY/http_proxy
+	// یکی هستند)، پس مقایسه هم case-insensitive است.
+	got := map[string]string{}
+	for _, kv := range env {
+		if i := strings.IndexByte(kv, '='); i > 0 {
+			got[strings.ToLower(kv[:i])] = kv[i+1:]
+		}
+	}
+	for _, k := range required {
+		v, ok := got[strings.ToLower(k)]
+		if !ok {
+			t.Errorf("%s must be forwarded to the child", k)
+			continue
+		}
+		// مقدار باید همان چیزی باشد که در محیط فرایند است (هرچه باشد)
+		if want, ok2 := os.LookupEnv(k); ok2 && v != want {
+			t.Errorf("%s forwarded with a wrong value: %q vs %q", k, v, want)
+		}
+	}
+	for _, k := range []string{"myai_test_secret_key", "openai_api_key"} {
+		if _, ok := got[k]; ok {
+			t.Errorf("%s must never reach an MCP child process", k)
+		}
+	}
+	// لیست سفید دقیق است: هر کلیدی که در دو لیست نیست، منتقل نمی‌شود
+	allowed := map[string]bool{}
+	for _, k := range append(append([]string{}, mcpBaseEnvKeys...), mcpProxyEnvKeys...) {
+		allowed[strings.ToLower(k)] = true
+	}
+	for k := range got {
+		if !allowed[k] {
+			t.Errorf("unexpected variable %q in MCP child env", k)
+		}
+	}
+}

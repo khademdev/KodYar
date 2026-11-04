@@ -217,7 +217,7 @@ func TestRevertAllFileChanges(t *testing.T) {
 func TestConfirmFlowReject(t *testing.T) {
 	a := newTestApp(t)
 	// از ۱.۸.۰ حالت ویرایش مرجع تصمیم است: این تست چرخه‌ی مودالِ کامل را
-	// می‌آزماید → review_each (تغییر عمدی رفتار پیش‌فرض، PROGRESS.md مرحله‌ی ۲).
+	// می‌آزماید → review_each (تغییر عمدی رفتار پیش‌فرض، docs/dev/PROGRESS.md مرحله‌ی ۲).
 	a.settings.EditMode = "review_each"
 	a.settings.ConfirmFileWrites = true
 	ws := a.settings.WorkspacePath

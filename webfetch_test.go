@@ -566,14 +566,19 @@ func TestWebFetchPermissionModalPayload(t *testing.T) {
 	if ask == nil {
 		t.Fatal("web_fetch ask must be pending")
 	}
-	if ask.Kind != "tool" {
-		t.Fatalf("ask kind = %q, want tool", ask.Kind)
+	// C.1 (تغییر عمدی رفتار): web_fetch مودال «دامنه» دارد، نه «ابزار»؛
+	// اجازه‌ی ماندگار فقط per-host ذخیره می‌شود (webfetchperm.go).
+	if ask.Kind != "web_host" {
+		t.Fatalf("ask kind = %q, want web_host", ask.Kind)
 	}
 	if ask.URL != srv.URL {
 		t.Fatalf("ask url = %q, want %q (modal shows it bidi-isolated)", ask.URL, srv.URL)
 	}
-	if !strings.Contains(ask.Message, "اجازه‌ی دریافت این آدرس را می‌دهید؟") {
-		t.Fatalf("modal message must be the Persian URL ask: %q", ask.Message)
+	if want := webHostFromURL(srv.URL); ask.Pattern != want {
+		t.Fatalf("ask pattern = %q, want host %q (per-host rule)", ask.Pattern, want)
+	}
+	if !strings.Contains(ask.Message, "دامنه") {
+		t.Fatalf("modal message must name the domain: %q", ask.Message)
 	}
 	if err := a.RespondPermissionConfirm(ask.ID, "allow"); err != nil {
 		t.Fatal(err)
@@ -585,5 +590,122 @@ func TestWebFetchPermissionModalPayload(t *testing.T) {
 	}
 	if !strings.Contains(result, "<fetched_content url=") {
 		t.Fatalf("wrapper missing: %v", result)
+	}
+}
+
+// ---------------------------------------------------- C.2: flush لینکِ باز
+
+// TestHTMLToTextUnclosedLinkFlushes: تگ </a> گم‌شده نباید بقیه‌ی صفحه را
+// ببلعد (باگ واقعی: متن لنگر تا EOF در بافر می‌ماند).
+func TestHTMLToTextUnclosedLinkFlushes(t *testing.T) {
+	html := `<html><body><p>قبل از لینک</p>` +
+		`<p>متن <a href="https://example.test/a">لینکِ باز` +
+		`<p>پاراگراف بعدی که نباید گم شود</p>` +
+		`<div>و بلوک آخر</div></body></html>`
+	out := htmlToReadableText(html)
+	for _, want := range []string{"قبل از لینک", "لینکِ باز", "پاراگراف بعدی که نباید گم شود", "و بلوک آخر"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output lost %q — unclosed link swallowed the page:\n%s", want, out)
+		}
+	}
+	// url لینک هم باید در خروجی باشد تا مدل بتواند دنبالش برود
+	if !strings.Contains(out, "https://example.test/a") {
+		t.Fatalf("flushed link must keep its url:\n%s", out)
+	}
+}
+
+// TestHTMLToTextUnclosedLinkAtEOF: لینکِ باز در پایان سند هم نوشته می‌شود.
+func TestHTMLToTextUnclosedLinkAtEOF(t *testing.T) {
+	out := htmlToReadableText(`<div>مقدمه</div><a href="https://example.test/z">متن تنها`)
+	if !strings.Contains(out, "متن تنها") || !strings.Contains(out, "https://example.test/z") {
+		t.Fatalf("trailing unclosed link must be flushed:\n%s", out)
+	}
+}
+
+// TestHTMLToTextClosedLinkFormat: رفتار لینکِ سالم تغییر نکرده است.
+func TestHTMLToTextClosedLinkFormat(t *testing.T) {
+	out := htmlToReadableText(`<p>پیش <a href="https://example.test/p">متن لینک</a> پس</p>`)
+	if !strings.Contains(out, "متن لینک (https://example.test/p)") {
+		t.Fatalf("closed link must stay «text (url)»:\n%s", out)
+	}
+	if !strings.Contains(out, "پیش") || !strings.Contains(out, "پس") {
+		t.Fatalf("surrounding text must survive:\n%s", out)
+	}
+}
+
+// TestHTMLToTextPersianZWNJ: نیم‌فاصله در متن لنگر بایت‌به‌بایت می‌ماند.
+func TestHTMLToTextPersianZWNJ(t *testing.T) {
+	out := htmlToReadableText("<p><a href=\"https://fa.test/۱\">می\u200cخواهم</a> و <a href=\"https://fa.test/۲\">نمی\u200cدانم")
+	if !strings.Contains(out, "می\u200cخواهم") || !strings.Contains(out, "نمی\u200cدانم") {
+		t.Fatalf("ZWNJ in link text must be preserved:\n%q", out)
+	}
+}
+
+// ------------------------------------------- C.3: محدوده‌های SSRF تکمیلی
+
+// TestBlockedIPReasonExtendedRanges: فرم‌های انتقال IPv6 و محدوده‌های
+// IPv4 تکمیلی مسدود می‌شوند و میزبان‌های عمومی مجاز می‌مانند.
+func TestBlockedIPReasonExtendedRanges(t *testing.T) {
+	blocked := []string{
+		// 6to4 با IPv4 داخلی نهفته
+		"2002:0a00:0001::", // 10.0.0.1
+		"2002:7f00:0001::", // 127.0.0.1
+		"2002:c0a8:0101::", // 192.168.1.1
+		"2002:a9fe:a9fe::", // 169.254.169.254 (متادیتای ابر)
+		// Teredo
+		"2001:0000:4136:e378:8000:63bf:3fff:fdd2",
+		// IPv4-compatible (منسوخ)
+		"::0a00:0001", // ::10.0.0.1
+		"::7f00:0001", // ::127.0.0.1
+		// NAT64 محلی
+		"64:ff9b:1::a00:1",
+		// NAT64 سراسری با IPv4 خصوصی نهفته
+		"64:ff9b::a00:1",
+		// محدوده‌های IPv4 تکمیلی
+		"192.0.0.5",
+		"192.0.0.170",
+		"192.88.99.1",
+		// site-local منسوخ
+		"fec0::1",
+		// نمونه‌های پیشین (رگرسیون)
+		"127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.0.1",
+		"169.254.169.254", "100.64.0.1", "255.255.255.255", "::1", "::",
+		"fd00::1", "fe80::1", "224.0.0.1", "ff02::1",
+	}
+	for _, s := range blocked {
+		ip, err := netip.ParseAddr(s)
+		if err != nil {
+			t.Fatalf("parse %q: %v", s, err)
+		}
+		if r := blockedIPReason(ip); r == "" {
+			t.Errorf("%s must be blocked", s)
+		}
+	}
+
+	allowed := []string{
+		"8.8.8.8", "1.1.1.1", "93.184.216.34",
+		"2606:4700:4700::1111",
+		"2002:0808:0808::", // 6to4 به 8.8.8.8 — IPv4 عمومی
+	}
+	for _, s := range allowed {
+		ip, err := netip.ParseAddr(s)
+		if err != nil {
+			t.Fatalf("parse %q: %v", s, err)
+		}
+		if r := blockedIPReason(ip); r != "" {
+			t.Errorf("%s must be allowed, got %q", s, r)
+		}
+	}
+}
+
+// TestSSRFGuardRejectsTransitionAddress: گاردِ لحظه‌ی اتصال هم همان‌ها را رد می‌کند.
+func TestSSRFGuardRejectsTransitionAddress(t *testing.T) {
+	for _, addr := range []string{"[2002:0a00:0001::]:80", "[64:ff9b:1::a00:1]:443", "[2001:0000:4136:e378:8000:63bf:3fff:fdd2]:80"} {
+		if err := ssrfConnectGuard("tcp6", addr); err == nil {
+			t.Errorf("guard must reject %s", addr)
+		}
+	}
+	if err := ssrfConnectGuard("tcp4", "8.8.8.8:443"); err != nil {
+		t.Errorf("guard must allow a public IPv4: %v", err)
 	}
 }

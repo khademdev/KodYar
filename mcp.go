@@ -205,17 +205,36 @@ type mcpClient struct {
 	exitOnce sync.Once
 }
 
+var (
+	// mcpBaseEnvKeys متغیرهای پایه‌ای که هر سرور MCP (معمولاً یک فرایند
+	// Node/Python) برای اجرا لازم دارد. هیچ کلید API یا تنظیمات MyAI اینجا نیست.
+	mcpBaseEnvKeys = []string{
+		"PATH", "SystemRoot", "windir", "TEMP", "TMP", "HOME", "USERPROFILE",
+		"USER", "USERNAME", "LANG", "LC_ALL", "LC_CTYPE", "COMSPEC", "PATHEXT",
+		"APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
+		"PROGRAMFILES", "ProgramFiles(x86)", "ProgramW6432", "ALLUSERSPROFILE",
+		"SystemDrive", "PROCESSOR_ARCHITECTURE", "NUMBER_OF_PROCESSORS",
+	}
+
+	// mcpProxyEnvKeys متغیرهای شبکه/TLS برای محیط‌های شرکت/پروکسی (C.4): بدون
+	// این‌ها سرور MCP در شبکه‌ی پروکسی‌دار اصلاً بالا نمی‌آید. فقط همین‌ها منتقل
+	// می‌شوند — نه OPENAI_API_KEY یا هر رازِ دیگری از محیط برنامه.
+	mcpProxyEnvKeys = []string{
+		"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
+		"http_proxy", "https_proxy", "no_proxy", "all_proxy",
+		"SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
+	}
+)
+
 // mcpChildEnv محیط «حداقلیِ» فرزند + env رمزگشایی‌شده‌ی کاربر.
 //
 // عمداً فقط PATH/SystemRoot/TEMP/TMP/HOME/USERPROFILE و locale منتقل
 // می‌شود — نه settings.json، نه کلیدهای API، نه متغیرهای برنامه؛ مقادیر
 // Env تنظیمات همان‌جا رمزگشایی می‌شوند و هرگز لاگ نمی‌شوند.
 func mcpChildEnv(cfgEnv map[string]string) ([]string, error) {
-	keep := []string{
-		"PATH", "SystemRoot", "TEMP", "TMP", "HOME", "USERPROFILE",
-		"USER", "USERNAME", "LANG", "LC_ALL", "LC_CTYPE", "COMSPEC", "PATHEXT",
-		"APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "PROGRAMFILES",
-	}
+	keep := append(append([]string{}, mcpBaseEnvKeys...), mcpProxyEnvKeys...)
+	// ترتیب/تکرار مهم نیست (Windows خودش آخرین مقدار را برمی‌دارد)، ولی
+	// کلیدهای تکراری ساخته نمی‌شوند چون دو لیست جدا هستند.
 	env := make([]string, 0, len(keep)+len(cfgEnv))
 	for _, k := range keep {
 		if v, ok := os.LookupEnv(k); ok {

@@ -397,6 +397,33 @@ func (a *App) loadSettings() error {
 	if len(s.Permissions.SensitiveGlobs) == 0 {
 		s.Permissions.SensitiveGlobs = defaultSensitiveGlobs
 	}
+	// ---- WebHosts (C.1): اجازه‌ی web_fetch فقط per-host ----
+	// مهاجرت: «همیشه اجازه»ی سراسری web_fetch در نسخه‌های قبل، ابزار را به
+	// کانال نشت داده تبدیل می‌کرد. هرگز بی‌صدا حفظ نمی‌شود: حذف می‌شود تا
+	// رفتار به پیش‌فرض (ask) برگردد و دسترسی به دامنه‌ها هنگام درخواست
+	// داده شود.
+	if normalizePermissionDecision(s.Permissions.Tools[webFetchToolName]) == "allow" {
+		delete(s.Permissions.Tools, webFetchToolName)
+		logAppErrorFor(a, "perm", "migration: removed tool-wide web_fetch allow (now per-host)")
+	}
+	if s.Permissions.WebHosts == nil {
+		s.Permissions.WebHosts = []PermissionRule{}
+	}
+	{ // نرمال‌سازی و حذف الگوهای نامعتبر (دستکاری‌شده/قدیمی)
+		clean := make([]PermissionRule, 0, len(s.Permissions.WebHosts))
+		for _, r := range s.Permissions.WebHosts {
+			host := normalizeWebHost(r.Pattern)
+			dec := normalizePermissionDecision(r.Decision)
+			if host == "" || dec == "" || !validWebHostPattern(host) {
+				continue
+			}
+			if dec != "allow" {
+				continue // فقط قاعده‌ی allow معنا دارد
+			}
+			clean = append(clean, PermissionRule{Pattern: host, Decision: dec})
+		}
+		s.Permissions.WebHosts = clean
+	}
 	a.settings = s
 	return nil
 }

@@ -1023,3 +1023,57 @@ symlink‌ها skip می‌شوند. سبد زباله در startup پاک‌س�
 **گيت:** سبز — gofmt خالی · vet ok · build ok · `go test -race -count=1` ok
 (۱۵۰.۰s) · vet ویندوز/لینوکس ok. (گیت یک‌بار با `checkpoint_test.go` غیر-gofmt
 هم «سبز» گزارش شد؛ نقص `scripts/gate.sh` در مرحله C اصلاح می‌شود.)
+
+## Mission 3 — Stage C — سخت‌سازی باقی‌مانده‌ها (C.1–C.6) — DONE (2026-11-04)
+
+**C.1 — دسترسی web_fetch بر پایه‌ی دامنه (کانال نشت داده بسته شد):**
+`webfetchperm.go` جدید: `PermissionSettings.WebHosts []PermissionRule`
+(Pattern = میزبان یا `*.domain`)، `sessionWebHosts` در حافظه،
+`gateWebFetch` با مودال اختصاصی `kind=web_host` و سه گزینه («یک‌بار» /
+«در این نشست» / «همیشه برای این دامنه») — **هیچ گزینه‌ی سراسری‌ای وجود ندارد**.
+`SetToolPermission("web_fetch","allow")` خطای فارسی می‌دهد و
+`toolPermDecisionLocked` هم override سراسری را «ask» می‌خواند (دفاع دوم).
+مهاجرت: هر `tools.web_fetch="allow"` قدیمی در `loadSettings` حذف و در لاگ
+خطاها ثبت می‌شود (هرگز بی‌صدا حفظ نمی‌شود). `RemoveWebHostRule` + فهرست
+دامنه‌ها در تب دسترسی‌ها + حذف گزینه‌ی «اجازه» برای web_fetch در UI.
+SSRF و اعتبارسنجی URL دست‌نخورده‌اند — این لایه فقط «آیا می‌پرسیم؟» را
+تعیین می‌کند.
+
+**C.2 — HTML→متن:** لینکِ بازِ بدون `</a>` بقیه‌ی صفحه را نمی‌بلعد:
+`flushLink` هنگام شروع هر بلوک/تیتر/li/br/لینک جدید و در EOF اجرا می‌شود
+(«متن (url)» مثل لینک سالم). متغیر بلااستفاده‌ی `closingTagEscapeRe` و
+import `regexp` حذف شدند.
+
+**C.3 — محدوده‌های SSRF:** `192.0.0.0/24`، `192.88.99.0/24`، `fec0::/10`،
+`2001::/32` (Teredo)، `64:ff9b:1::/48` (NAT64 محلی)، `::/96`
+(IPv4-compatible) و 6to4 `2002::/16` (با بررسی IPv4 نهفته‌اش) مسدود شدند.
+جدول تست شامل این‌ها + رگرسیون موارد قبلی + میزبان‌های عمومیِ مجاز.
+
+**C.4 — محیط فرزند MCP:** لیست سفید به دو گروه تقسیم شد
+(`mcpBaseEnvKeys`, `mcpProxyEnvKeys`): `HTTP(S)_PROXY/NO_PROXY/ALL_PROXY`
+(هر دو حالت)، `SSL_CERT_FILE/DIR`، `NODE_EXTRA_CA_CERTS`، `SystemDrive`,
+`windir`, `ProgramFiles(x86)`, `ProgramW6432`, `ALLUSERSPROFILE`,
+`PROCESSOR_ARCHITECTURE`, `NUMBER_OF_PROCESSORS`. تست: همه منتقل می‌شوند و
+هیچ متغیر بیرون از لیست (از جمله `OPENAI_API_KEY`) نمی‌رسد.
+
+**C.5 — .git تودرتو:** `**/.git/**` به `defaultProtectedGlobs` اضافه شد تا
+`src/.git/config` (submodule) هم مودال تأیید بگیرد. تست مسیرهای محافظت‌شده/
+عادی.
+
+**C.6 — بهداشت مخزن:** `scripts/stage{2,6}_*.py` حذف شدند (فقط
+`gate.sh` و `gen_wailsjs.py` ماندند)؛ `FINAL_REPORT.md` و `PROGRESS.md` به
+`docs/dev/` منتقل شدند (ارجاع در `changes_test.go` اصلاح شد)؛
+`.gitignore` بازبینی شد (خروجی ساخت و `.freebuff/` نادیده،
+`frontend/wailsjs/` عمداً ردیابی می‌شود). **نقص گیت اصلاح شد:**
+`scripts/gate.sh` حالا `gofmt -l .` را «باید خالی» می‌سنجد
+(`run_expect_empty`) — پیش‌تر فایلِ غیرفرمت را هم سبز اعلام می‌کرد (همین
+مرحله یک بار واقعاً RED داد و اصلاح شد). پیشوند PATH کهنه‌ی محیط توسعه هم از
+اسکریپت حذف شد.
+
+**تست‌های به‌روزرسانی‌شده (تغییر عمدی رفتار، اعلام‌شده):**
+`TestWebFetchPermissionModalPayload` (kind از `tool` به `web_host`، الگو =
+دامنه)، `TestPathMatchesProtectedGlobs` (`src/.git/config` و
+`src\.git\config` حالا true).
+
+**گيت:** سبز — gofmt خالی · vet ok · build ok · `go test -race -count=1` ok
+(۱۰۶.۲s) · vet ویندوز/لینوکس ok.

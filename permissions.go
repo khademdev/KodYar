@@ -47,6 +47,9 @@ type PermissionSettings struct {
 	Tools          map[string]string `json:"tools,omitempty"`          // نام ابزار → allow|ask|deny
 	CommandRules   []PermissionRule  `json:"commandRules,omitempty"`   // مرتب؛ اولین تطبیق برنده
 	SensitiveGlobs []string          `json:"sensitiveGlobs,omitempty"` // الگوهای نام فایل حساس (basename glob)
+	// WebHosts اجازه‌ی ماندگار web_fetch به‌ازای دامنه (C.1): Pattern نام
+	// میزبان یا *.domain است. اجازه‌ی سراسری برای این ابزار وجود ندارد.
+	WebHosts []PermissionRule `json:"webHosts,omitempty"`
 }
 
 // defaultSensitiveGlobs فایل‌هایی که خواندنشان تأیید می‌خواهد.
@@ -98,8 +101,10 @@ func toolDefaultDecision(tool string, confirmWrites bool) permDecision {
 		// فایلی می‌نویسد، نه دستوری اجرا می‌کند؛ نیازی به تأیید نیست.
 		return permAllow
 	case "web_fetch":
-		// درخواست به بیرون از ماشین کاربر است — هر URL با تأیید صریح
-		// (مودال، آدرس با ایزوله‌سازی bidi)؛ «همیشه اجازه» مثل بقیه ممکن است.
+		// درخواست به بیرون از ماشین کاربر است — هر دامنه با تأیید صریح
+		// (مودال، آدرس با ایزوله‌سازی bidi). اجازه‌ی ماندگار فقط per-host
+		// است (webfetchperm.go) — override سراسری «allow» پذیرفته نمی‌شود
+		// چون این ابزار می‌تواند راز را در URL به بیرون ببرد.
 		return permAsk
 	}
 	// ابزارهای MCP (mcp_<server>_<tool>) — هر فراخوانی با تأیید صریح؛
@@ -121,6 +126,11 @@ func (a *App) toolPermDecisionLocked(tool string) permDecision {
 	if v, ok := a.settings.Permissions.Tools[tool]; ok {
 		switch normalizePermissionDecision(v) {
 		case "allow":
+			// web_fetch هرگز اجازه‌ی سراسری نمی‌گیرد (فایل قدیمی/دستکاری)
+			if tool == webFetchToolName {
+				d = permAsk
+				break
+			}
 			d = permAllow
 		case "ask":
 			d = permAsk
@@ -531,9 +541,20 @@ func (a *App) PermissionsView() map[string]interface{} {
 	}
 	globs := make([]string, len(a.sensitiveGlobsLocked()))
 	copy(globs, a.sensitiveGlobsLocked())
+	// دامنه‌های مجاز web_fetch (C.1) — فقط خواندنی برای تب تنظیمات
+	hosts := make([]map[string]string, len(a.settings.Permissions.WebHosts))
+	for i, r := range a.settings.Permissions.WebHosts {
+		hosts[i] = map[string]string{"pattern": r.Pattern, "decision": r.Decision}
+	}
+	sessHosts := make([]map[string]string, len(a.sessionWebHosts))
+	for i, r := range a.sessionWebHosts {
+		sessHosts[i] = map[string]string{"pattern": r.Pattern, "decision": r.Decision}
+	}
 	return map[string]interface{}{
 		"tools":                 tools,
 		"commandRules":          rules,
+		"webHosts":              hosts,
+		"sessionWebHosts":       sessHosts,
 		"sensitiveGlobs":        globs,
 		"defaultSensitiveGlobs": defaultSensitiveGlobs,
 		"confirmFileWrites":     confirmWrites,
@@ -557,6 +578,10 @@ func (a *App) SetToolPermission(tool, decision string) error {
 		decision = "default"
 	default:
 		return errors.New("تصمیم نامعتبر است (allow | ask | deny | default)")
+	}
+	if tool == webFetchToolName && decision == "allow" {
+		// اجازه‌ی سراسری web_fetch = کانال نشت داده؛ فقط per-host مجاز است
+		return errors.New("برای web_fetch اجازه‌ی سراسری وجود ندارد؛ دامنه‌ها را هنگام دریافت تأیید کنید")
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -601,6 +626,8 @@ func (a *App) ResetPermissions() error {
 		Tools:          map[string]string{},
 		CommandRules:   []PermissionRule{},
 		SensitiveGlobs: defaultSensitiveGlobs,
+		WebHosts:       []PermissionRule{},
 	}
+	a.sessionWebHosts = nil
 	return a.saveSettings()
 }

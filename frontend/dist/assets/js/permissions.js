@@ -6,6 +6,8 @@
  *      نمایش داده نمی‌شوند — مثلاً ارجاع به فایل حساس؛ ۳.۲.۴)
  *   - kind=sensitive_read→ «اجازه خواندن / رد» (فایل حساس مثل .env)
  *   - kind=tool          → «اجازه اجرای ابزار / رد»
+ *   - kind=web_host      → web_fetch: «یک‌بار / در این نشست / همیشه برای
+ *     همین دامنه / رد» — هرگز اجازه‌ی سراسری برای کل ابزار (C.1)
  *
  * پاسخ از طریق RespondPermissionConfirm(id, decision) برمی‌گردد:
  *   allow | session | always | reject
@@ -71,7 +73,7 @@
       detail.textContent = "$ " + ask.command;
     } else if (ask.kind === "sensitive_read" && ask.path) {
       detail.textContent = ask.path;
-    } else if (ask.kind === "tool" && ask.url) {
+    } else if ((ask.kind === "tool" || ask.kind === "web_host") && ask.url) {
       // web_fetch — آدرس درخواستی، LTR و ایزوله از جمله‌ی فارسی مودال
       detail.textContent = ask.url;
     } else if (ask.kind === "tool" && ask.command) {
@@ -87,6 +89,18 @@
       hintTxt.textContent = "«همیشه اجازه بده» قاعده‌ی " + ask.pattern + " را ذخیره می‌کند؛ «در این نشست» فقط تا بستن برنامه فعال می‌ماند.";
       hint.appendChild(hintTxt);
       body.appendChild(hint);
+    }
+    if (ask.kind === "web_host" && ask.pattern) {
+      var whint = document.createElement("div");
+      whint.className = "hint-row";
+      whint.style.marginTop = "8px";
+      var wtxt = document.createElement("span");
+      wtxt.textContent =
+        "اجازه فقط برای دامنه‌ی «" +
+        ask.pattern +
+        "» ذخیره می‌شود (نه برای همه‌ی آدرس‌ها)؛ «در این نشست» تا بستن برنامه فعال می‌ماند.";
+      whint.appendChild(wtxt);
+      body.appendChild(whint);
     }
 
     // ---- پاورقی
@@ -115,6 +129,14 @@
       if (ask.pattern && !ask.noAlways) {
         foot.appendChild(btn("در این نشست", "btn btn-ghost", "session"));
         foot.appendChild(btn("همیشه اجازه بده", "btn btn-ghost", "always"));
+      }
+      foot.appendChild(btn("اجازه یک‌بار", "btn btn-primary", "allow"));
+    } else if (ask.kind === "web_host") {
+      // C.1: گزینه‌ی سراسری وجود ندارد؛ فقط همین دامنه
+      foot.appendChild(btn("رد", "btn btn-danger", "reject"));
+      if (ask.pattern) {
+        foot.appendChild(btn("در این نشست", "btn btn-ghost", "session"));
+        foot.appendChild(btn("همیشه برای این دامنه", "btn btn-ghost", "always"));
       }
       foot.appendChild(btn("اجازه یک‌بار", "btn btn-primary", "allow"));
     } else {

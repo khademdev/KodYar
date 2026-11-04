@@ -42,7 +42,6 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
-	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -79,10 +78,28 @@ var (
 		{netip.MustParsePrefix("198.51.100.0/24"), "documentation range (TEST-NET-2)"},
 		{netip.MustParsePrefix("203.0.113.0/24"), "documentation range (TEST-NET-3)"},
 		{netip.MustParsePrefix("198.18.0.0/15"), "benchmarking range"},
+		{netip.MustParsePrefix("192.0.0.0/24"), "IETF protocol assignments range"},
+		{netip.MustParsePrefix("192.88.99.0/24"), "6to4 relay anycast range"},
 		{netip.MustParsePrefix("240.0.0.0/4"), "reserved range"},
 	}
 	ssrfNAT64Prefix = netip.MustParsePrefix("64:ff9b::/96")
 	ssrfBroadcast   = netip.MustParseAddr("255.255.255.255")
+
+	// C.3: فرم‌های انتقال IPv6 → IPv4 — هر کدام می‌تواند یک نشانی داخلی را
+	// از فیلتر IPv4 رد کند؛ همه ممنوع‌اند (برای دریافت مستندات لازم نیستند).
+	ssrfIPv6TransitionPrefixes = []struct {
+		prefix netip.Prefix
+		reason string
+	}{
+		{netip.MustParsePrefix("2001::/32"), "Teredo transition address"},
+		{netip.MustParsePrefix("64:ff9b:1::/48"), "local-use NAT64 range"},
+		{netip.MustParsePrefix("::/96"), "IPv4-compatible IPv6 address"},
+		{netip.MustParsePrefix("fec0::/10"), "deprecated site-local range"},
+	}
+	// 6to4 (2002::/16) IPv4 را در بایت‌های ۲..۵ حمل می‌کند؛ همان IPv4
+	// نهفته بررسی می‌شود تا به‌جای رد کردن همه‌ی مسیر‌های عمومی، فقط
+	// مقصدهای داخلی بسته شوند.
+	ssrf6to4Prefix = netip.MustParsePrefix("2002::/16")
 )
 
 // ssrfConnectGuard گارد واقعی: آدرسِ resolve‌شده (ip:port) که لایه‌ی
@@ -142,6 +159,20 @@ func blockedIPReason(ip netip.Addr) string {
 	}
 	if ip.Is4() {
 		for _, p := range ssrfPrefixes {
+			if p.prefix.Contains(ip) {
+				return p.reason
+			}
+		}
+	}
+	if ip.Is6() {
+		// C.3 — 6to4: IPv4 نهفته را مثل خودش بررسی کن
+		if ssrf6to4Prefix.Contains(ip) {
+			b := ip.As16()
+			if r := blockedIPReason(netip.AddrFrom4([4]byte{b[2], b[3], b[4], b[5]})); r != "" {
+				return "6to4 address embedding a " + r
+			}
+		}
+		for _, p := range ssrfIPv6TransitionPrefixes {
 			if p.prefix.Contains(ip) {
 				return p.reason
 			}
@@ -346,10 +377,6 @@ func (a *App) toolWebFetch(ctx context.Context, rawURL string, maxChars int) (st
 
 // ---------------------------------------------------------------- untrusted wrapper
 
-// closingTagEscapeRe رخداد تگِ بسته‌شونده‌ی پوشش را (غیرحساس به case و
-// فاصله) برای escape پیدا می‌کند.
-var closingTagEscapeRe = regexp.MustCompile(`(?i)</\s*`)
-
 // escapeUntrustedClosingTag هر «</tag» داخل محتوای نامطمئن را HTML-escape
 // می‌کند تا نتواند پوشش <fetched_content>/<mcp_content> را ببندد و محتوای
 // بیرونی القا شود (prompt-injection از درون نتیجه‌ی ابزار).
@@ -427,6 +454,35 @@ func htmlToReadableText(body string) string {
 		}
 	}
 
+	// flushLink متنِ لینکِ باز را می‌نویسد (به شکل «متن (url)»).
+	//
+	// C.2: تگ </a> ممکن است هرگز نرسد (HTML ناقص/بسته‌نشده). بدون این
+	// flush، متنِ لنگر تا آخر صفحه در linkText می‌ماند و «بلعیده» می‌شود و
+	// بقیه‌ی صفحه از خروجی حذف می‌شود — باگی که در صفحه‌های واقعی دیده شد.
+	flushLink := func() {
+		if pendingHref == "" {
+			return
+		}
+		lt := strings.TrimSpace(linkText.String())
+		href := pendingHref
+		pendingHref = ""
+		linkText.Reset()
+		if lt == "" {
+			return
+		}
+		if b.Len() > 0 {
+			last := b.String()[b.Len()-1]
+			if last != '\n' && last != ' ' {
+				b.WriteByte(' ')
+			}
+		}
+		if lt == href {
+			b.WriteString(lt)
+			return
+		}
+		b.WriteString(lt + " (" + href + ")")
+	}
+
 	for {
 		tt := tz.Next()
 		if tt == html.ErrorToken {
@@ -461,6 +517,14 @@ func htmlToReadableText(body string) string {
 					dropDepth++
 				}
 				continue
+			}
+			// C.2: شروع هر بلوک (یا تیتر/li/br) ⊲ متنِ لینکِ باز را همان‌جا
+			// خاتمه می‌دهد؛ </a> گم‌شده دیگر بقیه‌ی صفحه را نمی‌بلعد.
+			if pendingHref != "" {
+				isHeading := len(name) == 2 && name[0] == 'h' && name[1] >= '1' && name[1] <= '6'
+				if htmlBlockTags[name] || isHeading || name == "li" || name == "br" || (name == "a" && hasAttr) {
+					flushLink()
+				}
 			}
 			if htmlDropTags[name] {
 				if tt == html.StartTagToken {
@@ -529,6 +593,9 @@ func htmlToReadableText(body string) string {
 			}
 		}
 	}
+
+	// C.2: لینکِ باز در پایان سند هم نوشته می‌شود (فلاش نهایی)
+	flushLink()
 
 	// پاک‌سازی نهایی: خط‌های خالی پشت‌سرهم به یک خط
 	lines := strings.Split(b.String(), "\n")

@@ -261,3 +261,7 @@ export function PreviewCheckpointRestore(arg1, arg2) {
 export function RestoreCheckpoint(arg1, arg2) {
   return window['go']['main']['App']['RestoreCheckpoint'](arg1, arg2);
 }
+
+export function RemoveWebHostRule(arg1) {
+  return window['go']['main']['App']['RemoveWebHostRule'](arg1);
+}

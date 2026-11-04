@@ -83,6 +83,11 @@ type App struct {
 	// پس از قاعده‌های ماندگارِ settings ارزیابی می‌شوند.
 	sessionRules []PermissionRule
 
+	// sessionWebHosts قاعده‌های دامنه‌ی «اجازه تا پایان نشست» برای web_fetch
+	// (webfetchperm.go): حافظه‌ای، با a.mu محافظت می‌شوند و پیش از
+	// قاعده‌های ماندگارِ settings.WebHosts بررسی می‌شوند.
+	sessionWebHosts []PermissionRule
+
 	// genAllowWrites اگر true باشد، تأیید نوشتن فقط تا پایان پاسخ‌دهی
 	// جاری (finishChat / خطا / Stop) لازم نیست.
 	genAllowWrites atomic.Bool

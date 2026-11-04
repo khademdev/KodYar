@@ -67,7 +67,11 @@
       seg.className = "seg-row";
       seg.style.cssText = "flex-shrink:0;";
       var current = t.override && decisionLabel[t.override] ? t.override : "default";
-      ["default", "allow", "ask", "deny"].forEach(function (d) {
+      // C.1: web_fetch اجازه‌ی سراسری ندارد — گزینه‌ی «اجازه» حذف می‌شود
+      // تا کاربر دامنه‌ها را هنگام درخواست تأیید کند.
+      var opts = t.name === "web_fetch" ? ["default", "ask", "deny"] : ["default", "allow", "ask", "deny"];
+      if (t.name === "web_fetch" && current === "allow") current = "ask";
+      opts.forEach(function (d) {
         var b = document.createElement("button");
         b.type = "button";
         b.className = "seg-btn" + (d === current ? " active" : "");
@@ -145,6 +149,48 @@
     });
   }
 
+  // ---------- رندر دامنه‌های مجاز web_fetch (C.1)
+  function renderWebHosts(hosts) {
+    var wrap = document.getElementById("perm-webhosts");
+    var empty = document.getElementById("perm-webhosts-empty");
+    if (!wrap) return;
+    wrap.textContent = "";
+    if (empty) empty.hidden = !!(hosts && hosts.length);
+    if (!hosts || !hosts.length) return;
+    hosts.forEach(function (h) {
+      var row = document.createElement("div");
+      row.style.cssText = "display:flex;align-items:center;gap:10px;padding:5px 2px;";
+      var name = document.createElement("span");
+      name.style.cssText =
+        "flex:1;min-width:0;font-family:var(--font-code);font-size:11.5px;" +
+        "direction:ltr;unicode-bidi:isolate;text-align:left;word-break:break-all;";
+      name.textContent = h.pattern;
+      row.appendChild(name);
+      var del = document.createElement("button");
+      del.type = "button";
+      del.className = "icon-btn";
+      del.title = "حذف اجازه‌ی این دامنه";
+      del.style.cssText = "width:26px;height:26px;flex-shrink:0;";
+      del.innerHTML = (window.Icons && Icons.get("trash", 14)) || "×";
+      del.addEventListener("click", function () {
+        var be = backend();
+        if (!be || typeof be.RemoveWebHostRule !== "function") return;
+        del.disabled = true;
+        be.RemoveWebHostRule(h.pattern)
+          .then(function () {
+            state.loaded = false;
+            load(true);
+          })
+          .catch(function (err) {
+            del.disabled = false;
+            status("حذف نشد: " + (err && err.message ? err.message : err), true);
+          });
+      });
+      row.appendChild(del);
+      wrap.appendChild(row);
+    });
+  }
+
   // ---------- رندر فایل‌های حساس
   function renderGlobs(globs) {
     var el = document.getElementById("perm-globs");
@@ -169,6 +215,7 @@
         }
         renderTools(v.tools);
         renderRules(v.commandRules);
+        renderWebHosts(v.webHosts);
         renderGlobs(v.sensitiveGlobs);
         state.loaded = true;
         status("");

@@ -614,15 +614,18 @@ func (a *App) execToolCtx(ctx context.Context, name, argsJSON string) (string, b
 	if err := validateToolArgs(name, args); err != nil {
 		return err.Error(), false
 	}
-	if d == permAsk && needsToolModalAsk(name) {
+	if d == permAsk && name == "web_fetch" && needsToolModalAsk(name) {
+		// C.1 — web_fetch مودال اختصاصی «دامنه» دارد (webfetchperm.go):
+		// قاعده‌ی ماندگار فقط per-host ذخیره می‌شود، نه برای کل ابزار.
+		if u, ok := coerceString(args["url"]); ok {
+			if allowed, msg := a.gateWebFetch(ctx, u); !allowed {
+				return msg, false
+			}
+		}
+	} else if d == permAsk && needsToolModalAsk(name) {
 		// — برای task، خلاصه‌ی مأموریت هم در پیام مودال می‌آید تا کاربر
 		// بداند چه زیرکاری به زیرایجنتِ فقط‌خواندنی سپرده می‌شود.
 		msg := "اجازه‌ی اجرای ابزار «" + name + "»؟"
-		if name == "web_fetch" {
-			// URL جداگانه در مودال با ایزوله‌سازی bidi نمایش داده می‌شود
-			// (فیلد url روی permissionAsk + permissions.js).
-			msg = "اجازه‌ی دریافت این آدرس را می‌دهید؟"
-		}
 		if isMCPToolName(name) {
 			// ابزار MCP: سرور + ابزار در پیام فارسی، آرگومان‌ها در جعبه‌ی
 			// LTR ایزوله (فیلد Command) نمایش داده می‌شوند.
@@ -647,12 +650,6 @@ func (a *App) execToolCtx(ctx context.Context, name, argsJSON string) (string, b
 			Command: name,
 			Message: msg,
 			At:      timeNow(),
-		}
-		if name == "web_fetch" {
-			// gs هنوز تعریف نشده است — coerceString مستقیم (همان قرارداد gs)
-			if u, ok := coerceString(args["url"]); ok {
-				ask.URL = u
-			}
 		}
 		if isMCPToolName(name) {
 			// خلاصه‌ی آرگومان‌ها (LTR ایزوله) کنار نام ابزار
