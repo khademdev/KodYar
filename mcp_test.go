@@ -582,16 +582,20 @@ func TestMCPChildEnvAllowList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// ویندوز نام متغیرها را case-insensitive می‌داند (HTTP_PROXY/http_proxy
-	// یکی هستند)، پس مقایسه هم case-insensitive است.
+	// مقایسه با کلیدِ دقیق (case-sensitive): روی لینوکس HTTP_PROXY و
+	// http_proxy دو متغیر مستقل‌اند و هر دو باید با مقدار خودشان منتقل
+	// شوند؛ روی ویندوز OS فقط یک واریانت نگه می‌دارد و mcpChildEnv همان
+	// مقدار را با هر دو نامِ لیست سفید می‌نویسد. جمعِ case-insensitive اینجا
+	// اشتباه بود: وقتی تست هر دو واریانت را با مقدارهای متفاوت ست می‌کند،
+	// «آخری» همیشه بر مقایسه‌ی همه‌ی واریانت‌ها می‌چربید (اشکال تست، نه کد).
 	got := map[string]string{}
 	for _, kv := range env {
 		if i := strings.IndexByte(kv, '='); i > 0 {
-			got[strings.ToLower(kv[:i])] = kv[i+1:]
+			got[kv[:i]] = kv[i+1:]
 		}
 	}
 	for _, k := range required {
-		v, ok := got[strings.ToLower(k)]
+		v, ok := got[k]
 		if !ok {
 			t.Errorf("%s must be forwarded to the child", k)
 			continue
@@ -612,7 +616,7 @@ func TestMCPChildEnvAllowList(t *testing.T) {
 		allowed[strings.ToLower(k)] = true
 	}
 	for k := range got {
-		if !allowed[k] {
+		if !allowed[strings.ToLower(k)] {
 			t.Errorf("unexpected variable %q in MCP child env", k)
 		}
 	}

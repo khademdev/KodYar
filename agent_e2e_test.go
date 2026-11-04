@@ -670,3 +670,52 @@ func TestTurnRecorderTodosBlock(t *testing.T) {
 		t.Fatal("test fixture must stay valid UTF-8")
 	}
 }
+
+// ---------------------------------------------------------------- D.1 — سناریوها
+
+// TestScenarioNormalFixVerifiedNoModals — D.1.1: خواندن → ویرایش → go test
+// موفق، در حالت auto: صفر مودال، تغییر روی دیسک، خلاصه «تأییدشده».
+func TestScenarioNormalFixVerifiedNoModals(t *testing.T) {
+	env := newE2E(t,
+		stepTool("c1", "read_file", `{"path":"calc.go"}`),
+		stepTool("c2", "edit_file", `{"path":"calc.go","old_string":"return a - b","new_string":"return a + b"}`),
+		stepTool("c3", "run_command", `{"command":"go test ./..."}`),
+		stepText("تست‌ها سبز شد؛ جمع درست شد."),
+	)
+	env.writeFile("go.mod", "module pw\n\ngo 1.21\n")
+	env.writeFile("calc.go", "package pw\n\nfunc Add(a, b int) int { return a - b }\n")
+	env.writeFile("calc_test.go", "package pw\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\tif Add(2, 3) != 5 {\n\t\tt.Fatalf(\"Add(2,3) = %d\", Add(2, 3))\n\t}\n}\n")
+
+	env.send("باگ تابع Add را درست کن")
+
+	if got := env.readFile("calc.go"); !strings.Contains(got, "a + b") {
+		t.Fatalf("edit was not applied on disk: %q", got)
+	}
+	if n := env.askCount(); n != 0 {
+		t.Fatalf("auto mode must not ask anything, got %d ask(s): %v", n, env.asks)
+	}
+	sm := env.summaries()
+	if len(sm) == 0 {
+		t.Fatal("no turn summary was published")
+	}
+	last := sm[len(sm)-1]
+	if !last.Verification.OK {
+		t.Fatalf("summary must report a successful verification: %+v", last.Verification)
+	}
+	if len(last.Files) == 0 {
+		t.Fatalf("summary must list the changed file: %+v", last)
+	}
+	if !strings.Contains(lastAssistant(env.lastConv(t)), "جمع") {
+		t.Fatal("final answer must be kept")
+	}
+}
+
+// lastConv گفتگوی فعلی را می‌خواند.
+func (e *e2eEnv) lastConv(t *testing.T) *Conversation {
+	t.Helper()
+	conv, err := e.app.loadConversationForTest(e.convID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return conv
+}
