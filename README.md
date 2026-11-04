@@ -5,6 +5,19 @@ MyAI یک اپلیکیشن دسکتاپ **کاملاً native** برای گفت�
 و با مصرف حداقلی منابع. رابط کاربری **۱۰۰٪ فارسی و راست‌به‌چپ** است و ظاهر آن مطابق mockupهای طراحی
 (تم تاریک مدرن با اکسنت بنفش) پیاده‌سازی شده است.
 
+## تازه‌های نسخه‌ی 1.8.0 — ایجنت دقیق‌تر، بازگشت‌پذیری کامل، اثبات
+
+**دقت ایجنت، بازگشت‌پذیری کامل (حتی برای دستورها)، سخت‌سازی امنیتی و سناریوهای اثبات سرتاسری:**
+
+- **محافظ خواندن‌پیش‌از‌نوشتن** — بازنویسی فایلی که ایجنت نخوانده رد می‌شود؛ تغییر بیرونی بین خواندن و نوشتن با SHA-256 کشف می‌شود و خطا صریحاً می‌گوید «دوباره بخوان»
+- **تذکر راستی‌آزمایی** — تغییر فایل بدون تست/ساخت موفق، یک راهنمای یک‌باره به حلقه‌ی ایجنت می‌افزاید تا دستور build/test را اجرا کند یا صادقانه بگوید نتوانسته تأیید کند
+- **سقف توکن هر نوبت (واقعاً اعمال می‌شود)** — هشدار در ۸۰٪، توقف مودبانه بعد از دور جاری با حفظ امکان «ادامه»، شمارش مصرف زیرایجنت‌ها هم داخل سقف
+- **نقطه‌ی بازگشت کل پروژه** — کارت خلاصه‌ی نوبت حالا «بازگردانی کل پروژه به قبل از این نوبت» دارد که با snapshot مخفیِ git حتی اثر جانبی دستورها را هم برمی‌گرداند؛ بازگردانی هیچ‌چیز حذف نمی‌کند (سبد زباله‌ی قابل‌بازگشت)
+- **حالت ویرایش و مسیرهای محافظت‌شده** — «ویرایش خودکار» یا «بازبینی هر تغییر»؛ مسیرهای حساس (.env، فایل‌های تعریف ساخت، .git تودرتو حتی در submodule) حتی در حالت خودکار تأیید می‌خواهند
+- **دروازه‌ی دستورات شله‌آگاه** — تجزیه‌گر واقعی CMD/POSIX + لیست‌سفید ساختاری: تلاش‌های معروف دورزدن (`&`، تغییرمسیر، `-exec`، `--output`، `^`، `%VAR%`) پرسش یا رد می‌شوند، هرگز اجرا
+- **web_fetch فقط برای هر دامنه** — «همیشه اجازه» برای کل ابزار حذف شد؛ «همیشه برای همین دامنه» جایگزین است و قاعده‌های قدیمیِ سراسری به حالت پرسش برمی‌گردند
+- **گسترش واقعیت‌های پروژه و کارها** — نوع پروژه و دستورهای راستی‌آزمایی پیشنهادی به پرامپت اضافه می‌شود و فهرست کارها از فشرده‌سازی کانتکست جان سالم به در می‌برد
+
 ## تازه‌های نسخه‌ی 1.7.1 — بازبینی کامل و سخت‌سازی
 
 **بازبینی مستقل کامل پروژه (بک‌اند + فرانت‌اند + مصرف منابع + قابلیت اطمینان) با ۱۶ باگ رفع‌شده و ۹ تست رگرسیون جدید (مجموع ۳۶۹):**
@@ -239,6 +252,31 @@ MyAI یک اپلیکیشن دسکتاپ **کاملاً native** برای گفت�
   (General / توسعه‌دهنده / آموزش) که پرامپت سیستم را عوض می‌کند
 - **مدیریت BiDi** — کدها، مسیر فایل‌ها و URLها همیشه با `unicode-bidi: isolate` و جهت LTR
   نمایش داده می‌شوند و متن فارسی راست‌چین می‌ماند
+
+## مدل امنیتی / Security model
+
+**فارسی — صادقانه و بدون اغراق:**
+
+- **ابزارهای فایل فقط داخل پوشه‌ی کاری** — همه‌ی مسیرهای داده‌شده به ابزارها از ریشه‌ی پروژه حل می‌شوند؛ خروج با `..` یا مسیر مطلق/فرار مسدود است. فایل‌های حساس (`.env*`، `*.pem` و…) و مسیرهای محافظت‌شده (.git حتی تودرتو، فایل‌های تعریف ساخت مثل `package.json`) حتی در «ویرایش خودکار» مودال تأیید می‌گیرند.
+- **دستورها گیت‌دار هستند اما sandbox نیستند** — اجرای دستور از سه لایه می‌گذرد: تجزیه‌گر شله‌آگاه (عدم‌قطعیت = پرسش)، لیست‌سفید ساختاری (git/go/npm با پرچم صریح) و بررسی توکن حساس/مسیر محافظت‌شده. اما دستورِ تأییدشده در نهایت با دسترسی کامل کاربر شما اجرا می‌شود — MyAI ماشین مجازی/کانتینر نیست و جایگزین سندباکس نیست.
+- **دستورهای تست/ساختِ خودکارِ اجازه‌ی بدون پرسش کد اجرا می‌کنند** — `go test`، `npm test` و مانند آن‌ها بدون مودال اجرا می‌شوند چون بی‌خطر به نظر می‌رسند؛ اما آن‌ها همان کدی را اجرا می‌کنند که ایجنت چند لحظه قبل نوشته است. **شبکه‌ی ایمنی واقعی، بازبینی پایان نوبت و نقطه‌ی بازگشت است**: کارت «خلاصه‌ی واقعی این نوبت» ببینید، «برگرداندن همه‌ی تغییرات این نوبت» و «بازگردانی کل پروژه به قبل از این نوبت» در دسترس‌اند و بازگردانی هیچ‌چیز حذف نمی‌کند (سبد زباله).
+- **حالت‌های ویرایش** — «بازبینی هر تغییر» مودال Diff برای هر نوشتن می‌دهد؛ «ویرایش خودکار» فقط مسیرهای محافظت‌شده و حذف سنگین را می‌پرسد و بقیه را در خلاصه‌ی نوبت گزارش می‌کند.
+- **نظم راستی‌آزمایی و سقف توکن** — ایجنت بعد از تغییر فایل بدون تست/ساختِ موفق یک تذکر یک‌باره می‌گیرد؛ «سقف توکن هر نوبت» مصرف همه‌ی دورها + زیرایجنت‌ها را می‌سنجد و نوبت را مودبانه متوقف می‌کند.
+- **اعتماد به محتوای بیرونی** — خروجی `web_fetch` و ابزارهای MCP در پوشش `untrusted` به مدل می‌رسد (فقط داده، نه دستور)؛ گارد SSRF اتصال را در هر پرش بازرسی می‌کند؛ اجازه‌ی web_fetch فقط برای هر دامنه ذخیره می‌شود (هرگز برای کل ابزار). سرورهای MCP فرایند قابل‌اعتمادِ شما هستند اما با محیط حداقلی بالا می‌آیند (بدون کلیدهای API برنامه) و هر فراخوانی ابزارشان مودال اجازه دارد.
+- **داده‌ها روی دستگاه شما** — کلید API با AES-GCM و کلید میزبان در Keyring سیستم‌عامل رمز می‌شود؛ محیطی متغیرهای MCP رمزنگاری‌شده ذخیره و در UI فقط ماسک می‌شوند؛ هیچ چیزی جز آدرس Provider به بیرون رفت نمی‌کند (و آن هم فقط به سرویس‌دهنده‌ی خودتان).
+- **گردش‌کار پیشنهادی** — روی یک شاخه‌ی git کار کنید، حالت ویرایش را آگاهانه انتخاب کنید، در پایان هر نوبت کارت خلاصه را بخوانید و در صورت شک، اول «برگرداندن نوبت» و بعد «بازگردانی کل پروژه» را امتحان کنید.
+
+**English — stated honestly, without overstatement:**
+
+- **File tools are confined to the workspace.** Every model-supplied path is resolved against the workspace root; `..`, absolute and escape paths are rejected. Sensitive files (`.env*`, `*.pem`, …) and protected paths (`.git` including nested submodule ones, build-definition files like `package.json`) always ask, even in the "auto" edit mode.
+- **Commands are gated, but not sandboxed.** Command execution passes a shell-aware parser (uncertainty → ask), a structural allow-list (git/go/npm with explicit flags) and sensitive-token/protected-path checks — but an approved command ultimately runs with **your** full user privileges. MyAI is not a VM/container and does not replace a sandbox.
+- **Auto-allowed test/build commands execute code the agent may have just written.** `go test`, `npm test` and similar are auto-allowed because they look harmless — yet they run whatever the agent just wrote. The real safety net is the end-of-turn review and project checkpoints: read the "real turn summary" card, and both "revert this turn" and "restore the whole project" are one click away; restore never deletes (it rescues into a trash folder).
+- **Edit modes** — "review each change" shows a diff modal for every write; "auto" only asks for protected paths and heavy deletes and reports everything else in the turn summary.
+- **Verification discipline & token cap** — a final answer without a successful build/test since the last file change triggers a one-time verification nudge; «سقف توکن هر نوبت» (max tokens per turn) counts all rounds plus sub-agents and stops the turn gracefully.
+- **Untrusted content** — `web_fetch` and MCP results reach the model inside an `untrusted` envelope (data, never instructions); the SSRF guard re-checks every redirect hop; web_fetch permissions are stored **per host** only — never tool-wide. MCP servers are your trusted local processes but run with a minimal environment (never the app's API keys) and every tool call asks.
+- **Your data stays on your machine** — API keys are AES-GCM encrypted with an OS-keyring master key; MCP env vars are encrypted and masked in the UI; nothing leaves the device except your own provider requests.
+- **Recommended workflow** — work on a git branch, choose the edit mode deliberately, read the turn summary card after every turn, and when in doubt try "revert this turn" first, then "restore the whole project".
+
 
 ## ساختار پروژه
 

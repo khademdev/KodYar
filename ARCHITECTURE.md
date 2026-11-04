@@ -202,21 +202,73 @@ a.checkpointMu, a.readStore.mu, a.factsCache.mu  (leaf locks — Mission 3)
    error); DNS "no such host" is retried at most once; timeouts,
    reset/refused, EOF keep the full backoff policy.
 
+## Agent accuracy and safety net (Mission 3, 1.8.0)
+
+- **Read-before-write / stale guard** (`fileread.go`): every successful
+  `read_file` records a fingerprint `(size, mtime, SHA-256)` per
+  (conversation, absolute path) in a bounded LRU (≤500 paths × ≤16
+  conversations, leaf lock `a.readStore.mu`). `write_file` on an existing
+  file is rejected with an English re-read instruction unless the agent
+  read (or created) it in this conversation and the on-disk hash still
+  matches; `edit_file` fails on staleness and merely annotates when never
+  read (exact `old_string` matching remains the second guard); `move_path`
+  re-points the record, `delete_path` forgets it, conversation deletion
+  drops it. Sub-agent reads are not recorded for the main agent.
+- **Verification discipline** (`turnreview.go` + `chat.go`): the per-turn
+  `turnRecorder` records every executed command with its exit code and
+  marks a successful `isVerificationCommand` (build/test/lint/vet) as the
+  turn's verification. When the model produces a final answer while files
+  changed after the last successful verification (and ≥2 rounds remain),
+  `streamChat` injects ONE English user nudge per turn
+  (`verificationNudgeText`) and continues; the nudge never consumes the
+  doom-loop guard or the round budget and never repeats. The end-of-turn
+  summary (`chat:turn_summary`) reports files (± lines, protected chip,
+  reverted state), executed commands with exit codes, verification
+  (ran/ok/command), tokens, and `tokenCapHit/TokenCap`.
+- **Project facts** (`projectfacts.go`): a short English "Project facts"
+  block (ecosystem + suggested verification commands, parsed from
+  `go.mod`/`package.json`/`Cargo.toml`/`pyproject*`/`pom.xml`/
+  `build.gradle*`/`*.sln`/`composer.json`/`Makefile` — nothing executed,
+  ≤64 KB per file) is injected once per turn into the system prompt, memoized
+  by fingerprint under the leaf lock `a.factsCache.mu`.
+- **Turn token cap** (A.4): `MaxTurnTokens` (0 = off) is enforced in the
+  agent loop — cumulative prompt+completion across all rounds plus the
+  sub-agent usage tally (`usageTally` via ctx). One Persian notice at 80%
+  (`tokenCapWarnPercent`); past the cap the turn stops gracefully AFTER the
+  current tool round is persisted (conversation stays resumable) and the
+  summary carries `tokenCapHit/TokenCap`.
+- **Project checkpoints** (`checkpoint.go`): before the FIRST mutating
+  action of a turn (after user approval, outside every lock) — from a
+  file-changing tool or a non-allow-listed command — a checkpoint commit is
+  created with a temporary index (`GIT_INDEX_FILE` → `add -A` →
+  `write-tree` → `commit-tree` with env-only identity, parent = HEAD) and
+  referenced as `refs/myai/checkpoints/<convID>-<turnID>`; ≤20 refs per
+  workspace are kept, 10 s budget, any failure skips with one Persian
+  notice (turn never blocks; non-git workspaces silently rely on the
+  file-tool revert only). `PreviewCheckpointRestore(convID, turnID)` lists
+  rewrite/trash/unchanged/skipped; `RestoreCheckpoint` materializes the
+  snapshot and applies it byte-exact — it **never deletes**: current
+  versions of rewritten/removed files go to
+  `<configDir>/trash/<workspace-hash>/<timestamp>/` (swept at startup,
+  >14 days or >500 MB), ignored files are untouched, path escapes are
+  rejected (`safeCheckpointRel`), symlinks are skipped.
+
 ## Events (backend → frontend, Wails runtime)
 
 | Event | Payload (keys) | Emitted by |
 |---|---|---|
 | `chat:start` | conversation, userMessage | entry points (Send/Regenerate/ApprovePlan/Resume) |
 | `chat:delta` | conversationId, delta, elapsed | stream loop |
-| `chat:notice` | conversationId, text (Persian) | tools-unsupported, save warnings |
+| `chat:notice` | conversationId, text (Persian) | tools-unsupported, save warnings, auto-compaction, token-cap 80%/stop, checkpoint skipped |
 | `chat:tool` | conversationId, callId, name, args | before each tool exec (parallel read-only calls may interleave; keyed by callId) |
 | `chat:tool_result` | conversationId, callId, name, ok, result, ms | after each tool exec |
 | `chat:done` | conversationId, message, conversation, tokens, aborted, tokensUsed, tokenLimit, recentUsage | finishChat |
 | `chat:error` | conversationId, error | emitChatError |
 | `agent:confirm` | change (FileChange) | file diff confirm; answered by `RespondFileConfirm(changeId, allow)` |
-| `agent:permission_ask` | ask (permissionAsk: kind `command`/`sensitive_read`/`tool`; `url` for web_fetch, `command` carries name+args for MCP tools) | permission modal; answered by `RespondPermissionConfirm(askId, allow\|always\|reject)` |
+| `agent:permission_ask` | ask (permissionAsk: kind `command`/`sensitive_read`/`tool`/`web_host`; `url` for web_fetch, `command` carries name+args for MCP tools) | permission modal; answered by `RespondPermissionConfirm(askId, allow\|session\|always\|reject)`; `web_host` offers per-host rules only — a tool-wide web_fetch allow no longer exists (C.1), existing ones migrate back to ask |
 | `chat:tool_output` | conversationId, callId, chunk | incremental run_command output (≤10/s, frontend may ignore) |
 | `chat:todos` | conversationId, todos | live agent checklist after every successful `todo_write` (empty array = cleared); frontend ignores non-active conversations |
+| `chat:turn_summary` | summary (TurnSummary: files/commands/verification/tokens/tokenCap) | end of every turn that changed files or ran commands; card UI + revert/checkpoint actions (`GetTurnChanges`, `RevertTurnChanges`, `PreviewCheckpointRestore`, `RestoreCheckpoint`) |
 | `agent:change_applied` / `agent:change_rejected` / `agent:change_reverted` | change / changeId, path / changeId | changes store |
 
 `task` (Step 6) emits no extra events: the delegation shows up as a normal
@@ -244,6 +296,9 @@ Config dir = `os.UserConfigDir()/MyAI` (Win `%AppData%\MyAI`, macOS
   >8MB serialized → keep recent half, drop old backups).
 - `backups/*.orig` — pre-change file copies for revert (total ≤200MB, oldest
   pruned).
+- `trash/<workspace-hash>/<timestamp>/` — rescue copies written by
+  `RestoreCheckpoint` (restore never deletes); swept at startup (>14 days
+  or >500 MB total).
 - `errors.log` — user-visible error log (≤128KB, tail-kept rotation).
 
 Workspace (user-chosen): rule files `.myai/rules.md` → `AGENTS.md` →
@@ -294,3 +349,15 @@ unaffected). Note: tool-level overrides never bypass the command gate
 `SetMaxAgentRounds` (5–200, default 25) and `SetMaxSubagentRounds`
 (3–50, default 8, Step 6) — both clamped client-side too; `models.ts`
 exposes them via `SettingsView` as `maxAgentRounds`/`maxSubagentRounds`.
+
+The turn-summary card (`turnsummary.js`, class `ts-card`) renders
+`chat:turn_summary` — file rows with ± counts and a protected chip,
+command/verification rows, token totals, the token-cap chip, and three
+actions: per-file diff (opens the diff modal), «برگرداندن همه‌ی تغییرات
+این نوبت» (`RevertTurnChanges` with the conflict rule — user-modified
+files win and are listed as conflicts), and «بازگردانی کل پروژه به قبل از
+این نوبت» → the `checkpoint-overlay` preview modal →
+`RestoreCheckpoint`. The card is one of the four surfaces covered by the
+UI contract test (`uicontract_test.go` — overlay ids, visibility CSS,
+bindings sync, checkpoint/web_host wiring) and the optional Playwright
+smoke test (`frontend/tests/`, Mock mode, see its README).
