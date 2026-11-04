@@ -16,7 +16,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -34,12 +37,17 @@ type scriptCall struct {
 
 // scenarioStep یک پاسخ مدل: متن و/یا فراخوانی ابزار + usage اختیاری +
 // بازرسی اختیاری بدنه‌ی درخواست.
+// Hold/Reached فقط برای سناریوهای «توقف در لحظه‌های مختلف» (D.1.11):
+// وقتی سرور به این مرحله می‌رسد Reached را سیگنال می‌کند و پاسخ را تا
+// بسته‌شدن Hold نگه می‌دارد تا تست دقیقاً حین استریم Stop بزند.
 type scenarioStep struct {
 	Text    string
 	Calls   []scriptCall
 	Usage   *sseUsage
 	Check   func(t *testing.T, req chatRequest)
 	ReqNote string // برچسب مرحله در پیام‌های خطا
+	Hold    <-chan struct{}
+	Reached chan<- struct{}
 }
 
 // scriptedModel سرور فیلم‌نامه‌ای سازگار با OpenAI (SSE).
@@ -128,6 +136,12 @@ func (m *scriptedModel) handle(w http.ResponseWriter, r *http.Request) {
 	if step.Check != nil {
 		step.Check(m.t, req)
 	}
+	if step.Reached != nil {
+		step.Reached <- struct{}{}
+	}
+	if step.Hold != nil {
+		<-step.Hold
+	}
 	for _, c := range step.Calls {
 		writeSSEChunk(w, map[string]interface{}{
 			"choices": []map[string]interface{}{{
@@ -193,6 +207,9 @@ type e2eEnv struct {
 	decide  string // پاسخ به مودال‌های دسترسی (allow/reject)
 	summary []TurnSummary
 	notices []string
+	// fileAsks مسیر مودال‌های Diff (agent:confirm) — مسیرهای محافظت‌شده و
+	// review_each حتی در حالت auto مودال می‌گیرند (بند D.1.6).
+	fileAsks []string
 }
 
 type e2eEvent struct {
@@ -222,6 +239,19 @@ func newE2E(t *testing.T, steps ...scenarioStep) *e2eEnv {
 		env.mu.Lock()
 		env.events = append(env.events, e2eEvent{name: name, data: data})
 		env.mu.Unlock()
+		// کاربر فیلم‌نامه‌ای برای مودال Diff: ثبت مسیر و تأیید.
+		// کانال تأیید بافر ۱ دارد، پس پاسخِ هم‌زمان (همان گوروتین emit)
+		// هرگز بلاک نمی‌شود — شبیه پاسخ فوری کاربر.
+		if name == "agent:confirm" && len(data) > 0 {
+			if m, ok := data[0].(map[string]interface{}); ok {
+				if ch, ok := m["change"].(*FileChange); ok && ch != nil {
+					env.mu.Lock()
+					env.fileAsks = append(env.fileAsks, ch.Path)
+					env.mu.Unlock()
+					_ = a.RespondFileConfirm(ch.ID, true)
+				}
+			}
+		}
 	}
 	a.permAskEmit = func(ask *permissionAsk) {
 		env.mu.Lock()
@@ -718,4 +748,554 @@ func (e *e2eEnv) lastConv(t *testing.T) *Conversation {
 		t.Fatal(err)
 	}
 	return conv
+}
+
+// ---------------------------------------------------------------- D.1 — سناریوهای ۳ تا ۱۱
+
+// کمکی‌های مشترک سناریوها
+
+// toolResult نتیجه‌ی ابزار با شناسه‌ی فراخوانی داده‌شده را از گفتگو می‌خواند.
+func (e *e2eEnv) toolResult(t *testing.T, callID string) string {
+	t.Helper()
+	conv := e.lastConv(t)
+	for _, m := range conv.Messages {
+		if m.Role == "tool" && m.ToolCallID == callID {
+			return m.Content
+		}
+	}
+	return ""
+}
+
+// lastAborted آخرین پیام دستیارِ لغوشده.
+func (e *e2eEnv) lastAborted(t *testing.T) bool {
+	t.Helper()
+	conv := e.lastConv(t)
+	for i := len(conv.Messages) - 1; i >= 0; i-- {
+		if conv.Messages[i].Role == "assistant" {
+			return conv.Messages[i].Aborted
+		}
+	}
+	return false
+}
+
+// stepToolCheck مثل stepTool با بازرسی بدنه‌ی درخواست.
+func stepToolCheck(id, name, args string, check func(t *testing.T, req chatRequest)) scenarioStep {
+	s := stepTool(id, name, args)
+	s.Check = check
+	return s
+}
+
+// waitReached با مهلت، رسیدن استریم به مرحله‌ی نگه‌داشته‌شده را صبر می‌کند.
+func waitReached(t *testing.T, ch <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stream never reached the held step")
+	}
+}
+
+// initGitWorkspace پوشه‌ی کاری را به مخزن git با یک کامیت اولیه تبدیل می‌کند
+// (سناریوی checkpoint — نقطه‌ی بازگشت فقط در مخزن git ساخته می‌شود).
+func (e *e2eEnv) initGitWorkspace(t *testing.T) {
+	t.Helper()
+	ws := e.ws()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", ws}, args...)...)
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=tester", "GIT_AUTHOR_EMAIL=tester@localhost",
+			"GIT_COMMITTER_NAME=tester", "GIT_COMMITTER_EMAIL=tester@localhost",
+			"GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q")
+	run("add", "-A")
+	run("commit", "-q", "-m", "init")
+}
+
+// shutdown سرور فیلم‌نامه‌ای را می‌بندد (پیش از شمارش گوروتین).
+func (e *e2eEnv) shutdown() { e.model.srv.Close() }
+
+// ---------------------------------------------------------------- سناریوی ۳
+
+// TestScenarioWriteUnreadRejectedThenAccepted — D.1.3: نوشتن روی فایلِ
+// موجودِ نخوانده رد می‌شود؛ پس از read_file همان نوشتن پذیرفته می‌شود.
+func TestScenarioWriteUnreadRejectedThenAccepted(t *testing.T) {
+	env := newE2E(t,
+		stepTool("c1", "write_file", `{"path":"calc.go","content":"package pw\n\n// overwritten blind\n"}`),
+		stepTool("c2", "read_file", `{"path":"calc.go"}`),
+		stepTool("c3", "write_file", `{"path":"calc.go","content":"package pw\n\nfunc Add(a, b int) int { return a + b }\n"}`),
+		stepText("بازنویسی انجام شد."),
+		stepText("پس از تذکر: تمام."),
+	)
+	env.writeFile("calc.go", "package pw\n\nfunc Add(a, b int) int { return a - b }\n")
+
+	env.send("calc.go را بازنویسی کن")
+
+	r1 := env.toolResult(t, "c1")
+	if !strings.HasPrefix(r1, "ERROR:") || !strings.Contains(r1, "read_file") {
+		t.Fatalf("overwrite of an unread file must be rejected with a re-read instruction: %q", r1)
+	}
+	if got := env.readFile("calc.go"); strings.Contains(got, "overwritten blind") {
+		t.Fatalf("rejected write must not touch the file: %q", got)
+	}
+	r3 := env.toolResult(t, "c3")
+	if !strings.HasPrefix(r3, "OK:") {
+		t.Fatalf("the same write after read_file must be accepted: %q", r3)
+	}
+	if got := env.readFile("calc.go"); !strings.Contains(got, "a + b") {
+		t.Fatalf("accepted write must land on disk: %q", got)
+	}
+}
+
+// ---------------------------------------------------------------- سناریوی ۴
+
+// TestScenarioExternalEditBetweenReadAndWriteRejected — D.1.4: تغییر بیرونی
+// فایل بین read و write توسط محافظ کهنه‌بودن شناسایی و رد می‌شود. تغییر بیرونی
+// در Check مرحله‌ی نوشتن انجام می‌شود — یعنی قطعاً بعد از اجرای read_file.
+func TestScenarioExternalEditBetweenReadAndWriteRejected(t *testing.T) {
+	var env *e2eEnv // در Check مرحله‌ی نوشتن استفاده می‌شود (بعد از read)
+	env = newE2E(t,
+		stepTool("c1", "read_file", `{"path":"calc.go"}`),
+		stepToolCheck("c2", "write_file", `{"path":"calc.go","content":"package pw\n\nfunc Add(a, b int) int { return a + b }\n"}`,
+			func(t *testing.T, req chatRequest) {
+				// «کاربر» دقیقاً بین خواندن ایجنت و نوشتنش فایل را عوض می‌کند.
+				p := filepath.Join(env.ws(), "calc.go")
+				if err := os.WriteFile(p, []byte("package pw\n\n// user touched this file\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}),
+		stepTool("c3", "read_file", `{"path":"calc.go"}`),
+		stepTool("c4", "write_file", `{"path":"calc.go","content":"package pw\n\n// user touched this file\n\nfunc Add(a, b int) int { return a + b }\n"}`),
+		stepText("محتوای جدید را دیدم و بازنویسی شد."),
+		stepText("پس از تذکر: تمام."),
+	)
+	env.writeFile("calc.go", "package pw\n\nfunc Add(a, b int) int { return a - b }\n")
+
+	env.send("تابع را درست کن")
+
+	r2 := env.toolResult(t, "c2")
+	if !strings.HasPrefix(r2, "ERROR:") || !strings.Contains(r2, "changed on disk") {
+		t.Fatalf("stale write must be rejected with a re-read instruction: %q", r2)
+	}
+	// محتوای دست‌کاری‌شده‌ی کاربر باید دست‌نخورده مانده باشد تا ایجنت دوباره بخواند
+	if got := env.readFile("calc.go"); !strings.Contains(got, "user touched this file") {
+		t.Fatalf("user content must survive the rejected stale write: %q", got)
+	}
+	if !strings.HasPrefix(env.toolResult(t, "c4"), "OK:") {
+		t.Fatalf("write based on a fresh read must be accepted: %q", env.toolResult(t, "c4"))
+	}
+}
+
+// ---------------------------------------------------------------- سناریوی ۵
+
+// TestScenarioCommandGateBypassAttempts — D.1.5: تلاش‌های دور زدن دروازه‌ی
+// دستور، در هر دو شله (cmd/posix) با شله‌ی تزریقی. هر مورد باید مودال ask
+// ثبت‌شده یا deny بدهد و هرگز اجرا نشود (نتیجه‌ی ابزار ERROR + فایل‌های نشان
+// دست‌نخورده). استثنای مستندشده: «echo %COMSPEC%» در شله‌ی posix — رشته‌ی
+// %VAR% در sh واژه‌ای است و echo ساده‌ی بی‌خطر همانِ کورپوس Stage 1 است
+// (allow)؛ خروجی واقعیِ اجرا هم دقیقاً همین متن واژه‌ای است.
+func TestScenarioCommandGateBypassAttempts(t *testing.T) {
+	bypass := []struct {
+		callID string
+		cmd    string
+	}{
+		{"b1", "echo ok & npm install x"},
+		{"b2", "dir & del /q *.cs"},
+		{"b3", `echo x > ..\out.txt`},
+		{"b4", "type .env"},
+		{"b5", "go test -exec evil ./..."},
+		{"b6", "git diff --output=f"},
+		{"b7", "d^el /q x"},
+		{"b8", "echo %COMSPEC%"},
+	}
+	for _, fl := range []struct {
+		name   string
+		f      shellFlavor
+		echoOK bool // فقط جفت بی‌خطرِ مستندشده در شله‌ی posix اجرا می‌شود
+	}{
+		{"cmd", flavorCmd, false},
+		{"posix", flavorPOSIX, true},
+	} {
+		t.Run(fl.name, func(t *testing.T) {
+			withFlavor(t, fl.f)
+			var steps []scenarioStep
+			for _, b := range bypass {
+				steps = append(steps, stepTool(b.callID, "run_command", fmt.Sprintf(`{"command":%q}`, b.cmd)))
+				steps = append(steps, stepText("دستور اجرا نشد؛ ادامه می‌دهم."))
+			}
+			env := newE2E(t, steps...)
+			env.decide = permRespondReject // کاربر فیلم‌نامه‌ای به هر مودال «رد» می‌دهد
+			// فایل‌های نشان: اگر هر دستوری بی‌اجازه اجرا شده باشد، این‌ها عوض می‌شوند
+			env.writeFile("x", "marker\n")
+			env.writeFile("marker.cs", "marker\n")
+			parentOut := filepath.Join(filepath.Dir(env.ws()), "out.txt")
+			t.Cleanup(func() { os.Remove(parentOut) })
+
+			for _, b := range bypass {
+				before := env.askCount()
+				env.send("این دستور را اجرا کن: " + b.cmd)
+				res := env.toolResult(t, b.callID)
+
+				if fl.echoOK && b.callID == "b8" {
+					// استثنای مستندشده: echo واژه‌ایِ بی‌خطر در posix اجرا می‌شود
+					if strings.HasPrefix(res, "ERROR:") || !strings.Contains(res, "%COMSPEC%") {
+						t.Fatalf("%s: harmless literal echo must run and print literally: %q", b.cmd, res)
+					}
+					continue
+				}
+				if !strings.HasPrefix(res, "ERROR:") {
+					t.Fatalf("%s must never execute without a recorded ask: got %q", b.cmd, res)
+				}
+				if grew := env.askCount() - before; grew != 1 {
+					t.Fatalf("%s: exactly one permission ask expected, got %d (asks=%v)", b.cmd, grew, env.asks)
+				}
+			}
+
+			// نشان‌ها باید دست‌نخورده باشند و هیچ اثر جانبی‌ای روی دیسک نباشد
+			if got := env.readFile("x"); got != "marker\n" {
+				t.Fatalf("marker file x must be untouched: %q", got)
+			}
+			if got := env.readFile("marker.cs"); got != "marker\n" {
+				t.Fatalf("marker file marker.cs must be untouched: %q", got)
+			}
+			for _, junk := range []string{"out.txt", "f", "node_modules", "..out.txt"} {
+				if _, err := os.Stat(filepath.Join(env.ws(), junk)); err == nil {
+					t.Fatalf("side effect %q must not appear in the workspace", junk)
+				}
+			}
+			if _, err := os.Stat(parentOut); err == nil {
+				t.Fatal("no file may be written outside the workspace")
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------- سناریوی ۶
+
+// TestScenarioProtectedPathsAskInAutoMode — D.1.6: در حالت auto مسیر عادی
+// بدون مودال اعمال می‌شود؛ مسیرهای محافظت‌شده (package.json، .env و
+// src/.git/config تودرتو) مودال Diff می‌گیرند و پس از تأیید اعمال می‌شوند.
+func TestScenarioProtectedPathsAskInAutoMode(t *testing.T) {
+	env := newE2E(t,
+		stepTool("c1", "write_file", `{"path":"plain.txt","content":"ordinary\n"}`),
+		stepTool("c2", "write_file", `{"path":"package.json","content":"{\"name\":\"pw\"}\n"}`),
+		stepTool("c3", "write_file", `{"path":".env","content":"TOKEN=abc\n"}`),
+		stepTool("c4", "write_file", `{"path":"src/.git/config","content":"[core]\n"}`),
+		stepText("همه ساخته شد."),
+		stepText("پس از تذکر: تمام."),
+	)
+	env.send("این فایل‌ها را بساز")
+
+	// مسیر عادی: بدون هیچ مودال
+	if got := env.readFile("plain.txt"); got != "ordinary\n" {
+		t.Fatalf("ordinary file must be written without a modal: %q", got)
+	}
+	// مسیرهای محافظت‌شده: دقیقاً سه مودال Diff، به همان ترتیب
+	want := []string{"package.json", ".env", "src/.git/config"}
+	if len(env.fileAsks) != len(want) {
+		t.Fatalf("expected %d diff modal(s) for protected paths, got %d: %v", len(want), len(env.fileAsks), env.fileAsks)
+	}
+	for i, p := range want {
+		if env.fileAsks[i] != p {
+			t.Fatalf("diff modal %d: want %q, got %q", i, p, env.fileAsks[i])
+		}
+		if got := env.readFile(p); got == "" {
+			t.Fatalf("protected file %q must be written after user approval", p)
+		}
+	}
+}
+
+// ---------------------------------------------------------------- سناریوی ۷
+
+// TestScenarioRevertAllRestoresAndConflict — D.1.7: «برگرداندن همه‌ی تغییرات
+// نوبت» فایل ساخته‌شده را برمی‌گرداند؛ فایلی که کاربر بعداً عوض کرده به‌عنوان
+// تعارض گزارش می‌شود و بازنویسی نمی‌شود.
+func TestScenarioRevertAllRestoresAndConflict(t *testing.T) {
+	env := newE2E(t,
+		stepTool("c1", "write_file", `{"path":"a.txt","content":"created by agent\n"}`),
+		stepTool("c2", "read_file", `{"path":"b.txt"}`),
+		stepTool("c3", "edit_file", `{"path":"b.txt","old_string":"original","new_string":"agent-edited"}`),
+		stepText("هر دو تغییر اعمال شد."),
+		stepText("پس از تذکر: تمام."),
+	)
+	env.writeFile("b.txt", "original content\n")
+	env.send("فایل‌ها را بساز و ویرایش کن")
+
+	sm := env.summaries()
+	if len(sm) == 0 {
+		t.Fatal("no turn summary")
+	}
+	turnID := sm[len(sm)-1].TurnID
+	if turnID <= 0 {
+		t.Fatalf("summary must carry the turn id: %+v", sm[len(sm)-1])
+	}
+
+	// کاربر بعد از ایجنت b.txt را عوض می‌کند
+	env.writeFile("b.txt", "user edited this\n")
+	rep := env.app.RevertTurnChanges(env.convID, turnID)
+
+	found := func(list []string, p string) bool {
+		for _, s := range list {
+			if s == p {
+				return true
+			}
+		}
+		return false
+	}
+	if !found(rep.Reverted, "a.txt") {
+		t.Fatalf("agent-created file must be reverted: %+v", rep)
+	}
+	if !found(rep.Conflicts, "b.txt") {
+		t.Fatalf("user-modified file must be reported as a conflict: %+v", rep)
+	}
+	if _, err := os.Stat(filepath.Join(env.ws(), "a.txt")); !os.IsNotExist(err) {
+		t.Fatal("reverted created file must be gone from disk")
+	}
+	if got := env.readFile("b.txt"); got != "user edited this\n" {
+		t.Fatalf("conflicting user edit must win: %q", got)
+	}
+}
+
+// ---------------------------------------------------------------- سناریوی ۸
+
+// TestScenarioCheckpointDestructiveCommandRestore — D.1.8: نقطه‌ی بازگشتِ
+// نوبت → دستورِ تغییردهنده → بازگردانی → درخت بایت‌به‌بایت + سبد زباله‌ی پر.
+func TestScenarioCheckpointDestructiveCommandRestore(t *testing.T) {
+	env := newE2E(t,
+		stepTool("c1", "write_file", `{"path":"new.txt","content":"created by agent\n"}`),
+		stepTool("c2", "run_command", `{"command":"echo side-effect > generated.txt"}`),
+		stepText("کار تمام است."),
+		stepText("پس از تذکر: تمام."),
+	)
+	env.writeFile("keep.txt", "keep me byte-exact\n")
+	env.initGitWorkspace(t)
+	env.decide = permRespondAllow // کاربر فیلم‌نامه‌ای دستورِ پرسیده‌شده را اجازه می‌دهد
+
+	env.send("فایل بساز و دستور را اجرا کن")
+
+	sm := env.summaries()
+	if len(sm) == 0 {
+		t.Fatal("no turn summary")
+	}
+	turnID := sm[len(sm)-1].TurnID
+	if env.readFile("generated.txt") != "side-effect\n" {
+		t.Fatalf("command side effect must exist before restore: %q", env.readFile("generated.txt"))
+	}
+
+	pv := env.app.PreviewCheckpointRestore(env.convID, turnID)
+	if !pv.Available || pv.Error != "" {
+		t.Fatalf("checkpoint preview must be available: %+v", pv)
+	}
+	in := func(list []string, p string) bool {
+		for _, s := range list {
+			if s == p {
+				return true
+			}
+		}
+		return false
+	}
+	if !in(pv.Trash, "new.txt") || !in(pv.Trash, "generated.txt") {
+		t.Fatalf("files created during the turn must be listed for trash: %+v", pv)
+	}
+	if !in(pv.Unchanged, "keep.txt") {
+		t.Fatalf("pre-existing tracked file must be unchanged: %+v", pv)
+	}
+
+	rep := env.app.RestoreCheckpoint(env.convID, turnID)
+	if len(rep.Errors) > 0 {
+		t.Fatalf("restore errors: %v", rep.Errors)
+	}
+	if !in(rep.Trashed, "new.txt") || !in(rep.Trashed, "generated.txt") {
+		t.Fatalf("restore must move the two files to trash: %+v", rep)
+	}
+	if rep.TrashDir == "" {
+		t.Fatal("trash dir must be reported")
+	}
+	// درخت بایت‌به‌بایت به وضعیت پیش از نوبت برگشته است
+	if _, err := os.Stat(filepath.Join(env.ws(), "new.txt")); !os.IsNotExist(err) {
+		t.Fatal("new.txt must be gone after restore")
+	}
+	if _, err := os.Stat(filepath.Join(env.ws(), "generated.txt")); !os.IsNotExist(err) {
+		t.Fatal("command side effect must be gone after restore")
+	}
+	if got, err := os.ReadFile(filepath.Join(env.ws(), "keep.txt")); err != nil || string(got) != "keep me byte-exact\n" {
+		t.Fatalf("pre-existing file must survive byte-exact: %q %v", got, err)
+	}
+	// سبد زباله واقعاً محتوای نجات‌یافته دارد
+	entries, err := os.ReadDir(rep.TrashDir)
+	if err != nil || len(entries) == 0 {
+		t.Fatalf("trash dir must contain the rescued files: %v %v", entries, err)
+	}
+}
+
+// ---------------------------------------------------------------- سناریوی ۱۰
+
+// TestScenarioMidTurnCompactionKeepsTodosAndProtocol — D.1.10: فشرده‌سازی
+// خودکارِ میانه‌ی نوبت؛ هر درخواستِ بعدی باید پروتکل‌سالم بماند، نشانگر
+// «حذف کانتکست» یکتا باشد و فهرست کارها را زنده نگه دارد.
+func TestScenarioMidTurnCompactionKeepsTodosAndProtocol(t *testing.T) {
+	todoCheck := func(t *testing.T, req chatRequest) {
+		t.Helper()
+		// اعتبار پروتکل در هر درخواستِ پس از فشرده‌سازی
+		if _, problems := validateHistory(req.Messages); len(problems) > 0 {
+			t.Fatalf("outgoing history must stay protocol-valid: %v", problems)
+		}
+		markers := 0
+		for _, m := range req.Messages {
+			if isContextDropMarker(m) {
+				markers++
+				if !strings.Contains(historyContentString(m.Content), "پیاده‌سازی محافظ") {
+					t.Fatalf("context-drop marker must carry the todo list: %q", historyContentString(m.Content))
+				}
+			}
+		}
+		if markers > 1 {
+			t.Fatalf("at most one context-drop marker expected, got %d", markers)
+		}
+	}
+	// متن بزرگ لاتین در «نوبت اول» برای عبور از آستانه‌ی ۸۰٪ بودجه.
+	// فاز حذفِ فشرده‌سازی فقط واحدهای «قبل از آخرین پیام کاربر» را حذف
+	// می‌کند و حداقل minKeepMessages پیام نگه می‌دارد، پس نوبت اول چند دور
+	// ابزارِ کوچک هم دارد تا واحدهای قابل‌حذف وجود داشته باشد؛ todo_write
+	// در نوبت اول طرح کار را در گفتگو می‌گذارد تا نشانگر آن را زنده نگه دارد.
+	big := strings.Repeat("analysis paragraph with plain ascii words ", 6000) // ≈ 250KB
+	env := newE2E(t,
+		// — نوبت اول: برنامه‌ریزی + چند دور خواندن + متن سنگین + جمع‌بندی
+		stepTool("c1", "todo_write", `{"todos":[{"content":"پیاده‌سازی محافظ خواندن‌پیش‌از‌نوشتن","status":"in_progress"},{"content":"نوشتن تست‌های سناریو","status":"pending"}]}`),
+		stepTool("r1", "read_file", `{"path":"notes1.txt"}`),
+		stepTool("r2", "read_file", `{"path":"notes2.txt"}`),
+		stepTool("r3", "read_file", `{"path":"notes3.txt"}`),
+		stepTool("r4", "read_file", `{"path":"notes4.txt"}`),
+		stepTool("r5", "read_file", `{"path":"notes5.txt"}`),
+		scenarioStep{Text: big, Calls: []scriptCall{{ID: "r6", Name: "read_file", Args: `{"path":"notes6.txt"}`}}},
+		stepText("تحلیل اولیه تمام شد."),
+		// — نوبت دوم: فشرده‌سازی باید پیش از نخستین درخواست همین نوبت بیاید
+		scenarioStep{Text: "فشرده‌سازی رخ داد؛ ادامه می‌دهم.", Calls: []scriptCall{{ID: "c3", Name: "list_dir", Args: `{"path":"."}`}}, Check: todoCheck},
+		scenarioStep{Text: "جمع‌بندی نهایی.", Check: todoCheck},
+	)
+	for i := 1; i <= 6; i++ {
+		env.writeFile(fmt.Sprintf("notes%d.txt", i), fmt.Sprintf("notes %d\n", i))
+	}
+	env.app.mu.Lock()
+	env.app.settings.Providers[0].ContextWindow = 100000
+	env.app.mu.Unlock()
+
+	env.send("برنامه‌ریزی کن و متن را تحلیل کن") // نوبت اول
+	env.send("ادامه بده")                        // نوبت دوم — فشرده‌سازی اینجا
+
+	// خودِ فشرده‌سازی باید در میانه‌ی نوبت رخ داده باشد (اعلان یک‌بار)
+	compacted := false
+	for _, n := range env.noticesText() {
+		if strings.Contains(n, "فشرده شد") {
+			compacted = true
+		}
+	}
+	if !compacted {
+		t.Fatalf("mid-turn compaction must fire for this scenario (notices: %v)", env.noticesText())
+	}
+	// و نشانگرِ حامل کارها در حداقل یک درخواست رسیده باشد
+	sawMarker := false
+	for _, r := range env.model.requests() {
+		for _, m := range r.Messages {
+			if isContextDropMarker(m) {
+				sawMarker = true
+			}
+		}
+	}
+	if !sawMarker {
+		t.Fatal("context-drop marker must appear in the outgoing requests after compaction")
+	}
+}
+
+// ---------------------------------------------------------------- سناریوی ۱۱
+
+// TestScenarioStopAtThreeMomentsClean — D.1.11: توقف در سه لحظه‌ی مختلف
+// (حین استریم اول، حین استریم بعد از دور ابزار، حین اجرای دستور) — بدون
+// نشت گوروتین، بدون فایل نیمه‌نوشته و با گفتگوی معتبر.
+func TestScenarioStopAtThreeMomentsClean(t *testing.T) {
+	before := runtime.NumGoroutine()
+
+	// — لحظه‌ی ۱: حین استریم پاسخ نخست (هیچ ابزاری هنوز اجرا نشده)
+	hold1 := make(chan struct{})
+	reached1 := make(chan struct{}, 1)
+	envA := newE2E(t, scenarioStep{Text: "پاسخی که هرگز کامل نمی‌شود", Hold: hold1, Reached: reached1})
+	if _, err := envA.app.SendMessage(envA.convID, "سلام", nil); err != nil {
+		t.Fatal(err)
+	}
+	waitReached(t, reached1)
+	envA.app.StopGeneration()
+	close(hold1)
+	waitStreamDone(t, envA.app)
+	if !envA.lastAborted(t) {
+		t.Fatal("moment 1: the turn must end aborted")
+	}
+
+	// — لحظه‌ی ۲: حین استریم دوم، بعد از یک دور ابزارِ کامل (write_file)
+	full := strings.Repeat("line of complete content\n", 2000) // ≈ 50KB
+	hold2 := make(chan struct{})
+	reached2 := make(chan struct{}, 1)
+	envB := newE2E(t,
+		stepTool("c1", "write_file", `{"path":"big.txt","content":`+strconv.Quote(full)+`}`),
+		scenarioStep{Text: "ادامه‌ی پاسخ", Hold: hold2, Reached: reached2},
+	)
+	if _, err := envB.app.SendMessage(envB.convID, "فایل بزرگ بساز", nil); err != nil {
+		t.Fatal(err)
+	}
+	waitReached(t, reached2)
+	envB.app.StopGeneration()
+	close(hold2)
+	waitStreamDone(t, envB.app)
+	if got := envB.readFile("big.txt"); got != full {
+		t.Fatalf("moment 2: written file must be complete, not half-written (len %d vs %d)", len(got), len(full))
+	}
+	if _, err := envB.app.loadConversationForTest(envB.convID); err != nil {
+		t.Fatalf("moment 2: conversation file must stay loadable: %v", err)
+	}
+
+	// — لحظه‌ی ۳: حین اجرای یک دستور واقعی؛ بلافاصله پس از تأییدِ مودال Stop
+	// می‌زنیم — لغو باید داخل اجرای sleep فرود بیاید (kill فرایند).
+	started := make(chan struct{}, 1)
+	envC := newE2E(t,
+		stepTool("c1", "run_command", `{"command":"sleep 2"}`),
+		stepText("هرگز به اینجا نمی‌رسیم."),
+	)
+	envC.decide = permRespondAllow
+	prevAsk := envC.app.permAskEmit
+	envC.app.permAskEmit = func(ask *permissionAsk) {
+		prevAsk(ask)
+		started <- struct{}{}
+	}
+	if _, err := envC.app.SendMessage(envC.convID, "یک لحظه صبر کن", nil); err != nil {
+		t.Fatal(err)
+	}
+	waitReached(t, started)
+	envC.app.StopGeneration()
+	waitStreamDone(t, envC.app)
+	if !envC.lastAborted(t) {
+		t.Fatal("moment 3: cancelling during a command must abort the turn")
+	}
+	// فایل نیمه‌نوشته‌ای در پوشه‌ی کاری جا نمانده باشد (دستور فقط خوابید)
+	for _, junk := range []string{"out.txt", "sleep.out"} {
+		if _, err := os.Stat(filepath.Join(envC.ws(), junk)); err == nil {
+			t.Fatalf("moment 3: stray file %q must not exist", junk)
+		}
+	}
+
+	// — بدون نشت گوروتین: سرورها بسته می‌شوند و شمارش به خط پایه برمی‌گردد
+	envA.shutdown()
+	envB.shutdown()
+	envC.shutdown()
+	deadline := time.Now().Add(5 * time.Second)
+	after := runtime.NumGoroutine()
+	for time.Now().Before(deadline) && after > before+3 {
+		time.Sleep(150 * time.Millisecond)
+		after = runtime.NumGoroutine()
+	}
+	if after > before+3 {
+		t.Fatalf("goroutine leak after three stops: before=%d after=%d", before, after)
+	}
 }
