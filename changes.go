@@ -464,6 +464,10 @@ func (a *App) writeFileWithConfirm(ctx context.Context, rel, afterContent string
 		return "ERROR: the user REJECTED this change to '" + rel + "'. Ask them why or propose a different approach. Do NOT retry the same write immediately.", false
 	}
 
+	// نقطه‌ی بازگشت پروژه (B): پیش از اولین تغییر واقعیِ نوبت — پس از تأیید
+	// کاربر و بیرون از هر قفلی.
+	a.ensureTurnCheckpoint(ctx)
+
 	// بکاپ نسخه‌ی قبلی
 	backupName, berr := a.backupOriginal(p)
 	if berr != nil {
@@ -533,6 +537,7 @@ func (a *App) movePathWithConfirm(ctx context.Context, from, to string) (string,
 		a.recordRejectedChange(preview)
 		return "ERROR: the user REJECTED moving '" + from + "' to '" + to + "'.", false
 	}
+	a.ensureTurnCheckpoint(ctx)
 	backupName, berr := a.backupOriginal(src)
 	if berr != nil {
 		return "ERROR: could not back up: " + berr.Error(), false
@@ -611,6 +616,8 @@ func (a *App) deletePathWithConfirm(ctx context.Context, rel string) (string, bo
 		a.recordRejectedChange(preview)
 		return "ERROR: the user REJECTED deleting '" + rel + "'.", false
 	}
+	// نقطه‌ی بازگشت پروژه (B) — پس از تأیید کاربر، پیش از حذف.
+	a.ensureTurnCheckpoint(ctx)
 	if err := os.Remove(p); err != nil {
 		if isDir {
 			return "ERROR: " + err.Error() + " (non-empty directory? recursive deletion is blocked; remove files one by one).", false

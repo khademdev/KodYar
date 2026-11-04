@@ -51,5 +51,25 @@
     };
     app.GetTurnChanges = async function () { return []; };
     app.RevertTurnChanges = async function () { return { reverted: [], conflicts: [], errors: [] }; };
+    // نقطه‌ی بازگشت پروژه (مرحله B) — داده‌ی نمونه برای دیدن مودال پیش‌نمایش
+    app.PreviewCheckpointRestore = async function () {
+      return {
+        available: true,
+        rewrite: ["src/agent.go", "package.json"],
+        trash: ["dist/build.out"],
+        unchanged: ["go.mod", "README.md"],
+        skipped: [],
+        error: ""
+      };
+    };
+    app.RestoreCheckpoint = async function () {
+      return {
+        restored: ["src/agent.go", "package.json"],
+        trashed: ["dist/build.out"],
+        skipped: [],
+        errors: [],
+        trashDir: "C:\\\\Users\\\\User\\\\AppData\\\\Roaming\\\\MyAI\\\\trash\\\\demo"
+      };
+    };
   }
 })();

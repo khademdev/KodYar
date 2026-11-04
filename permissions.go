@@ -246,6 +246,11 @@ func (a *App) gateCommand(ctx context.Context, command string, forceAsk bool, re
 		if !a.requestCommandPermission(ctx, command, e.sensitive) {
 			return false, "ERROR: " + rejectMsg
 		}
+		// نقطه‌ی بازگشت پروژه (B): دستورِ غیرِ لیست‌سفید ممکن است فایل
+		// بسازد/عوض کند — پس از تأیید کاربر و پیش از اجرا از کل پروژه
+		// snapshot می‌گیریم. دستورهای خودکارِ فقط‌خواندنی (go test) آن را
+		// نمی‌سازند تا هزینه‌ی بی‌مورد نپردازیم.
+		a.ensureTurnCheckpoint(ctx)
 	}
 	return true, ""
 }

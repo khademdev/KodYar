@@ -127,3 +127,7 @@ export function TestProvider(arg1:string,arg2:string):Promise<void>;
 export function ToggleFullscreen():Promise<void>;
 
 export function SetProxySettings(arg1:string,arg2:string):Promise<void>;
+
+export function PreviewCheckpointRestore(arg1:string,arg2:number):Promise<main.CheckpointRestorePreview>;
+
+export function RestoreCheckpoint(arg1:string,arg2:number):Promise<main.CheckpointRestoreReport>;

@@ -965,3 +965,61 @@ usage/بازرسی بدنه‌ی درخواست)، مسیریابی برای ز�
 
 **گيت:** سبز — gofmt خالی · vet ok · build ok · `go test -race -count=1` ok
 (۱۱۳.۰s) · vet ویندوز/لینوکس ok.
+
+## Mission 3 — Stage B — نقطه‌ی بازگشت پروژه (undo برای اثرهای جانبی دستورها) — DONE (2026-11-04)
+
+**هدف:** پیش از اولین عمل تغییردهنده‌ی هر نوبت، از کل پروژه snapshot بگیر تا حتی
+اثرهای جانبی `run_command` هم برگشت‌پذیر باشند — **بدون** دست‌زدن به HEAD،
+ایندکس یا working tree کاربر در زمان ساخت، و **بدون** حذف داده در زمان بازگردانی.
+
+**ساخت (`checkpoint.go`):** فقط اگر `git` موجود و پوشه‌ی کاری work tree باشد؛
+ایندکس موقت با `GIT_INDEX_FILE` → `git add -A` (`.gitignore` رعایت می‌شود) →
+`git write-tree` → `git commit-tree` (هویت از env، والد = HEAD اگر باشد) →
+`git update-ref refs/myai/checkpoints/<convID>-<turnID>`. سقف زمانی ۱۰s،
+خروجی git کران‌دار (`newCappedGitBuffer`)، پاک‌سازی فایل ایندکس موقت؛
+خطا/تایم‌اوت = رد شدن با یک اعلان فارسی، **هرگز** بلاک‌کردن نوبت. حداکثر ۲۰
+ref در هر پوشه (قدیمی‌ترها prune می‌شوند).
+
+**محرک (lazy، یک‌بار در هر نوبت):** `writeFileWithConfirm`/`movePathWithConfirm`/
+`deletePathWithConfirm` پس از تأیید کاربر و پیش از بکاپ، و `gateCommand` روی
+شاخه‌ی `permAsk` **پس از** تأیید تا مودال تأخیر نگیرد. دستورهای خودکارِ
+فقط‌خواندنی (`go test`, `git status`, …) snapshot نمی‌سازند.
+
+**پیش‌نمایش/بازگردانی (دو متد exported + بایندینگ دستی):**
+`PreviewCheckpointRestore(convID, turnID)` → `CheckpointRestorePreview`
+(`rewrite` / `trash` / `unchanged` / `skipped` / `error`)، و
+`RestoreCheckpoint(convID, turnID)` → `CheckpointRestoreReport`
+(`restored` / `trashed` / `skipped` / `errors` / `trashDir`).
+snapshot در پوشه‌ی موقتِ کانفیگ materialize می‌شود (`git archive`/checkout-index
+با بافر کران‌دار) و مقایسه بایت‌به‌بایت است.
+
+**بازگردانی هرگز حذف نمی‌کند:** فایل‌های اضافه/تغییریافته اول به
+`<configDir>/trash/<workspace-hash>/<timestamp>/` منتقل می‌شوند (خودِ
+بازگردانی هم undo-پذیر است)؛ فایل‌های ignore‌شده لمس نمی‌شوند؛ مسیرهای فرار
+(`..`, مطلق, `C:\…`) رد می‌شوند (`safeCheckpointRel`/`checkpointAbs`)؛
+symlink‌ها skip می‌شوند. سبد زباله در startup پاک‌سازی می‌شود
+(قدیمی‌تر از ۱۴ روز یا بیش از ۵۰۰MB best-effort).
+
+**قفل:** `checkpointMu` (برگ) فقط برای mapهای `checkpointTurns`/`checkpointNotified`؛
+هیچ I/O و هیچ git ای زیر آن نیست. در lock order همان ردیف «قفل‌های برگ» ثبت شد.
+
+**UI:** در کارت «خلاصه‌ی واقعی این نوبت» دکمه‌ی
+«بازگردانی کل پروژه به قبل از این نوبت» → مودال پیش‌نمایش (تعدادها + فهرست‌ها،
+مسیرها `dir="ltr"` + isolate) → «بازگردانی کن» (btn-danger) + «انصراف».
+مودال با همان `modal-overlay`/`open` ساخته می‌شود (اورلی بدون `open` نامرئی
+می‌ماند — درس انتشار قبلی). چیپ «سقف توکن این نوبت پر شد» هم به کارت اضافه شد
+(فیلدهای A.4). Mock-mode: `PreviewCheckpointRestore`/`RestoreCheckpoint` نمونه.
+
+**تست‌ها (`checkpoint_test.go`، با مخزن git واقعی موقت؛ بدون git → skip):**
+ساخت نقطه‌ی بازگشت HEAD/ایندکس/`git status --porcelain` را بایت‌به‌بایت دست‌نخورده
+می‌گذارد؛ والد = HEAD؛ بازگردانی پس از ویرایش+حذف+فایل تازه بایت‌به‌بایت و
+سبد زباله پر؛ فایل ignore‌شده لمس نمی‌شود؛ BOM+CRLF+فارسی/ZWNJ و نام‌های
+فارسی حفظ می‌شود؛ prune = ۲۰؛ پوشه‌ی غیر-git بی‌اثر؛ زمینه‌ی لغوشده → خطا و
+بدون ref نیمه‌کاره؛ مخزن بدون کامیت؛ رد مسیرهای فرار؛ sweep سبد زباله.
+
+**باگ واقعی کشف‌شده در تست:** `PreviewCheckpointRestore` پوشه‌ی materialize را
+پیش از مقایسه پاک می‌کرد و همه‌ی فایل‌ها را «بدون تغییر» می‌دید → `defer cleanup()`.
+
+**گيت:** سبز — gofmt خالی · vet ok · build ok · `go test -race -count=1` ok
+(۱۵۰.۰s) · vet ویندوز/لینوکس ok. (گیت یک‌بار با `checkpoint_test.go` غیر-gofmt
+هم «سبز» گزارش شد؛ نقص `scripts/gate.sh` در مرحله C اصلاح می‌شود.)

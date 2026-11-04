@@ -161,13 +161,25 @@
       card.appendChild(tok);
     }
 
-    // دکمه‌های برگرداندن — فقط وقتی فایل برگشت‌پذیر مانده است
+    // سقف توکن (A.4): نوبت به‌خاطر سقف تنظیم‌شده متوقف شد
+    if (s.tokenCapHit) {
+      var cap = document.createElement("div");
+      cap.className = "ts-warn ts-cap";
+      cap.textContent =
+        "سقف توکن این نوبت پر شد" +
+        (s.tokenCap ? " (" + fa(s.tokenCap) + " توکن)" : "") +
+        " — نوبت متوقف شد؛ می‌توانید ادامه بدهید";
+      card.appendChild(cap);
+    }
+
+    var foot = document.createElement("div");
+    foot.className = "ts-foot";
+
+    // دکمه‌ی برگرداندن فایل‌ها — فقط وقتی فایل برگشت‌پذیر مانده است
     var hasRevertible = (s.files || []).some(function (f) {
       return !f.reverted;
     });
     if (hasRevertible) {
-      var foot = document.createElement("div");
-      foot.className = "ts-foot";
       var bAll = document.createElement("button");
       bAll.type = "button";
       bAll.className = "btn btn-ghost btn-sm";
@@ -176,8 +188,21 @@
         revertTurn(s, card);
       });
       foot.appendChild(bAll);
-      card.appendChild(foot);
     }
+
+    // بازگردانی کل پروژه (B) — از جمله اثرهای جانبی دستورها
+    if (s.turnId) {
+      var bCp = document.createElement("button");
+      bCp.type = "button";
+      bCp.className = "btn btn-ghost btn-sm ts-cp-btn";
+      bCp.textContent = "بازگردانی کل پروژه به قبل از این نوبت";
+      bCp.addEventListener("click", function () {
+        openCheckpointModal(s, bCp);
+      });
+      foot.appendChild(bCp);
+    }
+
+    if (foot.childNodes.length) card.appendChild(foot);
     return card;
   }
 
@@ -347,6 +372,188 @@
         });
     });
   }
+
+  /* ------------------------------------------- بازگردانی کل پروژه (مرحله B) */
+
+  // یک بخش «چند فایل با فهرست» برای مودال پیش‌نمایش.
+  function cpSection(title, list, cls) {
+    var wrap = document.createElement("div");
+    wrap.className = "ts-cp-section";
+    var h = document.createElement("div");
+    h.className = "ts-cp-section-title " + (cls || "");
+    h.textContent = title + " (" + fa((list || []).length) + ")";
+    wrap.appendChild(h);
+    if (!(list || []).length) {
+      var none = document.createElement("div");
+      none.className = "ts-cp-none";
+      none.textContent = "—";
+      wrap.appendChild(none);
+      return wrap;
+    }
+    var ul = document.createElement("div");
+    ul.className = "ts-cp-list";
+    var max = 200;
+    list.slice(0, max).forEach(function (p) {
+      var row = document.createElement("div");
+      row.className = "ts-cp-path";
+      row.setAttribute("dir", "ltr");
+      row.textContent = p;
+      ul.appendChild(row);
+    });
+    if (list.length > max) {
+      var more = document.createElement("div");
+      more.className = "ts-cp-none";
+      more.textContent = "… و " + fa(list.length - max) + " مورد دیگر";
+      ul.appendChild(more);
+    }
+    wrap.appendChild(ul);
+    return wrap;
+  }
+
+  function openCheckpointModal(s, trigger) {
+    var be = backend();
+    if (!be || typeof be.PreviewCheckpointRestore !== "function") {
+      if (window.toast) window.toast("در حالت پیش‌نمایش مرورگر، بازگردانی کل پروژه فعال نیست", "info");
+      return;
+    }
+    if (trigger) trigger.disabled = true;
+
+    var overlay = document.createElement("div");
+    overlay.className = "modal-overlay ts-cp-overlay";
+    overlay.id = "checkpoint-overlay";
+    var modal = document.createElement("div");
+    modal.className = "modal modal-lg ts-cp-modal";
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+
+    var head = document.createElement("div");
+    head.className = "modal-head";
+    var title = document.createElement("div");
+    title.className = "modal-title";
+    title.textContent = "بازگردانی کل پروژه — قبل از نوبت " + fa(s.turnId || 0);
+    var close = document.createElement("button");
+    close.className = "modal-close";
+    close.title = "بستن";
+    close.textContent = "×";
+    head.appendChild(title);
+    head.appendChild(close);
+
+    var body = document.createElement("div");
+    body.className = "modal-body";
+    var loading = document.createElement("div");
+    loading.className = "ts-cp-none";
+    loading.textContent = "در حال مقایسه‌ی پروژه با نقطه‌ی بازگشت…";
+    body.appendChild(loading);
+
+    var foot = document.createElement("div");
+    foot.className = "modal-foot";
+    var spacer = document.createElement("span");
+    spacer.className = "spacer";
+    var bCancel = document.createElement("button");
+    bCancel.type = "button";
+    bCancel.className = "btn btn-ghost";
+    bCancel.textContent = "انصراف";
+    var bGo = document.createElement("button");
+    bGo.type = "button";
+    bGo.className = "btn btn-danger";
+    bGo.textContent = "بازگردانی کن";
+    bGo.disabled = true;
+    foot.appendChild(spacer);
+    foot.appendChild(bCancel);
+    foot.appendChild(bGo);
+
+    modal.appendChild(head);
+    modal.appendChild(body);
+    modal.appendChild(foot);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    // بدون کلاس open اورلی نامرئی و غیرقابل‌کلیک می‌ماند (درس انتشار قبلی)
+    requestAnimationFrame(function () {
+      overlay.classList.add("open");
+    });
+
+    var closed = false;
+    function close_() {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener("keydown", onKey);
+      if (overlay.parentNode) document.body.removeChild(overlay);
+      if (trigger) trigger.disabled = false;
+    }
+    function onKey(e) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        close_();
+      }
+    }
+    close.addEventListener("click", close_);
+    bCancel.addEventListener("click", close_);
+    overlay.addEventListener("mousedown", function (e) {
+      if (e.target === overlay) close_();
+    });
+    document.addEventListener("keydown", onKey);
+
+    be.PreviewCheckpointRestore(s.conversationId, s.turnId)
+      .then(function (pv) {
+        pv = pv || {};
+        body.textContent = "";
+        if (!pv.available) {
+          var err = document.createElement("div");
+          err.className = "ts-cp-error";
+          err.textContent = pv.error || "برای این نوبت نقطه‌ی بازگشتی ثبت نشده است.";
+          body.appendChild(err);
+          return;
+        }
+        var note = document.createElement("div");
+        note.className = "ts-cp-note";
+        note.textContent =
+          "فایل‌های پروژه به وضعیت قبل از این نوبت برمی‌گردند. نسخه‌ی فعلی پاک نمی‌شود و در سبد زباله نگه داشته می‌شود.";
+        body.appendChild(note);
+        body.appendChild(cpSection("بازنویسی می‌شود", pv.rewrite, "rw"));
+        body.appendChild(cpSection("به سبد زباله می‌رود", pv.trash, "tr"));
+        body.appendChild(cpSection("بی‌تغییر", pv.unchanged, "un"));
+        if ((pv.skipped || []).length) {
+          body.appendChild(cpSection("نادیده گرفته می‌شود (پیوند نمادین)", pv.skipped, "sk"));
+        }
+        var total = (pv.rewrite || []).length + (pv.trash || []).length;
+        bGo.disabled = total === 0;
+        bGo.textContent = total === 0 ? "تغییری برای بازگردانی نیست" : "بازگردانی کن";
+      })
+      .catch(function (err) {
+        body.textContent = "";
+        var e2 = document.createElement("div");
+        e2.className = "ts-cp-error";
+        e2.textContent = String(err && err.message ? err.message : err);
+        body.appendChild(e2);
+      });
+
+    bGo.addEventListener("click", function () {
+      bGo.disabled = true;
+      be.RestoreCheckpoint(s.conversationId, s.turnId)
+        .then(function (rep) {
+          rep = rep || {};
+          var parts = [];
+          if ((rep.restored || []).length) parts.push(fa(rep.restored.length) + " فایل بازگردانده شد");
+          if ((rep.trashed || []).length) parts.push(fa(rep.trashed.length) + " فایل به سبد زباله رفت");
+          if ((rep.errors || []).length) parts.push(fa(rep.errors.length) + " خطا");
+          if (window.toast)
+            window.toast(parts.length ? parts.join(" · ") : "تغییری برای بازگردانی نبود", (rep.errors || []).length ? "err" : "ok");
+          close_();
+          refreshCard(s, trigger ? trigger.closest(".ts-card") : null);
+          if (window.MyAIChanges && window.MyAIChanges.refreshBadge) window.MyAIChanges.refreshBadge();
+        })
+        .catch(function (err) {
+          bGo.disabled = false;
+          if (window.toast) window.toast(String(err && err.message ? err.message : err), "err");
+        });
+    });
+  }
+
+  // برای تست‌های قراردادی/مرورگر (Mock mode)
+  window.MyAITurnSummary = {
+    openCheckpointModal: openCheckpointModal,
+    makeCard: makeCard
+  };
 
   /* --------------------------------------------------------------- رویدادها */
 

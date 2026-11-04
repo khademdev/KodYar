@@ -152,6 +152,23 @@ export namespace main {
 		errors: string[];
 	}
 
+	export class CheckpointRestorePreview {
+		available: boolean;
+		rewrite: string[];
+		trash: string[];
+		unchanged: string[];
+		skipped: string[];
+		error?: string;
+	}
+
+	export class CheckpointRestoreReport {
+		restored: string[];
+		trashed: string[];
+		skipped: string[];
+		errors: string[];
+		trashDir?: string;
+	}
+
 	export class RulesInfo {
 		enabled: boolean;
 		userRules: string;

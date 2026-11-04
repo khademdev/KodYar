@@ -11,7 +11,17 @@ a.genMu  →  a.changes.mu  →  a.mu  →  a.mcp.mu   (never acquire in reverse
 a.permAskMu → a.changes.mu              (dialog serialization — see below)
 errLogMu, a.configDirOnce, calibMu      (leaf locks; never held while taking others)
 a.mcp.mu                                (leaf lock — MCP server registry, see below)
+a.checkpointMu, a.readStore.mu, a.factsCache.mu  (leaf locks — Mission 3)
 ```
+
+- `a.checkpointMu` (Mission 3, `checkpoint.go`) guards only two `map`s:
+  which (conversation, turn) pairs were already attempted and which notices
+  were already shown. Leaf: never held across git exec, disk I/O or
+  `runtimeEmit`.
+- `a.readStore.mu` (`fileread.go`) guards the bounded read-before-write LRU
+  (≤500 paths × 16 conversations); `a.factsCache.mu` (`projectfacts.go`)
+  guards the memoized project facts. Both are leaf locks held only while
+  copying small structs — file I/O happens outside.
 
 - `a.mcp.mu` (inside `a.mcp`, `mcpmanager.go`) guards the MCP server
   registry (live clients, per-server status/backoff bookkeeping, config

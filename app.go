@@ -99,6 +99,13 @@ type App struct {
 	// factsCache کش «واقعیت‌های پروژه» (projectfacts.go) بر اساس مسیر
 	// پوشه‌ی کاری و اثر انگشت فایل‌های تعریف ساخت. قفل داخلی — برگ.
 	factsCache projectFactsCache
+
+	// checkpointMu قفل برگِ وضعیت نقطه‌ی بازگشت (checkpoint.go): کدام
+	// (گفتگو، نوبت) قبلاً تلاش شده و کدام اعلان‌ها قبلاً دیده شده‌اند.
+	// هیچ I/O و هیچ git ای زیر این قفل انجام نمی‌شود.
+	checkpointMu       sync.Mutex
+	checkpointTurns    map[string]bool
+	checkpointNotified map[string]bool
 }
 
 // NewApp ساخت نمونه‌ی اپ.
@@ -136,6 +143,11 @@ func (a *App) startup(ctx context.Context) {
 	if cdir, cerr := a.configDir(); cerr == nil {
 		if n := sweepStaleTempFiles(cdir); n > 0 {
 			runtime.LogWarningf(ctx, "startup: swept %d stale .tmp file(s)", n)
+		}
+		// سبد زباله‌ی نقطه‌ی بازگشت: قدیمی‌تر از ۱۴ روز یا بیش از ۵۰۰MB
+		// (best-effort؛ بازگردانی هرگز داده را بی‌اطلاع حذف نمی‌کند).
+		if n := sweepCheckpointTrash(cdir); n > 0 {
+			runtime.LogWarningf(ctx, "startup: swept %d old checkpoint trash folder(s)", n)
 		}
 	}
 }

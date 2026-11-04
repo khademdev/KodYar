@@ -225,3 +225,101 @@
   border-radius: 8px;
   padding: 6px 10px;
 }
+
+/* ---------------- بازگردانی کل پروژه (مرحله B) ---------------- */
+
+.ts-foot {
+  flex-wrap: wrap;
+}
+
+.ts-cp-btn {
+  /* دکمه‌ی «بازگردانی کل پروژه» — هم‌رده با «برگرداندن همه‌ی تغییرات» */
+  border-style: dashed;
+}
+
+.ts-cap {
+  align-self: flex-start;
+}
+
+/* مودال پیش‌نمایش: فقط استایل‌های اختصاصی؛ چیدمان پایه از .modal-* می‌آید. */
+.ts-cp-modal .modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 56vh;
+}
+
+.ts-cp-note {
+  font-size: calc(var(--ui-size, 14px) - 2px);
+  line-height: 1.9;
+  color: var(--text2);
+  background: var(--bg-soft, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+
+.ts-cp-error {
+  font-size: calc(var(--ui-size, 14px) - 2px);
+  line-height: 1.9;
+  color: var(--danger, #ef6a6a);
+  background: var(--danger-soft, rgba(239, 106, 106, 0.12));
+  border: 1px solid rgba(239, 106, 106, 0.35);
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+
+.ts-cp-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ts-cp-section-title {
+  font-size: calc(var(--ui-size, 14px) - 1.5px);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.ts-cp-section-title.rw {
+  color: var(--warn, #e0a24a);
+}
+
+.ts-cp-section-title.tr {
+  color: var(--danger, #ef6a6a);
+}
+
+.ts-cp-section-title.un {
+  color: var(--text3, var(--text2));
+}
+
+.ts-cp-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 150px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 8px;
+  background: var(--bg-soft, transparent);
+}
+
+.ts-cp-path {
+  font-family: var(--font-code, monospace);
+  font-size: calc(var(--ui-size, 14px) - 2.5px);
+  color: var(--text2);
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ts-cp-none {
+  font-size: calc(var(--ui-size, 14px) - 2.5px);
+  color: var(--text3, var(--text2));
+}

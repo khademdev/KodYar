@@ -253,3 +253,11 @@ export function ToggleFullscreen() {
 export function SetProxySettings(arg1, arg2) {
   return window['go']['main']['App']['SetProxySettings'](arg1, arg2);
 }
+
+export function PreviewCheckpointRestore(arg1, arg2) {
+  return window['go']['main']['App']['PreviewCheckpointRestore'](arg1, arg2);
+}
+
+export function RestoreCheckpoint(arg1, arg2) {
+  return window['go']['main']['App']['RestoreCheckpoint'](arg1, arg2);
+}
