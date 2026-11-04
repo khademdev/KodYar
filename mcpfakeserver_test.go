@@ -176,7 +176,14 @@ func mcpFakeServer(mode string) {
 				reply(msg.ID, map[string]interface{}{"isError": true,
 					"content": []map[string]interface{}{{"type": "text", "text": "tool exploded"}}})
 			case "slow":
-				select {} // هنگ — تستِ timeout/cancel این را می‌شکند
+				// هنگ ابدی — تستِ timeout/cancel این را می‌شکند. عمداً Sleep
+				// به‌جای select{} است: بدون -race، کانال/selectِ خالی باعث
+				// «all goroutines are asleep - deadlock!» بودنِ فرایند فرزند
+				// می‌شد و تست تصادفی می‌افتاد (تایمر، runtime را زنده نگه
+				// می‌دارد و رفتار «هنگ» عوض نمی‌شود).
+				for {
+					time.Sleep(time.Hour)
+				}
 			case "big":
 				reply(msg.ID, map[string]interface{}{"content": []map[string]interface{}{
 					{"type": "text", "text": strings.Repeat("A", 40*1024)},

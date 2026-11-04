@@ -496,6 +496,10 @@ func TestRevertTurnChangesByteExact(t *testing.T) {
 		t.Fatal(err)
 	}
 	modified := []byte("\xef\xbb\xbfجایگزین\r\n")
+	// محافظ A.1: بازنویسی فایلِ موجود نیاز به خواندن قبلی دارد.
+	if r, ok := a.toolReadFile(ctx, "legacy.txt", 0, 0); !ok {
+		t.Fatal(r)
+	}
 	if r, ok := a.toolWriteFile(ctx, "legacy.txt", string(modified)); !ok {
 		t.Fatal(r)
 	}

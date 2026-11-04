@@ -63,6 +63,12 @@ type App struct {
 	// قرارداد todosEmit — فقط پیش از هم‌زمانی‌ها تنظیم شود.
 	permAskEmit func(ask *permissionAsk)
 
+	// eventEmit جایگزین تستیِ runtimeEmit: اگر تنظیم شود، هر رویداد (نام +
+	// payload) فقط به آن داده می‌شود — برای سناریوهای ساخت‌یافته‌ی
+	// مرحله D (شمارش مودال/نوتیس/خلاصه‌ی نوبت) بدون UI و بدون Wails.
+	// همان قرارداد todosEmit: فقط پیش از هم‌زمانی‌ها تنظیم شود.
+	eventEmit func(name string, data []interface{})
+
 	// mcp مدیر سرورهای MCP (mcpmanager.go). قفل برگ (mcp.mu) — هرگز
 	// گرفته‌شده‌ی a.mu حرف با سرور نمی‌زند؛ ترتیب کامل در ARCHITECTURE.md.
 	mcp *mcpManager
@@ -84,6 +90,15 @@ type App struct {
 	// turnCounter شمارنده‌ی صعودیِ شناسه‌ی نوبت‌ها (turnreview.go) — atomic،
 	// بدون قفل؛ هر streamChat یک مقدار می‌گیرد.
 	turnCounter atomic.Int64
+
+	// readStore محافظ «خواندن پیش از نوشتن» (fileread.go): اثر انگشت
+	// فایل‌هایی که ایجنت خوانده/نوشته، به‌ازای هر گفتگو، با LRU کران‌دار.
+	// قفل داخلی‌اش برگ است و هیچ قفل دیگری زیرش گرفته نمی‌شود.
+	readStore fileReadStore
+
+	// factsCache کش «واقعیت‌های پروژه» (projectfacts.go) بر اساس مسیر
+	// پوشه‌ی کاری و اثر انگشت فایل‌های تعریف ساخت. قفل داخلی — برگ.
+	factsCache projectFactsCache
 }
 
 // NewApp ساخت نمونه‌ی اپ.
@@ -201,7 +216,14 @@ func (a *App) SelectFolder() (string, error) {
 // در تست‌ها (بدون Wails) EventsEmit با log.Fatal از بین می‌برد؛ فلگ uiReady
 // این مسیر را قطع می‌کند.
 func runtimeEmit(a *App, name string, data ...interface{}) {
-	if a == nil || a.ctx == nil || !a.uiReady.Load() {
+	if a == nil {
+		return
+	}
+	if a.eventEmit != nil {
+		a.eventEmit(name, data)
+		return
+	}
+	if a.ctx == nil || !a.uiReady.Load() {
 		return
 	}
 	runtime.EventsEmit(a.ctx, name, data...)

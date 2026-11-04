@@ -604,8 +604,10 @@ func (a *App) DeleteConversation(id string) error {
 	a.mu.Unlock()
 
 	// بیرون از a.mu: پاک‌سازی تاریخچهٔ تغییرات فایل و بکاپ‌های همان گفتگو
-	// (فایل‌های واقعی پروژه دست نخورده می‌مانند).
+	// (فایل‌های واقعی پروژه دست نخورده می‌مانند) و رکوردهای «خوانده‌شده‌ی»
+	// همان گفتگو (حافظه‌ی کران‌دار fileread.go).
 	a.purgeChangesForConversation(id)
+	a.readStore.dropConversation(id)
 	return nil
 }
 
@@ -634,8 +636,10 @@ func (a *App) DeleteAllConversations() error {
 	a.sizeWarned = map[string]bool{}
 	a.mu.Unlock()
 
-	// بیرون از a.mu: پاک‌سازی کامل تاریخچهٔ تغییرات فایل و بکاپ‌ها
+	// بیرون از a.mu: پاک‌سازی کامل تاریخچهٔ تغییرات فایل و بکاپ‌ها +
+	// رکوردهای خواندن همه‌ی گفتگوها.
 	a.purgeAllFileChanges()
+	a.readStore.reset()
 	return nil
 }
 

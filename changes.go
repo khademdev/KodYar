@@ -408,9 +408,10 @@ func (a *App) currentConvID() string {
 }
 
 // writeFileWithConfirm کل چرخه‌ی امن نوشتن فایل:
-// محاسبه‌ی diff → درخواست تأیید → بکاپ → نوشتن → ثبت رکورد → رویداد UI.
+// محافظ خواندن‌پیش‌از‌نوشتن → محاسبه‌ی diff → درخواست تأیید → بکاپ →
+// نوشتن → ثبت رکورد (تغییر + اثر انگشت) → رویداد UI.
 // اگر کاربر رد کند، رکوردِ «ردشده» ثبت می‌شود و خطای مناسب به مدل برمی‌گردد.
-func (a *App) writeFileWithConfirm(ctx context.Context, rel, afterContent string) (string, bool) {
+func (a *App) writeFileWithConfirm(ctx context.Context, rel, afterContent string, intent writeIntent) (string, bool) {
 	p, err := a.resolveWorkspacePath(rel)
 	if err != nil {
 		return "ERROR: " + err.Error(), false
@@ -423,6 +424,12 @@ func (a *App) writeFileWithConfirm(ctx context.Context, rel, afterContent string
 		return "ERROR: " + rerr.Error(), false
 	}
 	beforeStr := string(before)
+	// محافظ A.1 — پیش از هر پرسش/نوشتنی: فایل موجود باید خوانده شده و
+	// بدون تغییر مانده باشد (هش محتوای فعلی همین‌جا محاسبه شده).
+	guard := a.checkWriteGuard(ctx, rel, p, before, existed, intent)
+	if guard.Err != "" {
+		return guard.Err, false
+	}
 
 	// diff
 	kind := ChangeModify
@@ -475,8 +482,17 @@ func (a *App) writeFileWithConfirm(ctx context.Context, rel, afterContent string
 	rec.ContentSHA256 = sha256Hex([]byte(afterContent))
 	a.recordAppliedChange(rec)
 	turnRecorderFrom(ctx).recordFileChange()
-	return fmt.Sprintf("OK: %s '%s' (+%d/-%d lines) — %s; revertible from the «file changes» panel.",
-		map[string]string{ChangeCreate: "created", ChangeModify: "updated"}[kind], rel, added, removed, changeApprovalNote(a.changeNeedsConfirm(&rec))), true
+	// فایلِ نوشته‌شده از این پس «خوانده‌شده» است (نوشتن دوباره/bi‌نیاز از
+	// خواندن دوباره، چون ایجنت دقیقاً همین محتوا را گذاشته).
+	if post, serr := os.Stat(p); serr == nil {
+		a.noteFileRead(ctx, a.convIDForTools(ctx), p, fileReadRecord{
+			Size:   post.Size(),
+			ModNS:  post.ModTime().UnixNano(),
+			SHA256: rec.ContentSHA256,
+		})
+	}
+	return fmt.Sprintf("OK: %s '%s' (+%d/-%d lines) — %s; revertible from the «file changes» panel.%s",
+		map[string]string{ChangeCreate: "created", ChangeModify: "updated"}[kind], rel, added, removed, changeApprovalNote(a.changeNeedsConfirm(&rec)), guard.Note), true
 }
 
 // movePathWithConfirm جابه‌جایی/تغییرنام با تأیید و بکاپ.
@@ -532,6 +548,14 @@ func (a *App) movePathWithConfirm(ctx context.Context, from, to string) (string,
 	// محتوا پس از rename در مقصد است — هش تعارض از dst خوانده می‌شود.
 	if data, rerr := os.ReadFile(dst); rerr == nil {
 		rec.ContentSHA256 = sha256Hex(data)
+		// رکورد خواندن: مبدأ دیگر وجود ندارد، مقصد «دیده‌شده» است.
+		convIDRead := a.convIDForTools(ctx)
+		a.readStore.forget(convIDRead, src)
+		modNS := int64(0)
+		if st, serr := os.Stat(dst); serr == nil {
+			modNS = st.ModTime().UnixNano()
+		}
+		a.noteFileRead(ctx, convIDRead, dst, fileReadRecord{Size: int64(len(data)), ModNS: modNS, SHA256: rec.ContentSHA256})
 	}
 	a.recordAppliedChange(rec)
 	turnRecorderFrom(ctx).recordFileChange()
@@ -597,6 +621,8 @@ func (a *App) deletePathWithConfirm(ctx context.Context, rel string) (string, bo
 	rec.BackupFile = backupName
 	a.recordAppliedChange(rec)
 	turnRecorderFrom(ctx).recordFileChange()
+	// فایلِ حذف‌شده دیگر رکورد خواندن ندارد (ساخت دوباره‌اش آزاد است).
+	a.readStore.forget(a.convIDForTools(ctx), p)
 	return fmt.Sprintf("OK: deleted '%s' — %s; revertible from the «file changes» panel.", rel, changeApprovalNote(a.changeNeedsConfirm(&rec))), true
 }
 

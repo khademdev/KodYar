@@ -264,6 +264,11 @@ func TestMultiEditMutualExclusionAndValidation(t *testing.T) {
 func TestMultiEditSingleFormBackwardCompatible(t *testing.T) {
 	a := newTestApp(t)
 	writeAppWsFile(t, a, "single.txt", "alpha beta\n")
+	// محافظ A.1: ویرایشگر فایلِ خوانده‌شده پیامِ یادآوری نمی‌گیرد — این تست
+	// پیام «بدون تغییر» را می‌سنجد، پس فایل اول خوانده می‌شود.
+	if r, ok := a.execTool("read_file", `{"path":"single.txt"}`); !ok {
+		t.Fatal(r)
+	}
 
 	// شکل تک‌ویرایش دقیقاً مثل قبل — شامل پیام نتیجه
 	res, ok := a.execTool("edit_file", `{"path":"single.txt","old_string":"alpha","new_string":"gamma"}`)

@@ -20,6 +20,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -83,6 +84,29 @@ type turnRecorder struct {
 	lastVerSeq int64
 	lastVerCmd string
 	commands   []turnCommandRecord
+	todos      []TodoItem // آخرین فهرست کارهای همین نوبت (بند A.5)
+	capHit     bool       // نوبت به‌خاطر سقف توکن متوقف شد (بند A.4)
+	capLimit   int64      // مقدار آن سقف
+}
+
+// noteTokenCap ثبت می‌کند که نوبت به‌خاطر سقف توکن (مقدار limit) متوقف شد.
+func (r *turnRecorder) noteTokenCap(limit int64) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.capHit, r.capLimit = true, limit
+	r.mu.Unlock()
+}
+
+// tokenCapState وضعیت «توقف با سقف توکن» برای خلاصه‌ی نوبت.
+func (r *turnRecorder) tokenCapState() (bool, int64) {
+	if r == nil {
+		return false, 0
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.capHit, r.capLimit
 }
 
 // recordFileChange یک تغییر فایلِ موفق را ثبت می‌کند (توالی جلو می‌رود).
@@ -139,6 +163,86 @@ func (r *turnRecorder) snapshot() ([]turnCommandRecord, TurnVerification) {
 	return cmds, v
 }
 
+// needsVerification آیا از آخرین تغییر فایل، راستی‌آزماییِ موفقی اجرا نشده؟
+// پایه‌ی تذکر یک‌باره‌ی پایان نوبت (بند A.2) — همان رکوردهای امتیاز،
+// بدون محاسبه‌ی دوباره.
+func (r *turnRecorder) needsVerification() bool {
+	if r == nil {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.lastModSeq > 0 && r.lastVerSeq < r.lastModSeq
+}
+
+// hasTodos آیا رکورد نوبت فهرست کارها دارد؟
+func (r *turnRecorder) hasTodos() bool {
+	if r == nil {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.todos) > 0
+}
+
+// filesChanged آیا این نوبت اصلاً فایلی را تغییر داده است؟
+func (r *turnRecorder) filesChanged() bool {
+	if r == nil {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.lastModSeq > 0
+}
+
+// setTodos آخرین فهرست کارها را برای نشانگر فشرده‌سازی نگه می‌دارد (کپی).
+func (r *turnRecorder) setTodos(items []TodoItem) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.todos = append([]TodoItem(nil), items...)
+	r.mu.Unlock()
+}
+
+// سقف‌های بلوک کارها در نشانگر حذف کانتکست.
+const (
+	contextTodosMaxItems = 30
+	contextTodosMaxRunes = 200
+)
+
+// todosBlock بلوک انگلیسی فهرست کارها برای نشانگر «حذف کانتکست» (بند A.5)
+// — فهرست طرح کار پس از فشرده‌سازی از یاد مدل نمی‌رود. رشته‌ی خالی وقتی
+// فهرستی وجود ندارد. اندازه کران‌دار است (تعداد و طول هر مورد).
+func (r *turnRecorder) todosBlock() string {
+	if r == nil {
+		return ""
+	}
+	r.mu.Lock()
+	items := append([]TodoItem(nil), r.todos...)
+	r.mu.Unlock()
+	if len(items) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Current task checklist (from todo_write; it survives context compaction — keep it up to date and continue from the in_progress item):")
+	n := len(items)
+	if n > contextTodosMaxItems {
+		n = contextTodosMaxItems
+	}
+	for i := 0; i < n; i++ {
+		status := items[i].Status
+		if status == "" {
+			status = "pending"
+		}
+		b.WriteString("\n- [" + status + "] " + cutUTF8(items[i].Content, contextTodosMaxRunes))
+	}
+	if len(items) > n {
+		b.WriteString("\n- … " + strconv.Itoa(len(items)-n) + " more item(s)")
+	}
+	return b.String()
+}
+
 // TurnVerification وضعیت راستی‌آزمایی نوبت.
 type TurnVerification struct {
 	Ran     bool   `json:"ran"`               // اصلاً دستور راستی‌آزمایی اجرا شد؟
@@ -174,6 +278,42 @@ func isVerificationCommand(cmd string) bool {
 	return false
 }
 
+// verificationNudgeText تذکر یک‌باره‌ی راستی‌آزمایی (A.2) — انگلیسی، رو به مدل،
+// به‌عنوان پیام «user» در حلقه تزریق می‌شود.
+const verificationNudgeText = "You changed files in this turn but have not run a successful build or test since the last change. " +
+	"If the project has a build or test command, run it now and fix any failures; otherwise state explicitly that you could not verify the change."
+
+// tokenCapWarnPercent آستانه‌ی اعلان فارسیِ نزدیک‌شدن به سقف توکن نوبت.
+const tokenCapWarnPercent = 80
+
+// faGroup عدد را با جداکننده‌ی هزارگان و ارقام فارسی برمی‌گرداند (فقط برای
+// نمایش در متن فارسی؛ هیچ منطقی به آن وابسته نباشد).
+func faGroup(n int64) string {
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	digits := strconv.FormatInt(n, 10)
+	var b strings.Builder
+	for i, r := range digits {
+		if i > 0 && (len(digits)-i)%3 == 0 {
+			b.WriteRune('٬')
+		}
+		b.WriteRune('۰' + (r - '0'))
+	}
+	if neg {
+		return "-" + b.String()
+	}
+	return b.String()
+}
+
+// tokenCapStopNotice پیام فارسی توقف مودبانه به‌خاطر سقف مصرف توکن نوبت.
+func tokenCapStopNotice(spent, limit int64) string {
+	return "\n\n⚠️ مصرف توکن این نوبت به «سقف توکن هر نوبت» رسید (" + faGroup(spent) + " از " + faGroup(limit) + "). " +
+		"کار پس از این مرحله متوقف شد و گفتگو ذخیره شده است؛ با دکمه‌ی ادامه می‌توانید کار را پی بگیرید " +
+		"یا سقف را در تنظیمات ← پوشه‌ی کاری بیشتر کنید."
+}
+
 // ---------------------------------------------------------------- خلاصه‌ی نوبت
 
 // TurnSummaryFile فایلِ تغییرکرده‌ی نوبت (چکیده‌ی FileChange).
@@ -203,6 +343,10 @@ type TurnSummary struct {
 	Verification   TurnVerification    `json:"verification"`
 	Tokens         TurnTokens          `json:"tokens"`
 	At             int64               `json:"at"`
+	// TokenCapHit + TokenCap: نوبت به‌خاطر «سقف توکن هر نوبت» (۵.۳/A.4)
+	// متوقف شد. omitempty → خلاصه‌های قدیمی بدون تغییر بار می‌شوند.
+	TokenCapHit bool  `json:"tokenCapHit,omitempty"`
+	TokenCap    int64 `json:"tokenCap,omitempty"`
 }
 
 // سقف خلاصه‌های نگه‌داری‌شده در هر گفتگو (۴.۲).
@@ -230,6 +374,7 @@ func (a *App) emitTurnSummary(convID string, turnID int64, rec *turnRecorder, pr
 			MovedTo:   f.MovedTo,
 		})
 	}
+	capHit, capLimit := rec.tokenCapState()
 	ts := TurnSummary{
 		ConversationID: convID,
 		TurnID:         turnID,
@@ -238,6 +383,8 @@ func (a *App) emitTurnSummary(convID string, turnID int64, rec *turnRecorder, pr
 		Verification:   verification,
 		Tokens:         TurnTokens{Prompt: prompt, Completion: completion},
 		At:             timeNow(),
+		TokenCapHit:    capHit,
+		TokenCap:       capLimit,
 	}
 
 	// ذخیره‌ی محدود در گفتگو (بازکردن دوباره → نمایش) — a.mu کوتاه.

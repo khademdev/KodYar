@@ -1040,6 +1040,8 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 	// سقف دورهای ابزار — تنظیم قابل‌تغییر کاربر (پیش‌فرض ۲۵، محدوده‌ی ۵ تا ۲۰۰)؛
 	// زیر همان قفلِ بقیه‌ی تنظیمات خوانده و برای کل نوبت ثابت می‌شود.
 	maxRounds := clampMaxAgentRounds(a.settings.MaxAgentRounds)
+	// سقف مصرف توکن هر نوبت (A.4) — ۰ = خاموش؛ برای کل نوبت ثابت.
+	turnTokenCap := a.settings.MaxTurnTokens
 	// بودجه‌ی توکن کانتکست — از پنجره‌ی Provider فعال؛ در طول نوبت ثابت.
 	cw := 0
 	if p := a.findProvider(a.settings.Provider); p != nil {
@@ -1085,6 +1087,20 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 	// شمارش توکن تاریخچه با کش — هر پیام فقط یک‌بار تخمین زده می‌شود؛
 	// tool_calls هم حساب می‌شود (قرابت نزدیک‌تر با prompt_tokens واقعی).
 	counter := &historyTokenCache{}
+	// واقعیت‌های پروژه (A.3) — نوع پروژه و دستورهای پیشنهادی راستی‌آزمایی،
+	// یک‌بار در ابتدای نوبت و «بیرون از a.mu» (I/O دارد) به system prompt
+	// اضافه می‌شود. هیچ فرمانی اجرا نمی‌شود.
+	if useTools {
+		a.mu.Lock()
+		wsPath := strings.TrimSpace(a.settings.WorkspacePath)
+		a.mu.Unlock()
+		if wsPath != "" && len(history) > 0 && history[0].Role == "system" {
+			if facts := a.projectFactsPromptLine(wsPath); facts != "" {
+				history[0].Content = historyContentString(history[0].Content) + "\n" + facts
+				counter.invalidate()
+			}
+		}
+	}
 	// محافظ حلقه‌ی تکرار (doom-loop) — مالک این گوروتین؛ فقط همین‌جا صدا
 	// زده می‌شود (تک‌نخی، بدون قفل). «یک نوبت» = کل این streamChat.
 	guard := &toolLoopGuard{}
@@ -1099,6 +1115,38 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 	}
 	compactedNotified := false // اعلان فارسی فشرده‌سازی خودکار: فقط یک‌بار در نوبت
 	overflowRetried := false   // بازیابی سرریز کانتکست: فقط یک تلاش مجدد در نوبت
+	// تذکر راستی‌آزمایی (A.2): حداکثر یک‌بار در هر نوبت.
+	nudged := false
+	// سقف توکن هر نوبت (A.4): اعلان ۸۰٪ یک‌بار؛ عبور از سقف → پایان مودبانه.
+	tokenCapWarned := false
+	tokenCapHit := false
+	// فهرست کارها فقط وقتی فشرده‌سازی واقعاً رخ می‌دهد از گفتگو خوانده
+	// می‌شود (یک‌بار) تا نشانگر «حذف کانتکست» طرح کار را زنده نگه دارد (A.5).
+	todosSeeded := false
+	markerWithTodos := func(h []chatMessage) []chatMessage {
+		if !todosSeeded {
+			todosSeeded = true
+			if !turnRec.hasTodos() {
+				a.mu.Lock()
+				if conv, cerr := a.loadConversation(convID); cerr == nil {
+					turnRec.setTodos(conv.Todos)
+				}
+				a.mu.Unlock()
+			}
+		}
+		return enrichContextDropMarker(h, turnRec.todosBlock())
+	}
+	// turnSpentNow مصرف تجمعی این نوبت (همه‌ی دورها + زیرایجنت‌ها) برای سقف
+	// توکن (A.4). تخمین فقط وقتی اضافه می‌شود که usage واقعی نیامده باشد.
+	// بسته به متغیرهای حلقه بسته می‌شود، پس هر بار مقدار تازه می‌دهد.
+	turnSpentNow := func(roundText string, estimated bool) int64 {
+		subP, subC := usageTally.snapshot()
+		n := promptTokens + completionTokens + subP + subC
+		if estimated {
+			n += estTotal + estimateTokens(roundText)
+		}
+		return n
+	}
 	for round := 0; ; round++ {
 		estTotal = counter.totalOf(history)
 
@@ -1120,6 +1168,7 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 					counter.invalidate()
 					history = fixed
 				}
+				history = markerWithTodos(history) // طرح کار در نشانگر فشرده‌سازی (A.5)
 				estTotal = counter.totalOf(history)
 				if !compactedNotified {
 					compactedNotified = true
@@ -1219,6 +1268,7 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 						counter.invalidate()
 						history = fixed
 					}
+					history = markerWithTodos(history) // فهرست کارها پس از فشرده‌سازی (A.5)
 					runtimeEmit(a, "chat:notice", map[string]interface{}{
 						"conversationId": convID,
 						"text":           "حجم کانتکست از حد مجاز سرویس‌دهنده بزرگ‌تر بود؛ قدیمی‌ترین بخش‌ها حذف/فشرده شد و یک‌بار دیگر تلاش شد (فایل گفتگو دست‌نخورده است).",
@@ -1359,6 +1409,24 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		// درخواست به تخمین estTotal (که برای همین درخواست محاسبه شده بود)
 		// ثبت می‌شود؛ دورهای بدون usage یا با تخمین کوچک داخل observe رد می‌شوند.
 		globalTokenCalib.observe(convID, roundPrompt, estTotal)
+		// ---------- سقف توکن هر نوبت (A.4) ----------
+		// مصرف تجمعی همه‌ی دورهای این نوبت + آمار زیرایجنت‌ها؛ وقتی usage
+		// واقعی نبود، تخمین کالیبره‌نشده‌ی همان دور به آن اضافه می‌شود.
+		spent := turnSpentNow(roundContent.String(), roundPrompt == 0 && roundCompletion == 0)
+		if turnTokenCap > 0 {
+			if !tokenCapWarned && spent*100 >= turnTokenCap*tokenCapWarnPercent {
+				tokenCapWarned = true
+				runtimeEmit(a, "chat:notice", map[string]interface{}{
+					"conversationId": convID,
+					"text": "مصرف توکن این نوبت به ۸۰٪ «سقف توکن هر نوبت» رسید (" + faGroup(spent) +
+						" از " + faGroup(turnTokenCap) + ")؛ پس از پر شدن سقف، نوبت با خیال راحت متوقف می‌شود.",
+				})
+			}
+			if spent >= turnTokenCap {
+				tokenCapHit = true
+				turnRec.noteTokenCap(turnTokenCap)
+			}
+		}
 		// محتوای خام را تمیز کن؛ thinking جدا نگه داشته می‌شود
 		visFinal, thFinal := cleanAssistantContent(roundContent.String())
 		if thFinal != "" && roundThinking.Len() == 0 {
@@ -1379,6 +1447,25 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 
 		calls := collectToolCalls(pend)
 		if !useTools || droppedTools || len(calls) == 0 {
+			// ---------- تذکر راستی‌آزمایی (A.2) ----------
+			// فایلی تغییر کرده، بعد از آخرین تغییر هیچ راستی‌آزماییِ موفقی
+			// اجرا نشده، حداقل یک دور دیگر جا هست و این تذکر قبلاً داده نشده
+			// → یک پیام انگلیسی به‌عنوان «user» و ادامه‌ی حلقه. دور و محافظ
+			// تکرار مصرف نمی‌شوند و پیام فقط یک‌بار در نوبت می‌آید.
+			if useTools && !droppedTools && !nudged && round+1 < maxRounds && turnRec.needsVerification() {
+				nudged = true
+				if c := strings.TrimSpace(visFinal); c != "" {
+					history = append(history, chatMessage{Role: "assistant", Content: c})
+				}
+				history = append(history, chatMessage{Role: "user", Content: verificationNudgeText})
+				counter.invalidate()
+				runtimeEmit(a, "chat:notice", map[string]interface{}{
+					"conversationId": convID,
+					"text":           "فایل‌ها تغییر کردند ولی از آخرین تغییر، تست یا ساختی با موفقیت اجرا نشده؛ از مدل خواسته شد آن را اجرا کند.",
+				})
+				round-- // تذکر دورِ بودجه را مصرف نمی‌کند (مثل بازگشت‌های دیگر)
+				continue
+			}
 			finish(allContent.String()[persistedLen:], false)
 			return
 		}
@@ -1436,6 +1523,20 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 			return
 		}
 		persistedLen = allContent.Len()
+		// ---------- توقف مودبانه با سقف توکن (A.4) ----------
+		// دسته‌ی ابزار این دور اجرا و روی دیسک ذخیره شد؛ حالا متوقف می‌شویم
+		// تا گفتگو در وضعیت پروتکل‌سالم بماند و «ادامه» هم ممکن باشد.
+		// مصرف را بعد از اجرای ابزار دوباره می‌سنجیم: آمار زیرایجنت (ابزار
+		// task) همین حالا به tally اضافه شده و باید در سقف حساب شود.
+		spent = turnSpentNow(roundContent.String(), roundPrompt == 0 && roundCompletion == 0)
+		if turnTokenCap > 0 && spent >= turnTokenCap {
+			tokenCapHit = true
+			turnRec.noteTokenCap(turnTokenCap)
+		}
+		if tokenCapHit {
+			finish(tokenCapStopNotice(spent, turnTokenCap), false)
+			return
+		}
 		// توقف نوبت توسط محافظ حلقه — همه‌ی فراخوانی‌های دسته نتیجه گرفت و
 		// روی دیسک ذخیره شدند؛ حالا پیام نهایی فارسی به کاربر.
 		if turnStopped {

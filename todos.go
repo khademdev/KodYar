@@ -245,6 +245,9 @@ func (a *App) toolTodoWrite(ctx context.Context, raw interface{}) (string, bool)
 	// کپی برای emit بعد از بازشدن قفل — فرانت‌اند نباید به اسلایس داخلی دست بزند.
 	snapshot := make([]TodoItem, len(items))
 	copy(snapshot, items)
+	// طرح کار در رکورد نوبت هم می‌نشیند تا نشانگر «حذف کانتکست» آن را
+	// زنده نگه دارد (بند A.5).
+	turnRecorderFrom(ctx).setTodos(snapshot)
 	a.emitTodos(convID, snapshot)
 
 	pending, inProgress, completed := todoCounts(items)

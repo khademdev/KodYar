@@ -191,6 +191,33 @@ func ensureContextDropMarker(h []chatMessage) []chatMessage {
 	return out
 }
 
+// contextDropMarkerTodoLimit سقف کاراکتر فهرست کارها در نشانگر (بند A.5).
+const contextDropMarkerTodoLimit = 1200
+
+// enrichContextDropMarker فهرست کارهای جاری را به «تنها» نشانگر حذف کانتکست
+// می‌چسباند تا طرح کار پس از فشرده‌سازی از یاد مدل نرود. idempotent است:
+// هر بار محتوای نشانگر از نو ساخته می‌شود (نه انباشته)، و اگر نشانگری در
+// تاریخچه نباشد یا بلوک خالی باشد تاریخچه دست‌نخورده برمی‌گردد.
+func enrichContextDropMarker(h []chatMessage, todosBlock string) []chatMessage {
+	if strings.TrimSpace(todosBlock) == "" {
+		return h
+	}
+	block := cutUTF8(todosBlock, contextDropMarkerTodoLimit)
+	out := make([]chatMessage, 0, len(h))
+	touched := false
+	for _, m := range h {
+		if isContextDropMarker(m) {
+			if touched {
+				continue // فقط یک نشانگر می‌ماند
+			}
+			touched = true
+			m.Content = contextDropMarkerText + "\n" + block
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
 // validateHistory تاریخچه را با قواعد پروتکل OpenAI بازبینی و «ترمیم‌شده»
 // برمی‌گرداند. خروجی: (تاریخچه‌ی سالم، فهرست مشکلات انگلیسی برای لاگ).
 //

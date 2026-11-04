@@ -27,6 +27,7 @@
 package main
 
 import (
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -280,15 +281,17 @@ func relativeEscapesWorkspace(tok string) bool {
 }
 
 // commandPathInsideWorkspace آیا مسیر مطلق داخل پوشه‌ی کاری است؟
-// جداکننده‌ها ابتدا به / یکسان می‌شوند (filepath.Clean روی لینوکس بک‌اسلش
-// را نویسه‌ی عادی می‌داند) و در شله‌ی cmd مقایسه به حروف کوچک است.
+// جداکننده‌ها ابتدا به / یکسان می‌شوند و پاک‌سازی با path.Clean انجام
+// می‌شود (نه filepath.Clean که رفتارش به سیستم‌عامل وابسته است: روی
+// ویندوز دوباره بک‌اسلش می‌سازد و مقایسه‌ی مسیرِ POSIX را می‌شکند)؛ در
+// شله‌ی cmd مقایسه به حروف کوچک است.
 func commandPathInsideWorkspace(tok, ws string, flavor shellFlavor) bool {
 	if ws == "" {
 		return false
 	}
 	norm := func(p string) string {
 		p = strings.ReplaceAll(p, "\\", "/")
-		p = filepath.Clean(p)
+		p = path.Clean(p)
 		p = strings.TrimSuffix(p, "/")
 		if flavor == flavorCmd {
 			p = strings.ToLower(p)
