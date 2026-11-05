@@ -1279,3 +1279,70 @@ GATE: GREEN
 مثل قبل فقط با vet متقاطع و چک‌لیست دستی پوشش دارد.
 
 **Stage 1 complete. Waiting for your instruction to continue.**
+
+## Mission 4 — Stage 2: نگهبان سکون استریم (Stream stall watchdog)
+
+**ریشه‌ی نقص:** `chatHTTPClient` فقط `ResponseHeaderTimeout` داشت (۹۰ ثانیه).
+اگر سرویس‌دهنده/پروکسی **وسط استریم** داده را قطع می‌کرد و اتصال را نمی‌بست،
+خواندن بدنه تا ابد بلاک می‌ماند و تنها دکمه‌ی توقف کاربر آن را پایان می‌داد —
+«فکر کردن بی‌پایان». همین برای استریم زیرایجنت هم صادق بود.
+
+**چه شد:**
+
+- `streamwatch.go` (تازه): `streamIdleGuard` بدنه‌ی پاسخ را می‌پیچد؛ هر بایت
+  خوانده‌شده (حتی خط کامنت keep-alive پروتکل) `lastRead` را به‌روز می‌کند.
+  یک goroutine نگهبان با ticker بررسی می‌کند؛ فقط اگر در مهلت هیچ بایتی نیاید
+  `ctx` مشتق‌شده لغو و پرچم `stalled` ست می‌شود. `Stop()` تایمر/goroutine را
+  قطعی می‌بندد و منتظر خروج می‌ماند (بدون نشت). پیش‌فرض **۱۲۰ ثانیه**
+  (`streamIdleDefaultSec`)، clamp **۳۰..۹۰۰** (`streamIdleMinSec/MaxSec`)،
+  همه تزریقی در تست‌ها.
+- تنظیم پنهان `Settings.StreamIdleTimeoutSec` (`json:"streamIdleTimeoutSec,omitempty"`،
+  بدون UI) در شروع هر نوبت/درخواست خوانده می‌شود؛ `0` = پیش‌فرض. فایل‌های
+  تنظیمات قدیمی بدون این فیلد بی‌خطا بار می‌شوند.
+- `chat.go`: هر دور استریم `idleGuard` مخصوص خودش می‌گیرد (`reqCtx` مشتق‌شده)؛
+  بدنه با `guard.Body` خوانده می‌شود و در همه‌ی مسیرها (خطای dial، HTTP غیر۲۰۰،
+  پایان استریم) `Stop` صدا زده می‌شود. رفتار:
+  - **سکون پیش از هر خروجی/دلتا/usage** → خطای موقتِ قابل‌تلاش‌مجدد با همان
+    سیاست `retryMaxAttempts`؛ اعلان فارسی «پاسخ از سرویس‌دهنده قطع شد؛ تلاش
+    مجدد ۲ از ۴ …» و تلاش مجدد بدون سوزاندن دور.
+  - **سکون پس از خروجی** → بدون تلاش مجدد (جلوگیری از تکرار اثر جانبی)؛
+    `savePartial` پاسخ نیمه‌کاره را با `Aborted: true` ذخیره می‌کند، خلاصه‌ی
+    نوبت منتشر و خطای فارسی «دریافت پاسخ متوقف شد (بدون داده برای n ثانیه).
+    می‌توانید «ادامه» را بزنید.» فرستاده می‌شود؛ «ادامه» در دسترس می‌ماند.
+  - **توقف کاربر** فوری است و هرگز سکون گزارش نمی‌شود (پرچم نگهبان منبع
+    حقیقت است، نه `ctx.Err`).
+- `subagent.go`: همان نگهبان در `subagentRequest` (خواندن مهلت در شروع درخواست)؛
+  سکون به `subagentStallError` تبدیل و در حلقه‌ی زیرایجنت به گزارش خطای
+  انگلیسیِ قابل‌استفاده به والد («stream stalled … retry or split the task»)
+  با `ok=false` می‌شود — نه hang، نه کشتن برنامه.
+
+**گیت واقعی (آخرین اجرا، `scripts/gate.sh`):**
+
+```
+=== gofmt -l . ===                [OK] (خالی)
+=== go vet ./... ===              [OK]
+=== go build ./... ===            [OK]
+=== go test -race -count=1 ./... === ok  myai  157.107s  [OK]
+=== env GOOS=windows GOARCH=amd64 go vet ./... === [OK]
+=== env GOOS=linux   GOARCH=amd64 go vet ./... === [OK]
+GATE: GREEN
+```
+
+**تست‌های تازه (`streamwatch_test.go`):**
+`TestStreamStallBeforeFirstByteRetries` (سکون قبل از بایت اول → دقیقاً یک
+تلاش مجدد و پاسخ کامل)، `TestStreamStallMidStreamSavesPartialNoRetry`
+(بدون تلاش مجدد، پیام `Aborted` با متن نیمه‌کاره، پیام فارسی در لاگ خطاها با
+ارقام فارسی)، `TestStreamKeepAlivePreventsWatchdog` (کامنت keep-alive مانع
+لغو)، `TestStreamStallDoesNotOverrideUserStop` (توقف کاربر ≠ سکون)،
+`TestSubagentStallReturnsErrorReport`، `TestStreamIdleClampAndDefault`
+(pوشش ۰/منفی/۵/۳۰/۱۲۰/۹۰۱/۱۰۰۰۰۰)، `TestStreamWatchdogNoGoroutineLeak`.
+
+**فرض‌ها/انحراف‌ها:** مهلت برای کل نوبت ثابت خوانده می‌شود (هم‌راستا با بقیه‌ی
+تنظیماتِ نوبت). تست‌ها مهلت ۱ ثانیه و backoff صفر تزریق می‌کنند؛ هیچ شبکه‌ی
+واقعی/خواب طولانی ندارند (کل مجموعه ~۱۰ ثانیه).
+
+**محدودیت:** سکون «فاز هدر» (پیش از دریافت ۲۰۰) همچنان با مهلت موجود
+`ResponseHeaderTimeout` (۹۰ ثانیه) پوشش دارد و زیر چتر نگهبان نیست؛ رفتار
+تلاش مجدد همان `dialStream` است.
+
+**Stage 2 complete. Waiting for your instruction to continue.**

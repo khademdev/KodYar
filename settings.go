@@ -73,7 +73,12 @@ type Settings struct {
 	ProtectedGlobs []string `json:"protectedGlobs,omitempty"`
 
 	// MaxTurnTokens سقف مصرف توکن هر نوبت (۵.۳؛ ۰ = خاموش).
-	MaxTurnTokens     int64        `json:"maxTurnTokens,omitempty"`
+	MaxTurnTokens int64 `json:"maxTurnTokens,omitempty"`
+
+	// StreamIdleTimeoutSec مهلت بیکاری استریم مدل (ثانیه؛ ۰ = پیش‌فرض ۱۲۰،
+	// بازه‌ی مجاز ۳۰..۹۰۰). پنهان است و UI ندارد — فقط برای پایداری/دیباگ.
+	StreamIdleTimeoutSec int `json:"streamIdleTimeoutSec,omitempty"`
+
 	PlanMode          bool         `json:"planMode"`          // حالت برنامه‌ریزی قبل از اجرا
 	ContextFiles      int          `json:"contextFiles"`      // سقف فایل‌های خودکار افزوده به کانتکست @
 	ProjectRules      string       `json:"projectRules"`      // قوانین پروژه تعریف‌شده از داخل اپ

@@ -360,6 +360,7 @@ func (a *App) runSubagent(ctx context.Context, task string) (report string, ok b
 			var httpErr *subagentHTTPError
 			var modelErr *subagentModelError
 			var dialErr *subagentDialError
+			var stallErr *subagentStallError
 			switch {
 			case errors.As(roundErr, &httpErr):
 				reason := httpErr.reason
@@ -389,6 +390,10 @@ func (a *App) runSubagent(ctx context.Context, task string) (report string, ok b
 				}
 				logAppErrorFor(a, "subagent", "dial: "+dialErr.Error())
 				return "ERROR: sub-agent could not reach the provider: " + dialErr.Error(), false
+			case errors.As(roundErr, &stallErr):
+				// سکون استریم: گزارش خطای قابل‌استفاده به والد (بدون hang).
+				logAppErrorFor(a, "subagent", stallErr.Error())
+				return fmt.Sprintf("ERROR: sub-agent's stream stalled (no data for %d seconds); the task could not be completed. Retry or split it into smaller steps.", stallErr.seconds), false
 			case ctx.Err() != nil:
 				return "ERROR: sub-agent was cancelled mid-run (user stop or time limit).", false
 			case errors.As(roundErr, &modelErr):
@@ -506,6 +511,13 @@ type subagentModelError struct{ message string }
 
 func (e *subagentModelError) Error() string { return "model error: " + e.message }
 
+// subagentStallError سکون استریم زیرایجنت (داده‌ای نرسید و پاسخ کامل نشد).
+type subagentStallError struct{ seconds int }
+
+func (e *subagentStallError) Error() string {
+	return fmt.Sprintf("stream stalled: no data for %d seconds", e.seconds)
+}
+
 // subagentDialError شکست فاز اتصال (پس از تلاش‌های مجدد dialStream).
 type subagentDialError struct{ err error }
 
@@ -538,10 +550,16 @@ func (a *App) subagentRequest(ctx context.Context, s *subagentSession, history [
 	}
 	out.streamOptions = reqBody.StreamOptions != nil
 	body, _ := json.Marshal(reqBody)
+	// نگهبان سکون — همان سیاست گفتگوی اصلی؛ زیرایجنت هم نباید بی‌پایان
+	// «فکر کند». مهلت در شروع درخواست خوانده می‌شود.
+	a.mu.Lock()
+	idleSec := clampStreamIdleSeconds(a.settings.StreamIdleTimeoutSec)
+	a.mu.Unlock()
+	guard, reqCtx := newStreamIdleGuard(ctx, time.Duration(idleSec)*time.Second)
 	// فاز اتصال با تلاش مجدد — بدون اعلان UI؛ تلاش‌ها فقط لاگ
 	// می‌شوند تا در «لاگ خطاها» قابل ردیابی باشند.
-	resp, err := a.dialStream(ctx, func() (*http.Request, error) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(s.baseURL, "/")+"/chat/completions", bytes.NewReader(body))
+	resp, err := a.dialStream(reqCtx, func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, strings.TrimRight(s.baseURL, "/")+"/chat/completions", bytes.NewReader(body))
 		if err != nil {
 			return nil, err
 		}
@@ -559,11 +577,13 @@ func (a *App) subagentRequest(ctx context.Context, s *subagentSession, history [
 		logAppErrorFor(a, "subagent", "transient "+kind+"; retrying (attempt "+fmt.Sprint(rec.nextAttempt)+")")
 	})
 	if err != nil {
+		guard.Stop()
 		return out, &subagentDialError{err: err}
 	}
 	if resp.StatusCode != http.StatusOK {
 		reason := readErrorBody(resp.Body)
 		resp.Body.Close()
+		guard.Stop()
 		return out, &subagentHTTPError{status: resp.StatusCode, reason: reason}
 	}
 
@@ -571,7 +591,7 @@ func (a *App) subagentRequest(ctx context.Context, s *subagentSession, history [
 	var content strings.Builder
 	pend := map[int]*pendingToolCall{}
 	modelErr := ""
-	scanErr := readSSEChunks(ctx, resp.Body, func(chunk sseChunk) bool {
+	scanErr := readSSEChunks(reqCtx, guard.Body(resp.Body), func(chunk sseChunk) bool {
 		if chunk.Error != nil && chunk.Error.Message != "" {
 			modelErr = chunk.Error.Message
 			return true
@@ -607,6 +627,10 @@ func (a *App) subagentRequest(ctx context.Context, s *subagentSession, history [
 		return false
 	})
 	resp.Body.Close()
+	guard.Stop()
+	if guard.Stalled() && ctx.Err() == nil {
+		return out, &subagentStallError{seconds: idleSec}
+	}
 	if modelErr != "" {
 		return out, &subagentModelError{message: modelErr}
 	}

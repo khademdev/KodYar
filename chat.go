@@ -1048,6 +1048,9 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 	maxRounds := clampMaxAgentRounds(a.settings.MaxAgentRounds)
 	// سقف مصرف توکن هر نوبت (A.4) — ۰ = خاموش؛ برای کل نوبت ثابت.
 	turnTokenCap := a.settings.MaxTurnTokens
+	// مهلت بیکاری استریم (Stage 2) — تنظیم پنهان؛ برای کل نوبت ثابت.
+	streamIdleSec := clampStreamIdleSeconds(a.settings.StreamIdleTimeoutSec)
+	streamIdleTimeout := time.Duration(streamIdleSec) * time.Second
 	// بودجه‌ی توکن کانتکست — از پنجره‌ی Provider فعال؛ در طول نوبت ثابت.
 	cw := 0
 	if p := a.findProvider(a.settings.Provider); p != nil {
@@ -1130,6 +1133,7 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 	}
 	compactedNotified := false // اعلان فارسی فشرده‌سازی خودکار: فقط یک‌بار در نوبت
 	overflowRetried := false   // بازیابی سرریز کانتکست: فقط یک تلاش مجدد در نوبت
+	stallRetries := 0          // سکون پیش از خروجی: سقف تلاش مجدد مثل سیاست شبکه
 	// تذکر راستی‌آزمایی (A.2): حداکثر یک‌بار در هر نوبت.
 	nudged := false
 	// سقف توکن هر نوبت (A.4): اعلان ۸۰٪ یک‌بار؛ عبور از سقف → پایان مودبانه.
@@ -1216,8 +1220,11 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		// فاز اتصال با تلاش مجدد: هر تلاش یک Request تازه (بدنه‌ی مصرف‌شدنی است).
 		// فقط قبل از خواندن نخستین بایت SSE تلاش مجدد می‌شود؛ پس از آن هر
 		// شکستی مسیر savePartial/abort فعلی خودش را دارد (بدون دوباره‌کاری).
-		resp, err := a.dialStream(ctx, func() (*http.Request, error) {
-			req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(baseURL, "/")+"/chat/completions", bytes.NewReader(body))
+		// نگهبان سکون این دور: هر بایت خوانده‌شده (حتی کامنت keep-alive)
+		// فعالیت است؛ قطع بی‌صدای سرویس‌دهنده پس از مهلت لغو می‌شود.
+		idleGuard, reqCtx := newStreamIdleGuard(ctx, streamIdleTimeout)
+		resp, err := a.dialStream(reqCtx, func() (*http.Request, error) {
+			req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, strings.TrimRight(baseURL, "/")+"/chat/completions", bytes.NewReader(body))
 			if err != nil {
 				return nil, err
 			}
@@ -1234,6 +1241,7 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 			})
 		})
 		if err != nil {
+			idleGuard.Stop()
 			if ctx.Err() != nil {
 				aborted = true
 				finish(allContent.String()[persistedLen:], aborted)
@@ -1246,6 +1254,7 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		if resp.StatusCode != http.StatusOK {
 			reason := readErrorBody(resp.Body)
 			resp.Body.Close()
+			idleGuard.Stop()
 			// ۴۰۰ِ ناشی از stream_options → یک‌بار بدون آن (حافظه‌ی per-provider
 			// نشانه‌گذاری شد؛ دورِ بعد اصلاً فرستاده نمی‌شود). قبل از بررسیِ
 			// «ابزارها پشتیبانی نمی‌شوند» چک می‌شود تا خطایی که به هر دو اشاره
@@ -1310,7 +1319,7 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		// اسکنر، پیشوند data:، [DONE]، خطوط نامعتبر و بررسی لغو آن‌جا هستند؛
 		// رفتار این حلقه (رویدادها، ذخیره‌ی جزئی، reasoning، usage) تغییری نکرده.
 		var roundModelErr string
-		scanErr := readSSEChunks(ctx, resp.Body, func(chunk sseChunk) bool {
+		scanErr := readSSEChunks(reqCtx, idleGuard.Body(resp.Body), func(chunk sseChunk) bool {
 			if chunk.Error != nil && chunk.Error.Message != "" {
 				// خطای مدل: توقف خواندن؛ رسیدگی (ذخیره‌ی جزئی + رویداد) پایین‌تر
 				roundModelErr = chunk.Error.Message
@@ -1398,6 +1407,42 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 			return false
 		})
 		resp.Body.Close()
+		idleGuard.Stop()
+		// ---------- سکون استریم (Stage 2) ----------
+		// لغوِ عمدی کاربر (ctx والد) هرگز «سکون» گزارش نمی‌شود؛ پرچم نگهبان
+		// منبع حقیقت است.
+		if idleGuard.Stalled() && ctx.Err() == nil {
+			stallNotice := fmt.Sprintf("دریافت پاسخ متوقف شد (بدون داده برای %s ثانیه). می‌توانید «ادامه» را بزنید.", faDigits(streamIdleSec))
+			if roundContent.Len() == 0 && roundThinking.Len() == 0 && len(pend) == 0 &&
+				roundPrompt == 0 && roundCompletion == 0 {
+				// پیش از هر خروجی → خطای موقت و قابل تلاش مجدد (مثل خطای شبکه)
+				stallRetries++
+				if stallRetries < retryMaxAttempts {
+					runtimeEmit(a, "chat:notice", map[string]interface{}{
+						"conversationId": convID,
+						"text": fmt.Sprintf("پاسخ از سرویس‌دهنده قطع شد؛ تلاش مجدد %s از %s …",
+							faDigits(stallRetries+1), faDigits(retryMaxAttempts)),
+					})
+					if werr := retrySleepFn(ctx, retryDelay(stallRetries-1, "", time.Now())); werr != nil {
+						aborted = true
+						finish(allContent.String()[persistedLen:], aborted)
+						return
+					}
+					round-- // تلاش مجدد، دور را نمی‌سوزاند
+					continue
+				}
+				a.emitChatError(myGen, stallNotice)
+				return
+			}
+			// پس از خروجی/دلتای ابزار → بدون تلاش مجدد (تکرار اثر جانبی ممنوع)؛
+			// پاسخ نیمه‌کاره دقیقاً مثل مسیر abort ذخیره می‌شود و «ادامه» می‌ماند.
+			promptTokens += roundPrompt
+			completionTokens += roundCompletion
+			a.savePartial(convID, allContent.String()[persistedLen:]+roundContent.String(), promptTokens, completionTokens)
+			a.emitTurnSummary(convID, turnID, turnRec, promptTokens, completionTokens)
+			a.emitChatError(myGen, stallNotice)
+			return
+		}
 		if roundModelErr != "" {
 			promptTokens += roundPrompt
 			completionTokens += roundCompletion
