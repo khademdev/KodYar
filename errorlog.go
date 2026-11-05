@@ -29,7 +29,17 @@ func resolveErrorLogPath(a *App) (string, error) {
 	cached := errLogPath
 	errLogMu.Unlock()
 	if cached != "" {
-		return cached, nil
+		// اگر پوشه‌ی کش‌شده دیگر وجود ندارد (کاربر حذف کرده یا پوشه‌ی
+		// موقت تست پاک شده)، کش باطل و مسیر تازه حل می‌شود؛ وگرنه لاگ
+		// بی‌صدا از دست می‌رفت.
+		if _, statErr := os.Stat(filepath.Dir(cached)); statErr == nil {
+			return cached, nil
+		}
+		errLogMu.Lock()
+		if errLogPath == cached {
+			errLogPath = ""
+		}
+		errLogMu.Unlock()
 	}
 	var app *App = a
 	if app == nil {

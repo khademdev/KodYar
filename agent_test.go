@@ -9,10 +9,19 @@ import (
 	"testing"
 )
 
+// resetErrorLogPath کش مسیر errors.log را پاک می‌کند؛ هر تست با config dir
+// خودش لاگ می‌نویسد و به پوشه‌ی موقتِ تستِ قبلی وابسته نمی‌ماند.
+func resetErrorLogPath() {
+	errLogMu.Lock()
+	errLogPath = ""
+	errLogMu.Unlock()
+}
+
 func newTestApp(t *testing.T) *App {
 	t.Helper()
 	// config dir ایزوله برای هر تست تا changes.json بین تست‌ها نشت نکند
 	os.Setenv("MYAI_CONFIG_DIR", t.TempDir())
+	resetErrorLogPath()
 	a := NewApp()
 	a.settings = defaultSettings()
 	// از ۱.3.0 Provider پیش‌فرضی وجود ندارد؛ تست‌ها یک Provider آزمایشی

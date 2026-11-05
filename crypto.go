@@ -23,6 +23,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -246,6 +247,41 @@ func isLegacyCiphertext(encoded string) bool {
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	tmp, err := writeTempFile(path, data, perm)
 	if err != nil {
+		return err
+	}
+	if err := renameWithRetry(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("write %s: %w", filepath.Base(path), err)
+	}
+	return nil
+}
+
+// atomicWriteStream مثل atomicWriteFile برای جریان با اندازه‌ی معلوم است:
+// محتوا را تکه‌تکه در فایل موقت یکتا می‌نویسد (بدون بافر کل محتوا در حافظه)
+// و در پایان rename اتمیک می‌کند — برای بازگردانی فایل‌های بزرگ چک‌پوینت
+// (Stage 4.3). هر خطا فقط فایل موقت را پاک می‌کند.
+func atomicWriteStream(path string, r io.Reader, size int64, perm os.FileMode) error {
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	fail := func(e error) error {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return e
+	}
+	if err := f.Chmod(perm); err != nil {
+		return fail(err)
+	}
+	if _, err := io.CopyN(f, r, size); err != nil {
+		return fail(err)
+	}
+	if err := f.Sync(); err != nil {
+		return fail(err)
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
 		return err
 	}
 	if err := renameWithRetry(tmp, path); err != nil {

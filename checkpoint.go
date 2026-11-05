@@ -21,6 +21,8 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -40,11 +42,14 @@ const (
 	checkpointTimeout     = 10 * time.Second // سقف ساخت نقطه‌ی بازگشت
 	checkpointRestoreTime = 60 * time.Second // سقف بازگردانی (فایل‌های زیاد)
 	checkpointMaxKeep     = 20               // نگه‌داری جدیدترین‌ها در هر پوشه
-	checkpointMaxFiles    = 5000             // سقف فایل در بازگردانی
 	checkpointRefPrefix   = "refs/myai/checkpoints/"
 	checkpointTrashDays   = 14
 	checkpointTrashBytes  = 500 << 20 // ۵۰۰ مگابایت
 )
+
+// checkpointMaxFiles سقف فایل در snapshot و بازگردانی (var تا تست بتواند
+// کران را کوچک کند؛ در runtime تغییر نمی‌کند).
+var checkpointMaxFiles = 5000
 
 // checkpointRef نام مرجع یک نوبت.
 func checkpointRef(convID string, turnID int64) string {
@@ -61,17 +66,67 @@ func checkpointGitEnv(indexFile string) []string {
 		"GIT_INDEX_FILE="+indexFile,
 		"GIT_AUTHOR_NAME=MyAI", "GIT_AUTHOR_EMAIL=myai@localhost",
 		"GIT_COMMITTER_NAME=MyAI", "GIT_COMMITTER_EMAIL=myai@localhost",
-		"GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0",
+		"GIT_CONFIG_NOSYSTEM=1", "GIT_ATTR_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0",
 	)
 	return env
+}
+
+// checkpointGitConfig پرچم‌هایی که هر فراخوانی git نقطه‌ی بازگشت را از
+// تبدیل‌های کاربر جدا می‌کند: CRLF، fsmonitor و hookها. (فیلترهای
+// .gitattributes/LFS هم با `--no-filters` در hash-object و خواندن خام
+// cat-file بی‌اثر می‌شوند.)
+func checkpointGitConfig() []string {
+	return []string{
+		"-c", "core.autocrlf=false",
+		"-c", "core.safecrlf=false",
+		"-c", "core.fsmonitor=false",
+		"-c", "core.hooksPath=" + os.DevNull,
+	}
+}
+
+// checkpointArgs آرگومان‌های کامل git با تنظیمات خنثی‌شده.
+func checkpointArgs(ws string, args ...string) []string {
+	out := make([]string, 0, len(args)+len(checkpointGitConfig())+2)
+	out = append(out, "-C", ws)
+	out = append(out, checkpointGitConfig()...)
+	return append(out, args...)
 }
 
 // runGitCheckpoint یک فرمان git با محیط/مهلت مشخص اجرا می‌کند (کران‌دار).
 func runGitCheckpoint(ctx context.Context, ws string, env []string, timeout time.Duration, args ...string) (string, error) {
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(cctx, "git", append([]string{"-C", ws}, args...)...)
+	cmd := exec.CommandContext(cctx, "git", checkpointArgs(ws, args...)...)
 	cmd.WaitDelay = 3 * time.Second
+	out := newCappedGitBuffer(gitCaptureCap)
+	errb := newCappedGitBuffer(gitCaptureCap)
+	cmd.Stdout, cmd.Stderr = out, errb
+	if env != nil {
+		cmd.Env = env
+	} else {
+		cmd.Env = gitEnv()
+	}
+	if err := cmd.Run(); err != nil {
+		if cctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("git %s timed out", args[0])
+		}
+		msg := strings.TrimSpace(errb.buf.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return "", fmt.Errorf("git %s: %s", args[0], msg)
+	}
+	return out.buf.String(), nil
+}
+
+// runGitCheckpointInput مثل runGitCheckpoint است ولی ورودی stdin را هم
+// می‌دهد (hash-object --stdin-paths و update-index --index-info).
+func runGitCheckpointInput(ctx context.Context, ws string, env []string, timeout time.Duration, input string, args ...string) (string, error) {
+	cctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(cctx, "git", checkpointArgs(ws, args...)...)
+	cmd.WaitDelay = 3 * time.Second
+	cmd.Stdin = strings.NewReader(input)
 	out := newCappedGitBuffer(gitCaptureCap)
 	errb := newCappedGitBuffer(gitCaptureCap)
 	cmd.Stdout, cmd.Stderr = out, errb
@@ -185,16 +240,13 @@ func (a *App) createCheckpoint(ctx context.Context, ws, convID string, turnID in
 	defer os.Remove(indexFile)
 	env := checkpointGitEnv(indexFile)
 
-	if _, err := runGitCheckpoint(ctx, ws, env, checkpointTimeout, "add", "-A"); err != nil {
-		return "", err
-	}
-	treeOut, err := runGitCheckpoint(ctx, ws, env, checkpointTimeout, "write-tree")
+	files, err := checkpointCurrentFiles(ctx, ws)
 	if err != nil {
 		return "", err
 	}
-	tree := strings.TrimSpace(treeOut)
-	if tree == "" {
-		return "", fmt.Errorf("git write-tree returned an empty tree")
+	tree, err := checkpointBuildTree(ctx, ws, env, files)
+	if err != nil {
+		return "", err
 	}
 	args := []string{"commit-tree", tree}
 	if head, herr := runGitCheckpoint(ctx, ws, nil, checkpointTimeout, "rev-parse", "--verify", "HEAD"); herr == nil {
@@ -216,6 +268,93 @@ func (a *App) createCheckpoint(ctx context.Context, ws, convID string, turnID in
 	}
 	a.pruneCheckpoints(ctx, ws, convID)
 	return commit, nil
+}
+
+// checkpointBlobMode حالت index برای یک فایل: اجراپذیر یا معمولی. فایل‌های
+// غیرمعمول (پیوند، پوشه، دستگاه) پذیرفته نمی‌شوند.
+func checkpointBlobMode(path string) (string, bool) {
+	st, err := os.Lstat(path)
+	if err != nil || !st.Mode().IsRegular() {
+		return "", false
+	}
+	if st.Mode()&0o111 != 0 {
+		return "100755", true
+	}
+	return "100644", true
+}
+
+// checkpointBuildTree درخت snapshot را **بدون هیچ فیلتری** می‌سازد.
+//
+// `git add -A` ایندکس را از محتوا پر می‌کند و core.autocrlf، .gitattributes
+// (text/eol) و filter‌ها (Git LFS) را اعمال می‌کند — نتیجه اینکه بازگردانی
+// دیگر بایت‌به‌بایت نیست. اینجا blobها با `hash-object --no-filters`
+// ساخته می‌شوند و ایندکس موقت با `update-index --index-info` پر می‌شود؛
+// هیچ فیلتری اجرا نمی‌شود.
+func checkpointBuildTree(ctx context.Context, ws string, env []string, files []string) (string, error) {
+	// مسیرهای حاوی newline با --stdin-paths قابل انتقال نیستند (بسیار نادر).
+	hashing := make([]string, 0, len(files))
+	for _, p := range files {
+		if strings.ContainsAny(p, "\n\r") {
+			continue
+		}
+		hashing = append(hashing, p)
+	}
+	if len(hashing) == 0 {
+		out, err := runGitCheckpointInput(ctx, ws, env, checkpointTimeout, "", "mktree")
+		if err != nil {
+			return "", err
+		}
+		if tree := strings.TrimSpace(out); tree != "" {
+			return tree, nil
+		}
+		return "", fmt.Errorf("git mktree returned an empty tree")
+	}
+	out, err := runGitCheckpointInput(ctx, ws, env, checkpointTimeout,
+		strings.Join(hashing, "\n")+"\n", "hash-object", "-w", "--no-filters", "--stdin-paths")
+	if err != nil {
+		return "", err
+	}
+	lines := strings.Split(strings.TrimRight(out, "\r\n"), "\n")
+	if len(lines) != len(hashing) {
+		return "", fmt.Errorf("git hash-object returned %d objects for %d files", len(lines), len(hashing))
+	}
+	var info strings.Builder
+	for i, rel := range hashing {
+		sha := strings.TrimSpace(lines[i])
+		if len(sha) != 40 && len(sha) != 64 {
+			return "", fmt.Errorf("git hash-object returned an invalid object id for %q", rel)
+		}
+		mode, ok := checkpointBlobMode(filepath.Join(ws, filepath.FromSlash(rel)))
+		if !ok {
+			continue // بین فهرست‌گیری و هش حذف/پیوند شد
+		}
+		info.WriteString(mode)
+		info.WriteByte(' ')
+		info.WriteString(sha)
+		info.WriteByte('\t')
+		info.WriteString(rel)
+		info.WriteByte(0)
+	}
+	if info.Len() == 0 {
+		out, err := runGitCheckpointInput(ctx, ws, env, checkpointTimeout, "", "mktree")
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(out), nil
+	}
+	if _, err := runGitCheckpointInput(ctx, ws, env, checkpointTimeout,
+		info.String(), "update-index", "-z", "--add", "--index-info"); err != nil {
+		return "", err
+	}
+	treeOut, err := runGitCheckpoint(ctx, ws, env, checkpointTimeout, "write-tree")
+	if err != nil {
+		return "", err
+	}
+	tree := strings.TrimSpace(treeOut)
+	if tree == "" {
+		return "", fmt.Errorf("git write-tree returned an empty tree")
+	}
+	return tree, nil
 }
 
 // pruneCheckpoints فقط جدیدترین‌ها را نگه می‌دارد (سقف ۲۰ در هر پوشه).
@@ -282,6 +421,7 @@ type CheckpointRestoreReport struct {
 type checkpointEntry struct {
 	Path string
 	Mode string
+	SHA  string
 	Sym  bool
 }
 
@@ -323,13 +463,13 @@ func checkpointSnapshot(ctx context.Context, ws, ref string) ([]checkpointEntry,
 		}
 		meta, p := rec[:tab], rec[tab+1:]
 		fields := strings.Fields(meta)
-		if len(fields) < 2 || fields[1] != "blob" {
+		if len(fields) < 3 || fields[1] != "blob" {
 			continue // زیرپوشه (tree) یا چیز دیگر
 		}
 		if !safeCheckpointRel(p) {
 			continue // مسیر مشکوک اصلاً استفاده نمی‌شود
 		}
-		entries = append(entries, checkpointEntry{Path: p, Mode: fields[0], Sym: fields[0] == "120000"})
+		entries = append(entries, checkpointEntry{Path: p, Mode: fields[0], SHA: fields[2], Sym: fields[0] == "120000"})
 		if len(entries) > checkpointMaxFiles {
 			return nil, fmt.Errorf("checkpoint has more than %d files", checkpointMaxFiles)
 		}
@@ -359,35 +499,216 @@ func checkpointCurrentFiles(ctx context.Context, ws string) ([]string, error) {
 	return files, nil
 }
 
-// materializeCheckpoint snapshot را در یک پوشه‌ی موقت می‌نویسد (بدون لمس
-// working tree) — منبعِ بایت‌به‌بایت محتوای بازگردانی.
-func (a *App) materializeCheckpoint(ctx context.Context, ws, ref string) (dir string, cleanup func(), err error) {
-	cfg, cerr := a.configDir()
-	if cerr != nil {
-		return "", nil, cerr
-	}
-	base := filepath.Join(cfg, "checkpoints")
-	if err := os.MkdirAll(base, 0o700); err != nil {
-		return "", nil, err
-	}
-	dir, err = os.MkdirTemp(base, "restore-")
+// checkpointBlobChunk اندازه‌ی تکه‌ی مقایسه/کپی جریانی (Stage 4.3).
+const checkpointBlobChunk = 64 * 1024
+
+// blobBatch یک فرمان پایدار `git cat-file --batch` است: blobها را **خام**
+// (بدون smudge/filter/eol) و جریانی می‌خواند تا نه حافظه و نه دیسک با کل
+// snapshot درگیر شود.
+type blobBatch struct {
+	cmd    *exec.Cmd
+	in     io.WriteCloser
+	out    *bufio.Reader
+	errB   *cappedGitBuffer
+	cancel context.CancelFunc
+	remain int64
+	size   int64
+}
+
+func newBlobBatch(ctx context.Context, ws string) (*blobBatch, error) {
+	cctx, cancel := context.WithCancel(ctx)
+	cmd := exec.CommandContext(cctx, "git", checkpointArgs(ws, "cat-file", "--batch")...)
+	cmd.WaitDelay = 3 * time.Second
+	cmd.Env = gitEnv()
+	in, err := cmd.StdinPipe()
 	if err != nil {
-		return "", nil, err
+		cancel()
+		return nil, err
 	}
-	cleanup = func() { _ = os.RemoveAll(dir) }
-	indexFile := filepath.Join(base, "restore-index-"+newID())
-	defer os.Remove(indexFile)
-	env := checkpointGitEnv(indexFile)
-	if _, err := runGitCheckpoint(ctx, ws, env, checkpointRestoreTime, "read-tree", ref); err != nil {
-		cleanup()
-		return "", nil, err
+	outPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		_ = in.Close()
+		cancel()
+		return nil, err
 	}
-	prefix := dir + string(os.PathSeparator)
-	if _, err := runGitCheckpoint(ctx, ws, env, checkpointRestoreTime, "checkout-index", "-a", "--prefix="+prefix); err != nil {
-		cleanup()
-		return "", nil, err
+	errB := newCappedGitBuffer(gitCaptureCap)
+	cmd.Stderr = errB
+	if err := cmd.Start(); err != nil {
+		cancel()
+		return nil, err
 	}
-	return dir, cleanup, nil
+	return &blobBatch{cmd: cmd, in: in, out: bufio.NewReaderSize(outPipe, checkpointBlobChunk), errB: errB, cancel: cancel}, nil
+}
+
+// open شیء درخواستی را باز می‌کند و اندازه‌اش را برمی‌گرداند.
+func (b *blobBatch) open(sha string) (int64, error) {
+	if _, err := io.WriteString(b.in, sha+"\n"); err != nil {
+		return 0, err
+	}
+	line, err := b.out.ReadString('\n')
+	if err != nil {
+		return 0, fmt.Errorf("git cat-file: %w (%s)", err, strings.TrimSpace(b.errB.buf.String()))
+	}
+	fields := strings.Fields(line)
+	if len(fields) != 3 || fields[1] != "blob" {
+		return 0, fmt.Errorf("git cat-file: unexpected header %q", strings.TrimSpace(line))
+	}
+	size, err := strconv.ParseInt(fields[2], 10, 64)
+	if err != nil || size < 0 {
+		return 0, fmt.Errorf("git cat-file: bad size in %q", strings.TrimSpace(line))
+	}
+	b.size, b.remain = size, size
+	return size, nil
+}
+
+// Read فقط تا اندازه‌ی blob جاری می‌خواند (newline پایانی جزء محتوا نیست).
+func (b *blobBatch) Read(p []byte) (int, error) {
+	if b.remain <= 0 {
+		return 0, io.EOF
+	}
+	if int64(len(p)) > b.remain {
+		p = p[:b.remain]
+	}
+	n, err := b.out.Read(p)
+	b.remain -= int64(n)
+	return n, err
+}
+
+// finish باقی محتوا را دور می‌ریزد و جریان را برای شیء بعدی هم‌تراز می‌کند.
+func (b *blobBatch) finish() error {
+	if b.remain > 0 {
+		if _, err := io.CopyN(io.Discard, b.out, b.remain); err != nil {
+			return err
+		}
+		b.remain = 0
+	}
+	_, err := b.out.ReadByte() // newline پس از محتوا
+	return err
+}
+
+// Close فرآیند را می‌بندد (کران‌دار، بدون نشت).
+func (b *blobBatch) Close() {
+	if b == nil {
+		return
+	}
+	_ = b.in.Close()
+	_ = b.cmd.Wait()
+	b.cancel()
+}
+
+// compareBlobToFile مقایسه‌ی جریانی blob با فایل: اول اندازه، بعد تکه‌های
+// ۶۴KB با bytes.Equal — هیچ‌کدام کامل در حافظه نمی‌آید.
+func compareBlobToFile(b *blobBatch, abs string, size int64) (bool, error) {
+	f, err := os.Open(abs)
+	if err != nil {
+		_ = b.finish()
+		return false, nil // از دست رفت بین stat و باز کردن → بازسازی
+	}
+	defer f.Close()
+	bufA := make([]byte, checkpointBlobChunk)
+	bufB := make([]byte, checkpointBlobChunk)
+	remaining := size
+	for remaining > 0 {
+		n := int64(len(bufA))
+		if n > remaining {
+			n = remaining
+		}
+		if _, err := io.ReadFull(b, bufA[:n]); err != nil {
+			return false, err
+		}
+		if _, err := io.ReadFull(f, bufB[:n]); err != nil {
+			_ = b.finish()
+			return false, nil
+		}
+		if !bytes.Equal(bufA[:n], bufB[:n]) {
+			_ = b.finish()
+			return false, nil
+		}
+		remaining -= n
+	}
+	return true, b.finish()
+}
+
+// restoreBlobToFile بازگردانی یک فایل از blob خام با فایل موقت + rename اتمیک.
+func restoreBlobToFile(b *blobBatch, sha, abs string, perm os.FileMode) error {
+	size, err := b.open(sha)
+	if err != nil {
+		return err
+	}
+	if err := atomicWriteStream(abs, b, size, perm); err != nil {
+		return err
+	}
+	return b.finish()
+}
+
+// restoreFS توابع تزریق‌پذیر مسیریاب ایمن (تست خالص بدون symlink واقعی).
+type restoreFS struct {
+	evalSymlinks func(string) (string, error)
+	lstat        func(string) (os.FileInfo, error)
+	reparse      func(string) bool
+}
+
+var defaultRestoreFS = restoreFS{
+	evalSymlinks: filepath.EvalSymlinks,
+	lstat:        os.Lstat,
+	reparse:      isReparsePoint,
+}
+
+// resolveRestorePath مسیر مطلق ایمن برای نوشتن/جابه‌جایی (Stage 4.3).
+//
+// بررسی لفظی `withinDir` کافی نیست: اگر یک پوشه‌ی داخل پروژه بعد از snapshot
+// به symlink/junction در بیرون تبدیل شده باشد، نوشتن از پروژه خارج می‌شود.
+// علاوه بر مسیر لفظی، ریشه‌ی واقعی و نزدیک‌ترین والد موجود با EvalSymlinks
+// حل می‌شوند و هیچ جزء پیوندی پذیرفته نمی‌شود.
+func resolveRestorePath(ws, rel string, fs restoreFS) (string, error) {
+	if !safeCheckpointRel(rel) {
+		return "", fmt.Errorf("unsafe path")
+	}
+	abs := filepath.Join(ws, filepath.FromSlash(rel))
+	if !withinDir(abs, ws) {
+		return "", fmt.Errorf("path escapes the workspace")
+	}
+	if err := validatePathForWrite(abs); err != nil {
+		return "", err
+	}
+	parts := strings.Split(strings.ReplaceAll(rel, "\\", "/"), "/")
+	for i := 1; i < len(parts); i++ {
+		comp := filepath.Join(ws, filepath.FromSlash(strings.Join(parts[:i], "/")))
+		if _, err := fs.lstat(comp); err != nil {
+			break // باقی مسیر هنوز ساخته نشده
+		}
+		if fs.reparse(comp) {
+			return "", fmt.Errorf("path component %q is a symbolic link or junction", strings.Join(parts[:i], "/"))
+		}
+	}
+	realWS, err := fs.evalSymlinks(ws)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve workspace: %w", err)
+	}
+	probe := filepath.Dir(abs)
+	for {
+		if _, err := fs.lstat(probe); err == nil {
+			break
+		}
+		parent := filepath.Dir(probe)
+		if parent == probe {
+			return "", fmt.Errorf("path has no existing parent inside the workspace")
+		}
+		probe = parent
+	}
+	realParent, err := fs.evalSymlinks(probe)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve parent: %w", err)
+	}
+	if !withinDir(realParent, realWS) {
+		return "", fmt.Errorf("path resolves outside the workspace (symlink/junction)")
+	}
+	if st, err := fs.lstat(abs); err == nil {
+		if st.Mode()&os.ModeSymlink != 0 || fs.reparse(abs) {
+			return "", fmt.Errorf("target is a symbolic link")
+		}
+	}
+	return abs, nil
 }
 
 // checkpointPlan مقایسه‌ی snapshot با وضعیت فعلی.
@@ -397,9 +718,13 @@ type checkpointPlan struct {
 	trash     []string
 	unchanged []string
 	skipped   []string
+	refused   map[string]string // مسیر → دلیل رد ایمنی (symlink/junction)
 }
 
-func buildCheckpointPlan(ctx context.Context, ws, ref string, matDir string) (checkpointPlan, error) {
+// buildCheckpointPlan پروژه را با snapshot مقایسه می‌کند — کاملاً جریانی و
+// **پیش از هر تغییری**. فایل‌های بزرگ نه در حافظه خوانده می‌شوند و نه در
+// دیسک موادی می‌شوند (Stage 4.3).
+func buildCheckpointPlan(ctx context.Context, ws, ref string) (checkpointPlan, error) {
 	var plan checkpointPlan
 	entries, err := checkpointSnapshot(ctx, ws, ref)
 	if err != nil {
@@ -409,7 +734,14 @@ func buildCheckpointPlan(ctx context.Context, ws, ref string, matDir string) (ch
 	if err != nil {
 		return plan, err
 	}
+	batch, err := newBlobBatch(ctx, ws)
+	if err != nil {
+		return plan, err
+	}
+	defer batch.Close()
+
 	plan.snapshot = entries
+	plan.refused = map[string]string{}
 	inSnapshot := make(map[string]bool, len(entries))
 	for _, e := range entries {
 		inSnapshot[e.Path] = true
@@ -417,26 +749,51 @@ func buildCheckpointPlan(ctx context.Context, ws, ref string, matDir string) (ch
 			plan.skipped = append(plan.skipped, e.Path)
 			continue
 		}
-		cur, cerr := os.ReadFile(filepath.Join(ws, filepath.FromSlash(e.Path)))
-		if cerr != nil {
+		abs, rerr := resolveRestorePath(ws, e.Path, defaultRestoreFS)
+		if rerr != nil {
+			plan.skipped = append(plan.skipped, e.Path)
+			plan.refused[e.Path] = rerr.Error()
+			continue
+		}
+		st, serr := os.Lstat(abs)
+		if serr != nil {
 			plan.rewrite = append(plan.rewrite, e.Path) // در snapshot هست، الان نیست → بازسازی
 			continue
 		}
-		want, werr := os.ReadFile(filepath.Join(matDir, filepath.FromSlash(e.Path)))
-		if werr != nil {
+		if !st.Mode().IsRegular() {
 			plan.skipped = append(plan.skipped, e.Path)
+			plan.refused[e.Path] = "not a regular file"
 			continue
 		}
-		if string(cur) == string(want) {
+		size, berr := batch.open(e.SHA)
+		if berr != nil {
+			return plan, berr
+		}
+		if size != st.Size() { // اول اندازه — بدون خواندن محتوا
+			plan.rewrite = append(plan.rewrite, e.Path)
+			_ = batch.finish()
+			continue
+		}
+		same, cerr := compareBlobToFile(batch, abs, size)
+		if cerr != nil {
+			return plan, cerr
+		}
+		if same {
 			plan.unchanged = append(plan.unchanged, e.Path)
 		} else {
 			plan.rewrite = append(plan.rewrite, e.Path)
 		}
 	}
 	for _, p := range current {
-		if !inSnapshot[p] {
-			plan.trash = append(plan.trash, p)
+		if inSnapshot[p] {
+			continue
 		}
+		abs := filepath.Join(ws, filepath.FromSlash(p))
+		if st, err := os.Lstat(abs); err != nil || !st.Mode().IsRegular() {
+			plan.skipped = append(plan.skipped, p)
+			continue
+		}
+		plan.trash = append(plan.trash, p)
 	}
 	sort.Strings(plan.rewrite)
 	sort.Strings(plan.trash)
@@ -465,13 +822,7 @@ func (a *App) PreviewCheckpointRestore(convID string, turnID int64) CheckpointRe
 		preview.Error = "برای این نوبت نقطه‌ی بازگشتی ثبت نشده است."
 		return preview
 	}
-	matDir, cleanup, err := a.materializeCheckpoint(ctx, ws, ref)
-	if err != nil {
-		preview.Error = "خواندن نقطه‌ی بازگشت ممکن نشد: " + err.Error()
-		return preview
-	}
-	defer cleanup() // مقایسه از همین پوشه می‌خواند؛ پاک‌سازی بعد از آن
-	plan, err := buildCheckpointPlan(ctx, ws, ref, matDir)
+	plan, err := buildCheckpointPlan(ctx, ws, ref)
 	if err != nil {
 		preview.Error = "مقایسه‌ی پروژه با نقطه‌ی بازگشت ممکن نشد: " + err.Error()
 		return preview
@@ -518,18 +869,18 @@ func (a *App) RestoreCheckpoint(convID string, turnID int64) CheckpointRestoreRe
 		report.Errors = append(report.Errors, "برای این نوبت نقطه‌ی بازگشتی ثبت نشده است.")
 		return report
 	}
-	matDir, cleanup, err := a.materializeCheckpoint(ctx, ws, ref)
-	if err != nil {
-		report.Errors = append(report.Errors, "خواندن نقطه‌ی بازگشت ممکن نشد: "+err.Error())
-		return report
-	}
-	defer cleanup()
-	plan, err := buildCheckpointPlan(ctx, ws, ref, matDir)
+	plan, err := buildCheckpointPlan(ctx, ws, ref)
 	if err != nil {
 		report.Errors = append(report.Errors, "مقایسه‌ی پروژه ممکن نشد: "+err.Error())
 		return report
 	}
 	report.Skipped = append(report.Skipped, plan.skipped...)
+	// بودجه/مهلت **پیش از نخستین نوشتن** بررسی می‌شود تا بازگردانی نیمه‌کاره
+	// ناشی از تمام‌شدن مهلت رخ ندهد (Stage 4.3).
+	if err := ctx.Err(); err != nil {
+		report.Errors = append(report.Errors, "مهلت/لغو پیش از تغییر فایل‌ها؛ هیچ فایلی تغییر نکرد.")
+		return report
+	}
 
 	trashDir, terr := a.workspaceTrashDir(time.Now().Format("2006-01-02_150405.000"))
 	if terr != nil {
@@ -544,45 +895,49 @@ func (a *App) RestoreCheckpoint(convID string, turnID int64) CheckpointRestoreRe
 		}
 		report.Trashed = append(report.Trashed, rel)
 	}
-	// ۲) فایل‌های snapshot: نسخه‌ی فعلی (اگر متفاوت است) به سبد، سپس نوشتن
+	// ۲) فقط فایل‌های تغییر‌یافته (از پیش محاسبه‌شده): نسخه‌ی فعلی (اگر هست)
+	// به سبد، سپس کپی جریانی blob با فایل موقت + rename اتمیک.
+	batch, berr := newBlobBatch(ctx, ws)
+	if berr != nil {
+		report.Errors = append(report.Errors, "خواندن نقطه‌ی بازگشت ممکن نشد: "+berr.Error())
+		return report
+	}
+	defer batch.Close()
+	byPath := make(map[string]checkpointEntry, len(plan.snapshot))
 	for _, e := range plan.snapshot {
-		if e.Sym {
+		byPath[e.Path] = e
+	}
+	for _, rel := range plan.rewrite {
+		e := byPath[rel]
+		if reason, refused := plan.refused[rel]; refused {
+			report.Errors = append(report.Errors, rel+": "+reason)
 			continue
 		}
-		abs, perr := checkpointAbs(ws, e.Path)
+		abs, perr := resolveRestorePath(ws, rel, defaultRestoreFS)
 		if perr != nil {
-			report.Errors = append(report.Errors, e.Path+": "+perr.Error())
+			report.Errors = append(report.Errors, rel+": "+perr.Error())
 			continue
 		}
-		want, rerr := os.ReadFile(filepath.Join(matDir, filepath.FromSlash(e.Path)))
-		if rerr != nil {
-			report.Errors = append(report.Errors, e.Path+": "+rerr.Error())
-			continue
-		}
-		cur, cerr := os.ReadFile(abs)
-		if cerr == nil && string(cur) == string(want) {
-			continue // یکسان — دست نزن
-		}
-		if cerr == nil {
-			if err := moveToTrash(ws, e.Path, trashDir); err != nil {
-				report.Errors = append(report.Errors, e.Path+": "+err.Error())
+		if _, err := os.Lstat(abs); err == nil {
+			if err := moveToTrash(ws, rel, trashDir); err != nil {
+				report.Errors = append(report.Errors, rel+": "+err.Error())
 				continue
 			}
-			report.Trashed = append(report.Trashed, e.Path)
+			report.Trashed = append(report.Trashed, rel)
 		}
 		mode := os.FileMode(0o644)
 		if e.Mode == "100755" {
 			mode = 0o755
 		}
 		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-			report.Errors = append(report.Errors, e.Path+": "+err.Error())
+			report.Errors = append(report.Errors, rel+": "+err.Error())
 			continue
 		}
-		if err := atomicWriteFile(abs, want, mode); err != nil {
-			report.Errors = append(report.Errors, e.Path+": "+err.Error())
-			continue
+		if err := restoreBlobToFile(batch, e.SHA, abs, mode); err != nil {
+			report.Errors = append(report.Errors, rel+": "+err.Error())
+			break // جریان cat-file ممکن است هم‌تراز نباشد — ادامه نده
 		}
-		report.Restored = append(report.Restored, e.Path)
+		report.Restored = append(report.Restored, rel)
 	}
 	if len(report.Trashed) > 0 {
 		report.TrashDir = trashDir
@@ -597,21 +952,10 @@ func (a *App) RestoreCheckpoint(convID string, turnID int64) CheckpointRestoreRe
 	return report
 }
 
-// checkpointAbs مسیر مطلق داخل پوشه‌ی کاری (با محافظ فرار مسیر).
+// checkpointAbs مسیر مطلق ایمن داخل پوشه‌ی کاری: فرار لفظی، نام/طول ویندوز،
+// و پیوند/جانکشنی که به بیرون اشاره کند (Stage 4.3).
 func checkpointAbs(ws, rel string) (string, error) {
-	if !safeCheckpointRel(rel) {
-		return "", fmt.Errorf("unsafe path")
-	}
-	abs := filepath.Join(ws, filepath.FromSlash(rel))
-	if !withinDir(abs, ws) {
-		return "", fmt.Errorf("path escapes the workspace")
-	}
-	// نام/طول مسیر ویندوز (CON، نقطه/فاصله‌ی پایانی، >۲۶۰) — خطای روشن
-	// به‌جای شکست مبهم یا نوشتن جزئی.
-	if err := validatePathForWrite(abs); err != nil {
-		return "", err
-	}
-	return abs, nil
+	return resolveRestorePath(ws, rel, defaultRestoreFS)
 }
 
 // moveToTrash فایل را (با حفظ ساختار مسیر) به سبد زباله منتقل می‌کند.
@@ -622,6 +966,9 @@ func moveToTrash(ws, rel, trashDir string) error {
 	}
 	if _, err := os.Stat(abs); err != nil {
 		return nil // چیزی برای جابه‌جایی نیست
+	}
+	if err := os.MkdirAll(trashDir, 0o700); err != nil { // ریشه پیش از حل مسیر واقعی
+		return err
 	}
 	dst, perr := checkpointAbs(trashDir, rel)
 	if perr != nil {

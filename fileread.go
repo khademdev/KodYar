@@ -1,6 +1,7 @@
 // محافظ «خواندن پیش از نوشتن» و «فایل کهنه» (مأموریت ۳ — مرحله A.1).
 //
-// هر read_file موفق، اثر انگشت فایل (حجم، mtime، SHA-256 کامل محتوا) را در
+// هر read_file موفق، اثر انگشت فایل (حجم، mtime، SHA-256 کامل محتوا و اینکه
+// خواندن کل فایل را پوشش داد یا نه) را در
 // یک حافظه‌ی LRU به‌ازای هر گفتگو ثبت می‌کند. write_file روی فایلِ موجود فقط
 // وقتی مجاز است که ایجنت قبلاً همان فایل را در همین گفتگو خوانده (یا خودش
 // ساخته) باشد و محتوای روی دیسک از آن زمان تغییر نکرده باشد. edit_file هم
@@ -22,10 +23,15 @@ import (
 )
 
 // fileReadRecord اثر انگشت فایل در لحظه‌ی خواندن (یا نوشتن) موفق.
+//
+// Full یعنی خواندن کل فایل را پوشش داد و خروجی بریده نشد. write_file روی
+// فایل موجود فقط با رکورد Full مجاز است (Stage 4.1)؛ edit_file با رکورد
+// جزئی هم کار می‌کند چون تطبیق دقیق old_string محافظ آن است.
 type fileReadRecord struct {
 	Size   int64  `json:"size"`
 	ModNS  int64  `json:"modNs"`
 	SHA256 string `json:"sha256"`
+	Full   bool   `json:"full"`
 }
 
 // محدوده‌های حافظه‌ی رکوردها — کران‌دار تا در گفتگوهای طولانی نشت نکند.
@@ -263,6 +269,12 @@ func (a *App) checkWriteGuard(ctx context.Context, rel, abs string, current []by
 		if sha256Hex(current) != rec.SHA256 {
 			return writeGuard{Err: "ERROR: '" + rel + "' changed on disk since you last read it (the content hash no longer matches). " +
 				"Call read_file again and base your change on the current content — do not overwrite changes you have not seen."}
+		}
+		if intent == intentOverwrite && !rec.Full {
+			// خواندن جزئی/بریده: بازنویسی کل فایل می‌تواند بخش دیده‌نشده را
+			// نابود کند؛ مدل باید کل فایل را بخواند یا از edit_file استفاده کند.
+			return writeGuard{Err: "ERROR: '" + rel + "' was only partially read (or read_file's output was truncated), so overwriting the whole file could destroy the part you have not seen. " +
+				"Read the entire file first (read_file without start_line/end_line), or use edit_file for a targeted change."}
 		}
 		return writeGuard{}
 	}

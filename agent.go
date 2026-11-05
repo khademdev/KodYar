@@ -839,7 +839,7 @@ func (a *App) toolReadFile(ctx context.Context, rel string, startLine, endLine i
 	// (محافظ خواندن‌پیش‌از‌نوشتن، fileread.go).
 	convIDRead := a.convIDForTools(ctx)
 	if info.Size() == 0 {
-		a.noteFileRead(ctx, convIDRead, p, fileReadRecord{Size: 0, ModNS: info.ModTime().UnixNano(), SHA256: sha256Hex(nil)})
+		a.noteFileRead(ctx, convIDRead, p, fileReadRecord{Size: 0, ModNS: info.ModTime().UnixNano(), SHA256: sha256Hex(nil), Full: true})
 		return "", true
 	}
 
@@ -921,16 +921,6 @@ func (a *App) toolReadFile(ctx context.Context, rel string, startLine, endLine i
 	if int64(startLine) > totalLines {
 		return fmt.Sprintf("File '%s' has %d line(s); start_line=%d is out of range.", rel, totalLines, startLine), true
 	}
-	// ثبت اثر انگشت پس از خواندن موفق (stat تازه؛ اگر فایل در همین لحظه
-	// عوض شده باشد، محافظِ بعدی تغییر را می‌بیند و مدل دوباره می‌خواند).
-	if post, serr := os.Stat(p); serr == nil {
-		a.noteFileRead(ctx, convIDRead, p, fileReadRecord{
-			Size:   post.Size(),
-			ModNS:  post.ModTime().UnixNano(),
-			SHA256: hex.EncodeToString(hasher.Sum(nil)),
-		})
-	}
-
 	out := collected.String()
 	// اعمال سقف بایت
 	if len(out) > maxReadBytes {
@@ -960,6 +950,19 @@ func (a *App) toolReadFile(ctx context.Context, rel string, startLine, endLine i
 	}
 	if endLine < int(totalLines) || truncated {
 		out += fmt.Sprintf("\n\n[showing lines %d-%d of %d — pass start_line/end_line to read more]", startLine, endLine, totalLines)
+	}
+	// «خواندن کامل» فقط اگر از خط ۱ تا آخر فایل بدون هیچ برشی خوانده شده
+	// باشد؛ وگرنه بازنویسی کل فایل رد می‌شود (Stage 4.1).
+	fullRead := startLine == 1 && int64(endLine) >= totalLines && !truncated
+	// ثبت اثر انگشت پس از خواندن موفق (stat تازه؛ اگر فایل در همین لحظه
+	// عوض شده باشد، محافظِ بعدی تغییر را می‌بیند و مدل دوباره می‌خواند).
+	if post, serr := os.Stat(p); serr == nil {
+		a.noteFileRead(ctx, convIDRead, p, fileReadRecord{
+			Size:   post.Size(),
+			ModNS:  post.ModTime().UnixNano(),
+			SHA256: hex.EncodeToString(hasher.Sum(nil)),
+			Full:   fullRead,
+		})
 	}
 	return out, true
 }

@@ -89,6 +89,7 @@ func streamTestApp(t *testing.T, srvURL string) *App {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(wsDir) })
 	t.Setenv("MYAI_CONFIG_DIR", cfgDir)
+	resetErrorLogPath()
 
 	a := NewApp()
 	a.settings = defaultSettings()

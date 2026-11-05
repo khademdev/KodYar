@@ -1430,3 +1430,126 @@ GATE: GREEN
 دیسک نیست (اعلان فارسی داده می‌شود).
 
 **Stage 3 complete. Waiting for your instruction to continue.**
+
+## Mission 4 — Stage 4: رفع یافته‌های تأییدشده‌ی بازبینی
+
+### 4.1 خواندن جزئی نباید «خواندن کامل» حساب شود
+
+**ریشه:** هر `read_file` موفق، هش **کل** فایل را ثبت می‌کرد — حتی وقتی مدل
+فقط `start_line..end_line` را خوانده یا خروجی بریده شده بود. پس از دیدن ۲۰ خط
+از فایل ۵۰۰۰ خطی، `write_file` کل فایل اجازه داشت و بخش دیده‌نشده بی‌صدا
+نابود می‌شد.
+
+**رفع:** `fileReadRecord.Full` اضافه شد؛ `toolReadFile` آن را فقط وقتی ست
+می‌کند که خواندن از خط ۱ تا انتهای فایل و بدون هیچ برشی (بایت/کاراکتر) باشد.
+`checkWriteGuard` در `intentOverwrite` رکورد غیرـFull را با پیام انگلیسی
+«only partially read … read the entire file first, or use edit_file» رد
+می‌کند؛ `edit_file` با رکورد جزئی مجاز می‌ماند (تطبیق دقیق `old_string`
+محافظ آن است) و بررسی هش کهنه سر جایش است. رکوردهای نوشتن/جابه‌جایی
+(`writeFileWithConfirm`، `movePathWithConfirm`) `Full: true` هستند.
+
+**تست‌ها (`readguard_test.go`):** `TestPartialReadRejectsWholeFileOverwrite`،
+`TestTruncatedReadRejectsOverwrite`، `TestFullReadAllowsOverwrite`،
+`TestFullReadAfterPartialAllowsOverwrite`، `TestEditAfterPartialIsAllowed`،
+`TestEmptyFileReadIsFull`، `TestStaleAfterPartialReadStillRejected`،
+`TestPersianCRLFBOMFullReadThenOverwrite` (BOM + CRLF + ZWNJ بایت‌به‌بایت)،
+`TestLargeFilePartialReadGuard`.
+
+### 4.2 چک‌پوینت بایت‌به‌بایت (بدون فیلتر)
+
+**ریشه:** snapshot با `git add -A` ساخته می‌شد و بازگردانی با
+`checkout-index`؛ در نتیجه `core.autocrlf` کاربر، `.gitattributes`
+(`text`/`eol`) و فیلترهای clean/smudge (Git LFS) روی محتوا اعمال می‌شدند —
+خط‌پایان‌ها عوض می‌شدند، فایل‌های LFS خراب برمی‌گشتند و پیش‌نمایش تقریباً همه
+را «rewrite» نشان می‌داد.
+
+**رفع:**
+- `checkpointBuildTree`: فهرست از `git ls-files -z -c -o
+  --exclude-standard`، blobها با `git hash-object -w --no-filters
+  --stdin-paths` (بدون هیچ فیلتر/EOL)، و ایندکس موقت با
+  `git update-index -z --add --index-info`؛ سپس `write-tree` (بدون `git add`).
+  حالت اجراپذیر حفظ می‌شود (`100755`)، پیوندها کنار گذاشته می‌شوند.
+- همه‌ی فراخوانی‌های git با `-c core.autocrlf=false -c core.safecrlf=false
+  -c core.fsmonitor=false -c core.hooksPath=</dev/null>` و `GIT_ATTR_NOSYSTEM=1`.
+- بازگردانی با `git cat-file --batch` (خام) انجام می‌شود، نه `checkout-index`.
+
+**تست‌ها (`checkpointfidelity_test.go`):** `TestCheckpointNoFilterByteFaithful`
+(مخزن با `core.autocrlf=true`، `.gitattributes` با `eol=crlf` و
+`filter=broken` ناموجود، CRLF/LF/باینری/فارسی با ZWNJ → snapshot، تغییر، حذف،
+فایل تازه، بازگردانی: همه بایت‌به‌بایت، فایل تازه در سبد، نسخه‌ی قبلی در
+سبد)؛ `TestCheckpointPreviewListsOnlyChanged` (پیش‌نمایش فقط فایل واقعاً
+تغییریافته).
+
+### 4.3 بازگردانی ایمن و کران‌دار
+
+**ریشه:** بررسی مسیر فقط لفظی (`withinDir`) بود؛ اگر پوشه‌ای بعد از snapshot
+به symlink/junction بیرونی تبدیل می‌شد، بازگردانی بیرون پروژه می‌نوشت. علاوه
+بر آن `materializeCheckpoint` کل snapshot را در پوشه‌ی موقت کپی می‌کرد و
+مقایسه `os.ReadFile ×2` + `string(a)==string(b)` بود — برای فایل‌های بزرگ
+حافظه/دیسک را می‌بلعید.
+
+**رفع:**
+- `resolveRestorePath` (و `checkpointAbs` روی آن): حل ریشه‌ی واقعی و
+  نزدیک‌ترین والد موجود با `EvalSymlinks`، رد هر جزء reparse/symlink
+  (`isReparsePoint` ویندوزی بر پایه‌ی `FILE_ATTRIBUTE_REPARSE_POINT`)، رد
+  هدف symlink، و بررسی نام/طول مسیر ویندوز. مسیرهای ردشده در
+  `Skipped`/`Errors` گزارش می‌شوند و بقیه ادامه می‌یابند.
+- حذف کامل materialize: مقایسه و بازگردانی **جریانی** با
+  `git cat-file --batch`: اول اندازه، بعد تکه‌های ۶۴KiB با `bytes.Equal`؛
+  نوشتن با `atomicWriteStream` (فایل موقت یکتا + sync + rename) و بدون
+  بافر کل محتوا.
+- برنامه (plan) پیش از هر تغییری ساخته می‌شود؛ سقف فایل
+  (`checkpointMaxFiles`) و بررسی مهلت/لغو هم پیش از نخستین نوشتن انجام
+  می‌شود تا بازگردانی نیمه‌کاره رخ ندهد.
+
+**تست‌ها:** `TestResolveRestorePathRefusesSymlinkedParent`،
+`TestResolveRestorePathRefusesOutsideResolution` (FS جعلی، روی همه‌ی
+سکوها)، `TestResolveRestorePathAcceptsPlainPath`،
+`TestRestoreLargeFileMemoryBounded` (فایل ۳۲MB؛ رشد heap کمتر از نصف حجم
+فایل در preview و بازگردانی جریانی)، `TestCheckpointLimitExceededChangesNothing`
+(سقف فایل → خطا و هیچ تغییری).
+
+### 4.4 بهداشت
+
+- `README.txt` (یادداشت بسته‌ی 2026-10-30، بدون هیچ ارجاعی) حذف شد.
+- فایل‌های تست با نام نسخه/فاز به نام موضوعی منتقل و بدنه‌ها بدون تغییر
+  جابه‌جا شدند: `v13_test.go` → `providermigration_test.go` +
+  `conversationdelete_test.go`؛ `finalaudit_test.go` → `mcpsafeguards_test.go`
+  + `frontendhooks_test.go` + `settingssecurity_test.go`؛ `finalfix_test.go`
+  → `settingsrevert_test.go` + `toolcustomize_test.go` + `appresume_test.go`.
+- `grep -rn "TODO\|FIXME\|XXX" --include=*.go` خالی است (بدون بدهی تازه).
+- پس از جابه‌جایی فایل‌ها، `TestErrorLog` در گیت کامل قرمز شد: مسیر
+  `errors.log` در `errLogPath` کش می‌شد و تست‌ها به پوشه‌ی موقتِ حذف‌شده‌ی
+  تست قبلی می‌نوشتند. `resolveErrorLogPath` حالا کش را وقتی پوشه‌اش وجود
+  ندارد باطل می‌کند (در runtime هم اگر کاربر پوشه را حذف کند مفید است) و
+  `newTestApp`/`newPanicTestApp`/`streamTestApp` با `resetErrorLogPath` هر
+  تست را ایزوله می‌کنند. Assertionها دست‌نخورده‌اند.
+
+**گیت واقعی (اجرای `scripts/gate.sh`):**
+
+```
+=== gofmt -l . ===                [OK] (خالی)
+=== go vet ./... ===              [OK]
+=== go build ./... ===            [OK]
+=== go test -race -count=1 ./... === ok  myai  187.407s  [OK]
+=== env GOOS=windows GOARCH=amd64 go vet ./... === [OK]
+=== env GOOS=linux   GOARCH=amd64 go vet ./... === [OK]
+GATE: GREEN
+```
+
+**فرض‌ها/انحراف‌ها:**
+- همه‌ی پیوندها/junctionها در مسیر بازگردانی رد می‌شوند (نه فقط آن‌هایی که به
+  بیرون اشاره می‌کنند)؛ سخت‌گیرانه‌تر و ساده‌تر از متن سند، و ایمن‌تر.
+- تست ۲۰۰MB سند به ۳۲MB کاهش یافت تا گیت سریع بماند؛ خاصیت اثبات‌شده
+  (نبودِ تخصیص متناسب با حجم) یکی است.
+- تست ساخت junction واقعی روی ویندوز (نیازمند دسترسی/ابزار بیرونی) اجرا
+  نشد؛ منطق با FS جعلی و `isReparsePoint` واقعی پوشش داده شد.
+- `checkpointMaxFiles` از const به var تبدیل شد تا تست کران ممکن باشد.
+
+**محدودیت:** اگر مهلت ۶۰ ثانیه **وسط** حلقه‌ی نوشتن تمام شود، فایل‌های
+نوشته‌شده تا آن لحظه بازگردانی‌شده‌اند (هرچند همه در سبد زباله قابل‌برگشت
+هستند)؛ بررسی مهلت پیش از شروع تضمین می‌کند این حالت ناشی از «بودجه» نباشد.
+رفتار واقعی ویندوز (junction/آنتی‌ویروس) همچنان فقط با vet متقاطع و
+چک‌لیست دستی پوشش دارد.
+
+**Stage 4 complete. Waiting for your instruction to continue.**

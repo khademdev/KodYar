@@ -23,6 +23,7 @@ func newPanicTestApp(t *testing.T) *App {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	t.Setenv("MYAI_CONFIG_DIR", dir)
+	resetErrorLogPath()
 	a := NewApp()
 	a.settings = defaultSettings()
 	return a

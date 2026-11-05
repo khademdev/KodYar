@@ -516,6 +516,7 @@ func (a *App) writeFileWithConfirm(ctx context.Context, rel, afterContent string
 			Size:   post.Size(),
 			ModNS:  post.ModTime().UnixNano(),
 			SHA256: rec.ContentSHA256,
+			Full:   true, // کل محتوا را همین ابزار نوشته است
 		})
 	}
 	return fmt.Sprintf("OK: %s '%s' (+%d/-%d lines) — %s; revertible from the «file changes» panel.%s",
@@ -586,7 +587,7 @@ func (a *App) movePathWithConfirm(ctx context.Context, from, to string) (string,
 		if st, serr := os.Stat(dst); serr == nil {
 			modNS = st.ModTime().UnixNano()
 		}
-		a.noteFileRead(ctx, convIDRead, dst, fileReadRecord{Size: int64(len(data)), ModNS: modNS, SHA256: rec.ContentSHA256})
+		a.noteFileRead(ctx, convIDRead, dst, fileReadRecord{Size: int64(len(data)), ModNS: modNS, SHA256: rec.ContentSHA256, Full: true})
 	}
 	a.recordAppliedChange(rec)
 	turnRecorderFrom(ctx).recordFileChange()
