@@ -131,20 +131,7 @@ func (a *App) loadChanges() []FileChange {
 	if a.changes.cacheOK {
 		return append([]FileChange(nil), a.changes.cached...)
 	}
-	p, err := a.changesPath()
-	if err != nil {
-		return nil
-	}
-	raw, err := os.ReadFile(p)
-	if err != nil {
-		return nil
-	}
-	var list []FileChange
-	if json.Unmarshal(raw, &list) != nil {
-		// فایل خراب — کنار گذاشته می‌شود تا از صفر ساخته شود
-		_ = os.Rename(p, p+".corrupt")
-		return nil
-	}
+	list := a.loadChangesLocked()
 	a.changes.cached = list
 	a.changes.cacheOK = true
 	return append([]FileChange(nil), list...)
@@ -199,24 +186,55 @@ func (a *App) appendChangeLocked(ch FileChange) {
 		raw, _ = json.Marshal(half)
 		a.changes.cached = half
 	}
-	// نوشتن اتمیک با fsync — مثل settings.json و conversations (رفع F2):
-	// tmp در همان پوشه → sync → rename؛ پس از کرش سیستم داده سالم می‌ماند.
-	_ = atomicWriteFile(p, raw, 0o600)
+	// نوشتن اتمیک با fsync + یک نسل .bak — مثل settings.json و conversations
+	// (رفع F2): tmp در همان پوشه → sync → rename؛ پس از کرش داده سالم می‌ماند.
+	if werr := atomicWriteFileWithBackup(p, raw, 0o600); werr != nil {
+		// رکورد در حافظه حفظ می‌شود؛ کاربر پیام فارسی می‌بیند (بیرون از قفل).
+		logAppErrorFor(a, "save", "changes.json: "+werr.Error())
+		emitRecoveryNotice(a, "", "ذخیره‌ی فهرست تغییرات روی دیسک ناموفق بود (جزئیات در لاگ خطاها).")
+	}
 }
 
 // loadChangesLocked مثل loadChanges ولی بدون قفل داخلی.
+// بازیابی: فایل اصلی → `.bak` → کنارگذاشتن فایل خراب با اعلان فارسی.
 func (a *App) loadChangesLocked() []FileChange {
 	p, err := a.changesPath()
 	if err != nil {
 		return nil
 	}
 	raw, err := os.ReadFile(p)
+	fromBackup := false
 	if err != nil {
-		return nil
+		if bak, bakErr := os.ReadFile(backupPath(p)); bakErr == nil {
+			raw, fromBackup = bak, true
+		} else {
+			return nil
+		}
 	}
 	var list []FileChange
 	if json.Unmarshal(raw, &list) != nil {
+		// نسخه‌ی پشتیبان سالم؟
+		if bak, bakErr := os.ReadFile(backupPath(p)); bakErr == nil {
+			var bl []FileChange
+			if json.Unmarshal(bak, &bl) == nil {
+				moveToCorrupt(p)
+				// نسخه‌ی سالم از پشتیبان بازسازی می‌شود تا دفعه‌ی بعد
+				// دوباره بازیابی لازم نباشد.
+				if raw2, merr := json.Marshal(bl); merr == nil {
+					_ = atomicWriteFile(p, raw2, 0o600)
+				}
+				emitRecoveryNotice(a, "", "فایل تغییرات آسیب دیده بود؛ از نسخه‌ی پشتیبان بازیابی شد.")
+				return bl
+			}
+		}
+		moveToCorrupt(p)
+		emitRecoveryNotice(a, "", "فایل تغییرات آسیب دیده بود؛ فهرست تغییرات بازنشانی شد.")
 		return nil
+	}
+	if fromBackup {
+		if raw2, merr := json.Marshal(list); merr == nil {
+			_ = atomicWriteFile(p, raw2, 0o600)
+		}
 	}
 	return list
 }
@@ -418,6 +436,9 @@ func (a *App) writeFileWithConfirm(ctx context.Context, rel, afterContent string
 	if err != nil {
 		return "ERROR: " + err.Error(), false
 	}
+	if err := validatePathForWrite(p); err != nil {
+		return "ERROR: " + err.Error(), false
+	}
 
 	// محتوای فعلی (قبل)
 	before, rerr := os.ReadFile(p)
@@ -509,6 +530,9 @@ func (a *App) movePathWithConfirm(ctx context.Context, from, to string) (string,
 	}
 	dst, err := a.resolveWorkspacePath(to)
 	if err != nil {
+		return "ERROR: " + err.Error(), false
+	}
+	if err := validatePathForWrite(dst); err != nil {
 		return "ERROR: " + err.Error(), false
 	}
 	if _, err := os.Stat(dst); err == nil {

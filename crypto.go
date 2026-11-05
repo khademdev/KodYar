@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -237,29 +238,58 @@ func isLegacyCiphertext(encoded string) bool {
 
 // ---------------------------------------------------------------- نوشتن اتمیک
 
-// atomicWriteFile نوشتن اتمیک با fsync: فایل موقت در همان پوشه → sync →
-// rename. خواننده‌ی هم‌زمان هرگز نیمی‌نوشته نمی‌بیند و داده پس از کرش
-// سیستم روی دیسک می‌ماند. برای settings.json و هر جایی که داده‌ی حساس
-// نوشته می‌شود.
+// atomicWriteFile نوشتن اتمیک با fsync: فایل موقت یکتا در همان پوشه →
+// sync → rename. خواننده‌ی هم‌زمان هرگز نیمی‌نوشته نمی‌بیند و فایل مقصد
+// هرگز truncate نمی‌شود؛ در خطا، فایل موقت پاک می‌شود و فایل قبلی دست‌نخورده
+// می‌ماند. روی ویندوز renameِ گذرا (قفل ویرایشگر/آنتی‌ویروس) با تلاش محدود
+// تکرار می‌شود.
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
-	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+	tmp, err := writeTempFile(path, data, perm)
 	if err != nil {
 		return err
 	}
+	if err := renameWithRetry(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("write %s: %w", filepath.Base(path), err)
+	}
+	return nil
+}
+
+// atomicWriteHook قلاب تست برای تزریق خطای نوشتن (مثلاً ENOSPC). فقط پیش از
+// هم‌زمانی‌ها تنظیم شود.
+var atomicWriteHook func(path string) error
+
+// writeTempFile داده را در فایل موقتِ یکتا (پسوند .tmp — جاروی راه‌اندازی
+// هر دو سبک نام را می‌شناسد) می‌نویسد و مسیر موقت را برمی‌گرداند. هیچ
+// خطایی فایل مقصد را لمس نمی‌کند.
+func writeTempFile(path string, data []byte, perm os.FileMode) (string, error) {
+	if atomicWriteHook != nil {
+		if err := atomicWriteHook(path); err != nil {
+			return "", err
+		}
+	}
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return "", err
+	}
+	tmp := f.Name()
+	fail := func(e error) (string, error) {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return "", e
+	}
+	if err := f.Chmod(perm); err != nil {
+		return fail(err)
+	}
 	if _, err := f.Write(data); err != nil {
-		f.Close()
-		os.Remove(tmp)
-		return err
+		return fail(err)
 	}
 	if err := f.Sync(); err != nil {
-		f.Close()
-		os.Remove(tmp)
-		return err
+		return fail(err)
 	}
 	if err := f.Close(); err != nil {
-		os.Remove(tmp)
-		return err
+		_ = os.Remove(tmp)
+		return "", err
 	}
-	return os.Rename(tmp, path)
+	return tmp, nil
 }

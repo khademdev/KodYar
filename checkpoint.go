@@ -606,6 +606,11 @@ func checkpointAbs(ws, rel string) (string, error) {
 	if !withinDir(abs, ws) {
 		return "", fmt.Errorf("path escapes the workspace")
 	}
+	// نام/طول مسیر ویندوز (CON، نقطه/فاصله‌ی پایانی، >۲۶۰) — خطای روشن
+	// به‌جای شکست مبهم یا نوشتن جزئی.
+	if err := validatePathForWrite(abs); err != nil {
+		return "", err
+	}
 	return abs, nil
 }
 

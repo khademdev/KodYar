@@ -1346,3 +1346,87 @@ GATE: GREEN
 تلاش مجدد همان `dialStream` است.
 
 **Stage 2 complete. Waiting for your instruction to continue.**
+
+## Mission 4 — Stage 3: نوشتن اتمیک مقاوم و بازیابی داده
+
+**ریشه‌ی نقص‌ها:**
+1. `atomicWriteFile` نام موقت ثابت (`path+".tmp"`) داشت؛ دو نویسنده‌ی هم‌زمان
+   روی همان فایل موقت می‌نوشتند و می‌توانستند خروجی یکدیگر را خراب کنند.
+2. روی ویندوز `os.Rename` روی فایل مقصدی که ویرایشگر/آنتی‌ویروس/ایندکسر
+   لحظه‌ای باز نگه داشته، گذرا با ACCESS_DENIED / SHARING_VIOLATION /
+   LOCK_VIOLATION شکست می‌خورد و ذخیره‌ی گفتگو بی‌صدا شکست می‌خورد.
+3. گفتگو یا `changes.json` خراب/بریده (کرش یا قطع برق وسط نوشتن) کامل از دست
+   می‌رفت: لودر خطای JSON می‌داد و changes فقط به `.corrupt` تغییر نام
+   می‌داد؛ هیچ نسخه‌ی پشتیبان و هیچ بازیابی‌ای نبود.
+4. خطای دیسک پر پیام مبهم داشت و مشخص نبود فایل قبلی سالم مانده یا نه.
+5. نام‌های ممنوع ویندوز (CON/NUL/COM1…، نقطه/فاصله‌ی پایانی) خطاهای مبهم
+   یا در بدترین حالت نوشتن روی دستگاه شبه‌فایل می‌دادند.
+
+**چه شد:**
+
+- `crypto.go`: `atomicWriteFile` بازنویسی شد — فایل موقت یکتا با
+  `os.CreateTemp(dir, base+".*.tmp")` → `Chmod` → `Write` → `Sync` → `Close`
+  → `renameWithRetry`. هر خطا فقط فایل موقت را حذف می‌کند؛ مقصد هرگز
+  truncate نمی‌شود. قلاب تست `atomicWriteHook` برای تزریق ENOSPC.
+- `atomicwrite_windows.go` / `atomicwrite_other.go` (تازه): `renameWithRetry`
+  با تشخیص خطاهای گذرا (errnoهای ۵/۳۲/۳۳ و `windows.ERROR_*`) و ۶ تلاش
+  ۲۵→۴۰۰ میلی‌ثانیه (~۰.۸ ثانیه)؛ روی POSIX همان `os.Rename`.
+- `recovery.go` (تازه): `atomicWriteFileWithBackup` با چرخش یک‌نسلی `.bak` به
+  ترتیبی که هرگز حالت «نه main نه .bak» پیش نیاید (main → .bak، بعد
+  tmp → main)؛ `moveToCorrupt` + `pruneCorruptFiles` (حداکثر ۵ نسخه‌ی
+  `name.corrupt-<ts>`، داده‌ی کاربر هرگز حذف نمی‌شود)؛ `salvageConversation`
+  با `json.Decoder` تا آخرین پیام کامل؛ اعلان فارسی «گفتگو آسیب دیده بود؛
+  n پیام بازیابی شد.» با ارقام فارسی.
+- `conversations.go`: `loadConversation` زنجیره‌ی main → `.bak` → salvage و
+  بازسازی main از پشتیبان؛ `saveConversation` با پشتیبان و خطای فارسی
+  «ذخیره‌ی گفتگو روی دیسک ناموفق بود (فایل قبلی دست‌نخورده است)»؛ گفتگو در
+  حافظه حفظ می‌شود. `sweepStaleTempFiles` (فراخوانی از `app.go`) هر دو سبک
+  نام موقت را در راه‌اندازی جارو می‌کند.
+- `changes.go`: `loadChangesLocked` زنجیره‌ی main → `.bak` → بازنشانی با
+  اعلان فارسی؛ `appendChangeLocked` با پشتیبان و اعلان خطای ذخیره؛
+  اعتبارسنجی مسیر در `writeFileWithConfirm` و `movePathWithConfirm`.
+- `checkpoint.go`: `checkpointAbs` نام/طول مسیر ویندوز را پیش از نوشتن رد
+  می‌کند (خطای روشن به‌جای شکست مبهم).
+- `pathnames.go` (تازه): `validatePathName`/`validatePathForWrite` — نام‌های
+  رزروشده، نویسه‌های `<>:"|?*`، کاراکترهای کنترلی، نقطه/فاصله‌ی پایانی و
+  سقف ۲۵۹ نویسه. روی POSIX فقط مسیر خالی رد می‌شود تا مسیرهای قانونی
+  یونیکس رد نشوند.
+
+**تست‌های تازه (`stage3_test.go`):**
+`TestAtomicWriteConcurrentUniqueTemp` (۲۴ نویسنده‌ی هم‌زمان، JSON سالم، بدون
+`.tmp` جامانده)، `TestSweepRecognizesUniqueTempNames`،
+`TestConversationBackupRotationAndRecovery` (نسل قبلی در `.bak` و بازیابی از
+آن)، `TestConversationSalvageTruncated` (۲ پیام کامل + حفظ دقیق ZWNJ +
+`.corrupt-*` + بازنویسی main + اعلان فارسی)، `TestCorruptFilesAreBounded`،
+`TestDiskFullKeepsExistingFileAndMemory` (ENOSPC: فایل بایت‌به‌بایت دست‌نخورده،
+حافظه حفظ، خطای فارسی)، `TestChangesJSONRecoversFromBackup`،
+`TestValidatePathName`، `TestValidatePathForWriteLongPath`.
+
+**گیت واقعی (اجرای `scripts/gate.sh`):**
+```
+=== gofmt -l . ===
+[OK] gofmt -l .
+=== go vet ./... ===
+[OK] go vet ./...
+=== go build ./... ===
+[OK] go build ./...
+=== go test -race -count=1 ./... ===
+ok  	myai	155.322s
+[OK] go test -race -count=1 ./...
+=== env GOOS=windows GOARCH=amd64 go vet ./... ===
+[OK] env GOOS=windows GOARCH=amd64 go vet ./...
+=== env GOOS=linux GOARCH=amd64 go vet ./... ===
+[OK] env GOOS=linux GOARCH=amd64 go vet ./...
+GATE: GREEN
+```
+
+**فرض‌ها/انحراف‌ها:** `.bak` فقط یک نسل نگه می‌دارد (سقف رشد دیسک)؛
+`atomicWriteHook` فقط برای تست است و در runtime nil می‌ماند؛ اعتبارسنجی نام
+ویندوز تنها روی ویندوز اعمال می‌شود.
+
+**محدودیت:** اگر هم main و هم `.bak` خراب باشند، بازیابی فقط پیام‌های کامل
+تا محل خرابی را نگه می‌دارد و فایل اصلی در `.corrupt-*` دست‌نخورده می‌ماند.
+رکورد changes در حافظه پس از خطای دیسک پر تا پایان اجرا باقی می‌ماند ولی روی
+دیسک نیست (اعلان فارسی داده می‌شود).
+
+**Stage 3 complete. Waiting for your instruction to continue.**

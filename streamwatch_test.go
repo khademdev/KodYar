@@ -73,6 +73,38 @@ func assistantMessages(t *testing.T, a *App, convID string) []Message {
 	return out
 }
 
+// streamTestApp مثل chatAppOnServer ولی پوشه‌های موقت را با پاک‌سازی
+// خطا-نادیده می‌سازد: آنتی‌ویروس/ایندکسر ویندوز فایل گفتگو را لحظه‌ای باز
+// نگه می‌دارد و t.TempDir در پاک‌سازی «directory is not empty» می‌دهد.
+func streamTestApp(t *testing.T, srvURL string) *App {
+	t.Helper()
+	cfgDir, err := os.MkdirTemp("", "myai-stream-")
+	if err != nil {
+		t.Fatalf("config dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(cfgDir) })
+	wsDir, err := os.MkdirTemp("", "myai-stream-ws-")
+	if err != nil {
+		t.Fatalf("workspace dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(wsDir) })
+	t.Setenv("MYAI_CONFIG_DIR", cfgDir)
+
+	a := NewApp()
+	a.settings = defaultSettings()
+	a.settings.Providers = []Provider{{
+		ID: "ollama", Name: "Ollama", BaseURL: srvURL,
+		NoKey: true, ContextWindow: 128000, Models: []string{"llama3.2"},
+	}}
+	a.settings.Provider = "ollama"
+	a.settings.Model = "llama3.2"
+	a.settings.WorkspacePath = wsDir
+	a.settings.AllowCommands = true
+	a.settings.ConfirmFileWrites = false
+	a.initChangesStore()
+	return a
+}
+
 // blockingSSE هدرهای استریم را می‌فرستد و تا لغو، هیچ داده‌ای نمی‌فرستد.
 func blockingSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -109,7 +141,7 @@ func TestStreamStallBeforeFirstByteRetries(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	a := chatAppOnServer(t, srv.URL)
+	a := streamTestApp(t, srv.URL)
 	conv, err := a.SendMessage("", "سلام", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -138,7 +170,7 @@ func TestStreamStallMidStreamSavesPartialNoRetry(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	a := chatAppOnServer(t, srv.URL)
+	a := streamTestApp(t, srv.URL)
 	logPath := redirectToTestLog(t)
 	conv, err := a.SendMessage("", "یک پاسخ بلند بده", nil)
 	if err != nil {
@@ -183,7 +215,7 @@ func TestStreamKeepAlivePreventsWatchdog(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	a := chatAppOnServer(t, srv.URL)
+	a := streamTestApp(t, srv.URL)
 	conv, err := a.SendMessage("", "سلام", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -208,7 +240,7 @@ func TestStreamStallDoesNotOverrideUserStop(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	a := chatAppOnServer(t, srv.URL)
+	a := streamTestApp(t, srv.URL)
 	logPath := redirectToTestLog(t)
 	if _, err := a.SendMessage("", "سلام", nil); err != nil {
 		t.Fatal(err)
@@ -231,7 +263,7 @@ func TestSubagentStallReturnsErrorReport(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	a := chatAppOnServer(t, srv.URL)
+	a := streamTestApp(t, srv.URL)
 	report, ok := a.runSubagent(context.Background(), "explore the workspace")
 	if ok {
 		t.Fatalf("stalled sub-agent must not report success: %q", report)
@@ -263,7 +295,7 @@ func TestStreamWatchdogNoGoroutineLeak(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	a := chatAppOnServer(t, srv.URL)
+	a := streamTestApp(t, srv.URL)
 	// گرم‌کردن: گوروتین‌های سرور آزمایشی و استخر اتصال keep-alive پیش از
 	// اندازه‌گیری پایه ساخته می‌شوند تا رشد آن‌ها با نشت اشتباه نشود.
 	if _, err := a.SendMessage("", "سلام", nil); err != nil {

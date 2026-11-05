@@ -246,13 +246,52 @@ func (a *App) loadConversation(id string) (*Conversation, error) {
 	if err != nil {
 		return nil, err
 	}
-	raw, err := os.ReadFile(convPath(dir, id))
+	path := convPath(dir, id)
+	raw, err := os.ReadFile(path)
+	fromBackup := false
 	if err != nil {
-		return nil, errors.New("گفتگو پیدا نشد")
+		// چرخش نیمه‌کاره‌ی .bak (کرش بین renameها) — فایل اصلی برمی‌گردد.
+		if bak, bakErr := os.ReadFile(backupPath(path)); bakErr == nil {
+			raw, fromBackup = bak, true
+		} else {
+			return nil, errors.New("گفتگو پیدا نشد")
+		}
 	}
 	var c Conversation
-	if err := json.Unmarshal(raw, &c); err != nil {
-		return nil, err
+	if jerr := json.Unmarshal(raw, &c); jerr != nil {
+		// ۱) نسخه‌ی پشتیبان سالم؟ ۲) بازیابی پیام‌های کامل از فایل نیمه‌خراب.
+		if bak, bakErr := os.ReadFile(backupPath(path)); bakErr == nil {
+			var bc Conversation
+			if json.Unmarshal(bak, &bc) == nil && bc.ID == id {
+				c = bc
+				moveToCorrupt(path)
+			} else {
+				return nil, jerr
+			}
+		} else {
+			sv, n := salvageConversation(raw)
+			if sv == nil || n == 0 {
+				moveToCorrupt(path)
+				return nil, jerr
+			}
+			c = *sv
+			if c.ID == "" {
+				c.ID = id
+			}
+			moveToCorrupt(path)
+			// نسخه‌ی سالم‌شده بی‌درنگ روی دیسک نوشته می‌شود تا دفعه‌ی بعد
+			// دوباره بازیابی لازم نباشد (فایل خراب در .corrupt-* می‌ماند).
+			if raw2, merr := json.Marshal(&c); merr == nil {
+				_ = atomicWriteFile(path, raw2, 0o600)
+			}
+			emitRecoveryNotice(a, id, conversationRecoveredNotice(n))
+		}
+	}
+	if fromBackup {
+		// فایل اصلی از دست رفته بود — از پشتیبان بازسازی می‌شود.
+		if raw2, merr := json.Marshal(&c); merr == nil {
+			_ = atomicWriteFile(path, raw2, 0o600)
+		}
 	}
 	// بازگردانی تصاویر از فایل‌های جانبی (img://…) به data URL
 	a.hydrateImagesLocked(dir, &c)
@@ -380,8 +419,9 @@ func (a *App) saveConversation(c *Conversation) error {
 	// نوشتن اتمیک با fsync (atomicWriteFile — رفع F2): فایل موقت در همان
 	// پوشه → sync → rename؛ داده‌ی گفتگو پس از کرش سیستم سالم می‌ماند و
 	// خواننده‌ی هم‌زمان هرگز JSON ناقص نمی‌بیند.
-	if err := atomicWriteFile(convPath(dir, c.ID), raw, 0o600); err != nil {
-		return err
+	if err := atomicWriteFileWithBackup(convPath(dir, c.ID), raw, 0o600); err != nil {
+		// پیام فارسی واضح؛ فایل قبلی و گفتگوی در حافظه دست‌نخورده می‌مانند.
+		return fmt.Errorf("ذخیره‌ی گفتگو روی دیسک ناموفق بود (فایل قبلی دست‌نخورده است): %w", err)
 	}
 
 	// هشدار نزدیک شدن به سقف (فقط یک‌بار برای هر گفتگو در هر اجرا)
