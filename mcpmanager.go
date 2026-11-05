@@ -257,7 +257,7 @@ func (m *mcpManager) scheduleRefresh(name string) {
 	}
 	st.refreshing = true
 	m.mu.Unlock()
-	go func() {
+	safeGo(nil, "mcp.refresh("+name+")", func() {
 		defer func() {
 			m.mu.Lock()
 			st.refreshing = false
@@ -279,7 +279,7 @@ func (m *mcpManager) scheduleRefresh(name string) {
 		if _, err := c.listTools(ctx); err != nil {
 			logAppError("mcp", "refresh tools for '"+name+"' failed: "+err.Error())
 		}
-	}()
+	})
 }
 
 // stopAll همه‌ی کلاینت‌ها را می‌بندد (shutdown/تغییر تنظیمات). کشتنِ درخت
@@ -431,21 +431,28 @@ func (a *App) mcpToolDefs(ctx context.Context) []toolDef {
 			continue
 		}
 		started++
-		go func(cfg MCPServerConfig) {
+		// panic یک سرور نباید نوبت را بکشد یا جمع‌کننده را معلق بگذارد:
+		// نتیجه همیشه (حتی خالی) فرستاده می‌شود.
+		safeGo(a, "mcp.tools("+cfg.Name+")", func() {
 			ov := outcome{cfg: cfg}
-			c, err := a.mcp.ensureStarted(budget, a, cfg)
-			if err == nil {
-				if cached := c.cachedTools(); cached != nil {
-					ov.tools = cached
-				} else {
-					ov.tools, err = c.listTools(budget)
+			if gerr := callGuarded(a, "mcp.tools("+cfg.Name+")", func() error {
+				c, err := a.mcp.ensureStarted(budget, a, cfg)
+				if err == nil {
+					if cached := c.cachedTools(); cached != nil {
+						ov.tools = cached
+					} else {
+						ov.tools, err = c.listTools(budget)
+					}
 				}
-			}
-			if err != nil {
-				logAppErrorFor(a, "mcp", "tools for '"+cfg.Name+"' unavailable: "+err.Error())
+				if err != nil {
+					logAppErrorFor(a, "mcp", "tools for '"+cfg.Name+"' unavailable: "+err.Error())
+				}
+				return nil
+			}); gerr != nil {
+				logAppErrorFor(a, "mcp", "tools for '"+cfg.Name+"' unavailable: "+gerr.Error())
 			}
 			outCh <- ov
-		}(cfg)
+		})
 	}
 
 	var defs []toolDef
@@ -664,6 +671,7 @@ func mcpValidateName(name string) error {
 // مقادیر env: ماسکِ ارسالی = حفظ مقدار رمزشده‌ی قبلی؛ در غیر این صورت
 // رمزنگاری مقدار جدید. اعتبارسنجی با خطاهای دقیق فارسی.
 func (a *App) SaveMCPServers(configJSON string) error {
+	defer a.recoverBound("SaveMCPServers")
 	var incoming []MCPServerConfig
 	if strings.TrimSpace(configJSON) != "" {
 		if err := json.Unmarshal([]byte(configJSON), &incoming); err != nil {
@@ -744,6 +752,7 @@ func (a *App) SaveMCPServers(configJSON string) error {
 
 // MCPStatus وضعیت سرورها برای UI (نام، فعال، وضعیت فارسی، خطا، تعداد ابزار).
 func (a *App) MCPStatus() []map[string]interface{} {
+	defer a.recoverBound("MCPStatus")
 	a.initMCPManager()
 	configs := a.mcpEnabledConfigs()
 	out := make([]map[string]interface{}, 0, len(configs))

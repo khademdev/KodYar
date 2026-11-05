@@ -422,6 +422,7 @@ func (a *App) turnFileChanges(convID string, turnID int64) []FileChange {
 
 // GetTurnChanges فهرست تغییرات یک نوبت (برای کارت بازبینی پایان نوبت).
 func (a *App) GetTurnChanges(convID string, turnID int64) []FileChange {
+	defer a.recoverBound("GetTurnChanges")
 	return a.turnFileChanges(convID, turnID)
 }
 
@@ -437,6 +438,7 @@ type TurnChangesReport struct {
 // نوشته فرق داشته باشد (کاربر بعداً دستکاری کرده)، فایل بازنویسی نمی‌شود
 // و به‌عنوان تعارض گزارش می‌شود تا کاربر خودش تصمیم بگیرد.
 func (a *App) RevertTurnChanges(convID string, turnID int64) TurnChangesReport {
+	defer a.recoverBound("RevertTurnChanges")
 	var report TurnChangesReport
 	if turnID <= 0 || strings.TrimSpace(convID) == "" {
 		report.Errors = append(report.Errors, "شناسه‌ی گفتگو/نوبت نامعتبر است")

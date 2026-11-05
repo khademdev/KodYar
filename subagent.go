@@ -248,7 +248,15 @@ func (a *App) execSubagentTool(ctx context.Context, name, argsJSON string) (stri
 //
 // خروجی: (گزارشِ کران‌دار با سرایند آمار, ok). خطاها هم به‌صورت متن
 // انگلیسی به مدل والد برمی‌گردند تا خودش مسیر دیگر امتحان کند.
-func (a *App) runSubagent(ctx context.Context, task string) (string, bool) {
+func (a *App) runSubagent(ctx context.Context, task string) (report string, ok bool) {
+	// panic زیرایجنت به گزارش خطا به والد تبدیل می‌شود — هرگز برنامه را
+	// نمی‌کشد و جفت‌بندی tool_calls/tool والد را نمی‌شکند.
+	defer func() {
+		if r := recover(); r != nil {
+			recordPanic(a, "runSubagent", r)
+			report, ok = "ERROR: internal error in sub-agent (see the error log).", false
+		}
+	}()
 	task = strings.TrimSpace(task)
 	if task == "" {
 		return "ERROR: empty task description.", false

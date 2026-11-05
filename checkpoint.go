@@ -447,6 +447,7 @@ func buildCheckpointPlan(ctx context.Context, ws, ref string, matDir string) (ch
 
 // PreviewCheckpointRestore پیش‌نمایش بازگردانی کل پروژه به قبل از این نوبت.
 func (a *App) PreviewCheckpointRestore(convID string, turnID int64) CheckpointRestorePreview {
+	defer a.recoverBound("PreviewCheckpointRestore")
 	preview := CheckpointRestorePreview{}
 	ws, ok := a.checkpointWorkspace()
 	if !ok {
@@ -499,6 +500,7 @@ func (a *App) workspaceTrashDir(stamp string) (string, error) {
 // RestoreCheckpoint بازگردانی کل پروژه به وضعیت قبل از نوبت. هرگز حذف
 // نمی‌کند: فایل‌های فعلی که باید عوض شوند اول به سبد زباله می‌روند.
 func (a *App) RestoreCheckpoint(convID string, turnID int64) CheckpointRestoreReport {
+	defer a.recoverBound("RestoreCheckpoint")
 	var report CheckpointRestoreReport
 	ws, ok := a.checkpointWorkspace()
 	if !ok {

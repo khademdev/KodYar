@@ -456,6 +456,7 @@ func (a *App) updateConversationIndexLocked(dir string, c *Conversation) {
 // 3. reconcile: فقط فایل‌های جدید خوانده و entryهای مرده حذف می‌شوند
 // 4. اگر ایندکس خراب/نبود → بازسازی کامل (فقط یک‌بار)
 func (a *App) GetConversations() []ConversationMeta {
+	defer a.recoverBound("GetConversations")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	dir, err := a.conversationsDir()
@@ -531,6 +532,7 @@ func (a *App) GetConversations() []ConversationMeta {
 
 // GetConversation یک گفتگوی کامل را برمی‌گرداند.
 func (a *App) GetConversation(id string) (*Conversation, error) {
+	defer a.recoverBound("GetConversation")
 	a.mu.Lock()
 	conv, err := a.loadConversation(id)
 	var summaries []TurnSummary
@@ -556,6 +558,7 @@ func (a *App) GetConversation(id string) (*Conversation, error) {
 // اگر همین گفتگو در حال پاسخ‌دهی باشد، ابتدا استریم متوقف و تا خروج کامل
 // گوروتین منتظر می‌مانیم تا هیچ ذخیره‌ی دیرهنگام نتواند فایل را دوباره بسازد.
 func (a *App) DeleteConversation(id string) error {
+	defer a.recoverBound("DeleteConversation")
 	if !validConvID(id) {
 		return errors.New("شناسه‌ی گفتگو نامعتبر است")
 	}
@@ -615,6 +618,7 @@ func (a *App) DeleteConversation(id string) error {
 // هشدارهای حجم — پاسخ‌دهی فعال هم مثل حذف تکی، با انتظار برای خروج کامل
 // گوروتین متوقف می‌شود.
 func (a *App) DeleteAllConversations() error {
+	defer a.recoverBound("DeleteAllConversations")
 	a.stopGenerationAndWait(5 * time.Second)
 	a.mu.Lock()
 	dir, err := a.conversationsDir()

@@ -29,6 +29,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -156,12 +157,24 @@ func (a *App) runParallelSegment(ctx context.Context, convID string, tasks []too
 	var wg sync.WaitGroup
 	for k := range tasks {
 		wg.Add(1)
-		go func(k int) {
+		// هر worker با مهار panic اجرا می‌شود: فراخوانی خراب باید نتیجه‌ی
+		// خطای خودش را بنویسد (جفت‌بندی tool_calls/tool سالم می‌ماند) و
+		// بقیه‌ی workerها به کارشان ادامه دهند.
+		safeGo(a, "tool.worker", func() {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			defer func() {
+				if r := recover(); r != nil {
+					recordPanic(a, "tool."+tasks[k].call.Function.Name, r)
+					outcomes[k] = toolCallOutcome{
+						result: fmt.Sprintf(errInternalTool, tasks[k].call.Function.Name),
+						ok:     false,
+					}
+				}
+			}()
 			outcomes[k] = a.runToolCall(ctx, convID, tasks[k], truncated, exec)
-		}(k)
+		})
 	}
 	wg.Wait()
 }

@@ -486,6 +486,7 @@ func (a *App) saveSettings() error {
 
 // GetSettings خلاصه‌ی تنظیمات را برای فرانت‌اند برمی‌گرداند (بدون کلیدها).
 func (a *App) GetSettings() Settings {
+	defer a.recoverBound("GetSettings")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	s := *a.settings
@@ -497,6 +498,7 @@ func (a *App) GetSettings() Settings {
 
 // SetAllowCommands سوییچ «اجازه اجرای دستور» را ذخیره می‌کند.
 func (a *App) SetAllowCommands(allow bool) error {
+	defer a.recoverBound("SetAllowCommands")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.settings.AllowCommands = allow
@@ -505,6 +507,7 @@ func (a *App) SetAllowCommands(allow bool) error {
 
 // SetAgentMode سوییچ «حالت ایجنت» را ذخیره می‌کند.
 func (a *App) SetAgentMode(on bool) error {
+	defer a.recoverBound("SetAgentMode")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.settings.AgentMode = on
@@ -515,6 +518,7 @@ func (a *App) SetAgentMode(on bool) error {
 // ایجنت ابتدا فقط یک برنامه‌ی چندمرحله‌ای می‌نویسد و پس از تأیید کاربر
 // (ApprovePlan) اجرا را شروع می‌کند.
 func (a *App) SetPlanMode(on bool) error {
+	defer a.recoverBound("SetPlanMode")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.settings.PlanMode = on
@@ -525,6 +529,7 @@ func (a *App) SetPlanMode(on bool) error {
 // می‌کند. وقتی روشن باشد، ایجنت قبل از هر نوشتن/ویرایش/حذف/جابه‌جایی،
 // پیش‌نمایش diff را به کاربر نشان می‌دهد و منتظر تأیید می‌ماند.
 func (a *App) SetConfirmFileWrites(on bool) error {
+	defer a.recoverBound("SetConfirmFileWrites")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.settings.ConfirmFileWrites = on
@@ -539,6 +544,7 @@ func (a *App) SetConfirmFileWrites(on bool) error {
 // SetEditMode حالت ویرایش را ذخیره می‌کند (۴.۱): "review_each" یا "auto".
 // ConfirmFileWrites همیشه همگام نگه داشته می‌شود.
 func (a *App) SetEditMode(mode string) error {
+	defer a.recoverBound("SetEditMode")
 	mode = normalizeEditMode(strings.TrimSpace(mode))
 	if mode == "" {
 		return errors.New("حالت ویرایش نامعتبر است (review_each | auto)")
@@ -593,6 +599,7 @@ func clampMaxTurnTokens(v int64) int64 {
 // SetMaxTurnTokens سقف مصرف توکن هر نوبت را ذخیره می‌کند (۵.۳).
 // ۰ = خاموش؛ محدوده‌ی مجاز ۵۰ هزار تا ۱۰ میلیون (clamp).
 func (a *App) SetMaxTurnTokens(v int64) error {
+	defer a.recoverBound("SetMaxTurnTokens")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.settings.MaxTurnTokens = clampMaxTurnTokens(v)
@@ -601,6 +608,7 @@ func (a *App) SetMaxTurnTokens(v int64) error {
 
 // SaveWorkspace مسیر پوشه‌ی کاری (پروژه) را ذخیره می‌کند.
 func (a *App) SaveWorkspace(path string) error {
+	defer a.recoverBound("SaveWorkspace")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	path = strings.TrimSpace(path)
@@ -624,6 +632,7 @@ func (a *App) SaveWorkspace(path string) error {
 
 // SettingsView نمای عمومی تنظیمات (بدون کلید رمز) برای فرانت‌اند.
 func (a *App) SettingsView() map[string]interface{} {
+	defer a.recoverBound("SettingsView")
 	// شمارش تغییرات بازگشت‌پذیر باید «قبل» از گرفتن a.mu انجام شود.
 	// ترتیب قفل‌ها اینجا حیاتی است: RevertFileChange با changes.mu در دست
 	// resolveWorkspacePath (یعنی a.mu) را صدا می‌زند؛ اگر اینجا هم a.mu را
@@ -752,6 +761,7 @@ func (a *App) hasKeysMap() map[string]bool {
 
 // SaveConnection تب «اتصال» را ذخیره می‌کند.
 func (a *App) SaveConnection(provider, model, environment, apiKey string) error {
+	defer a.recoverBound("SaveConnection")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -783,6 +793,7 @@ func (a *App) SaveConnection(provider, model, environment, apiKey string) error 
 
 // GetEnvironmentPresets فهرست محیط‌های آماده را برمی‌گرداند.
 func (a *App) GetEnvironmentPresets() []map[string]string {
+	defer a.recoverBound("GetEnvironmentPresets")
 	return []map[string]string{
 		{"id": "general", "title": "عمومی", "desc": "پاسخ‌های متعادل و دوستانه"},
 		{"id": "developer", "title": "توسعه‌دهنده", "desc": "تمرکز روی کد و دیباگ"},
@@ -805,6 +816,7 @@ func promptForEnvironment(env string) string {
 // SaveGenerationSettings تب «مدل و رفتار» را ذخیره می‌کند:
 // Temperature (۰ تا ۲)، سقف توکن خروجی (۰ = بدون محدودیت) و System Prompt دستی.
 func (a *App) SaveGenerationSettings(temperature float64, maxTokens int, systemPrompt string) error {
+	defer a.recoverBound("SaveGenerationSettings")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if temperature < 0 {
@@ -856,6 +868,7 @@ func clampMaxAgentRounds(n int) int {
 // مقادیر خارج از محدوده مثل بقیه‌ی تنظیمات عددی به‌جای خطا clamped می‌شوند
 // (الگوی SetAppearance) تا فرانت‌اند ساده بماند.
 func (a *App) SetMaxAgentRounds(rounds int) error {
+	defer a.recoverBound("SetMaxAgentRounds")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.settings.MaxAgentRounds = clampMaxAgentRounds(rounds)
@@ -865,6 +878,7 @@ func (a *App) SetMaxAgentRounds(rounds int) error {
 // SetMaxSubagentRounds تنظیم «حداکثر مراحل زیرایجنت» را ذخیره می‌کند.
 // مثل بقیه‌ی تنظیمات عددی به‌جای خطا clamp می‌شود.
 func (a *App) SetMaxSubagentRounds(rounds int) error {
+	defer a.recoverBound("SetMaxSubagentRounds")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.settings.MaxSubagentRounds = clampMaxSubagentRounds(rounds)
@@ -873,6 +887,7 @@ func (a *App) SetMaxSubagentRounds(rounds int) error {
 
 // SetTheme تم رابط کاربری را ذخیره می‌کند (dark | light).
 func (a *App) SetTheme(theme string) error {
+	defer a.recoverBound("SetTheme")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if theme != "light" && theme != "dark" {
@@ -885,6 +900,7 @@ func (a *App) SetTheme(theme string) error {
 // SetAppearance تنظیمات نمایش UI — اندازه فونت (۱۲ تا ۱۸) و تراکم
 // (compact | normal | relaxed). مقادیر نامعتبر به محدوده/پیش‌فرض برمی‌گردند.
 func (a *App) SetAppearance(fontSize int, density string) error {
+	defer a.recoverBound("SetAppearance")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if fontSize < 12 {
@@ -917,6 +933,7 @@ func normalizeProxyMode(mode string) string {
 // SetProxySettings حالت و آدرس پروکسی را برای درخواست‌های چت/تست ذخیره می‌کند.
 // mode: off | env | custom — برای custom مقدار url لازم است (مثلاً http://127.0.0.1:7890).
 func (a *App) SetProxySettings(mode, url string) error {
+	defer a.recoverBound("SetProxySettings")
 	mode = normalizeProxyMode(mode)
 	url = strings.TrimSpace(url)
 	if mode == "custom" {

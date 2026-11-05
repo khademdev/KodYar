@@ -921,6 +921,12 @@ func TestScenarioCommandGateBypassAttempts(t *testing.T) {
 		{"posix", flavorPOSIX, true},
 	} {
 		t.Run(fl.name, func(t *testing.T) {
+			if fl.f == flavorPOSIX && isWindows() {
+				// runShell در ویندوز همیشه cmd را اجرا می‌کند (flavor تزریقی فقط
+				// تحلیل/دروازه را عوض می‌کند)؛ معنای اجرایی POSIX (echo واژه‌ای،
+				// خط پایان LF) فقط روی سکوهای POSIX قابل اثبات است و آن‌جا اجرا می‌شود.
+				t.Skip("POSIX execution semantics: runShell uses cmd on Windows")
+			}
 			withFlavor(t, fl.f)
 			var steps []scenarioStep
 			for _, b := range bypass {
@@ -1082,7 +1088,9 @@ func TestScenarioCheckpointDestructiveCommandRestore(t *testing.T) {
 		t.Fatal("no turn summary")
 	}
 	turnID := sm[len(sm)-1].TurnID
-	if env.readFile("generated.txt") != "side-effect\n" {
+	// cmd ویندوز echo را با CRLF و یک فاصله پیش از بازالشت می‌نویسد؛ مقصود
+	// تست وجودِ اثر جانبی است، نه شکل خط پایان shell.
+	if got := strings.TrimSpace(env.readFile("generated.txt")); got != "side-effect" {
 		t.Fatalf("command side effect must exist before restore: %q", env.readFile("generated.txt"))
 	}
 

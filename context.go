@@ -192,6 +192,7 @@ type RulesInfo struct {
 
 // GetRulesInfo وضعیت قوانین پروژه برای تب تنظیمات.
 func (a *App) GetRulesInfo() RulesInfo {
+	defer a.recoverBound("GetRulesInfo")
 	a.mu.Lock()
 	fileRules, fileRel, found := a.loadRulesFromFileLocked()
 	enabled := a.settings.RulesEnabled
@@ -211,6 +212,7 @@ func (a *App) GetRulesInfo() RulesInfo {
 
 // SetProjectRules قوانین تعریف‌شده از تنظیمات را ذخیره می‌کند.
 func (a *App) SetProjectRules(text string) error {
+	defer a.recoverBound("SetProjectRules")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if len(text) > maxRulesBytes {
@@ -223,6 +225,7 @@ func (a *App) SetProjectRules(text string) error {
 
 // SetRulesEnabled سوییچ خواندن خودکار فایل قوانین پروژه را ذخیره می‌کند.
 func (a *App) SetRulesEnabled(on bool) error {
+	defer a.recoverBound("SetRulesEnabled")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.settings.RulesEnabled = on
@@ -242,6 +245,7 @@ type MentionItem struct {
 // تطبیق: زیررشته‌ی غیرحساس به case روی کل مسیر. پوشه‌های نادیده‌گرفته
 // (node_modules،.git و…) هرگز برنمی‌گردند.
 func (a *App) MentionSearch(query string) []MentionItem {
+	defer a.recoverBound("MentionSearch")
 	query = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(query), "@")))
 	out := []MentionItem{}
 	a.mu.Lock()

@@ -358,11 +358,11 @@ func startMCPClient(ctx context.Context, app *App, cfg MCPServerConfig, onListCh
 	}
 
 	// خواننده‌ی stdout — تا پایان عمر فرایند زنده است و با EOF تمام می‌شود.
-	go c.readLoop()
+	safeGo(c.app, "mcp.readLoop("+c.name+")", c.readLoop)
 	// دیده‌بان خروج فرایند — درخت را می‌بندد و pendingها را آزاد می‌کند.
-	go c.waitExit()
+	safeGo(c.app, "mcp.waitExit("+c.name+")", c.waitExit)
 	// stderr کران‌دار + نرخ‌محدود به لاگ خطاها.
-	go c.drainStderr(stderrPipe)
+	safeGo(c.app, "mcp.stderr("+c.name+")", func() { c.drainStderr(stderrPipe) })
 
 	if err := c.initialize(ctx); err != nil {
 		// شکست راه‌اندازی توقف عامدانه است — شمارش شکست با مسیر خطای
@@ -574,10 +574,18 @@ func (c *mcpClient) writeJSON(payload interface{}) error {
 		return errors.New("server connection is closed")
 	}
 	done := make(chan error, 1)
-	go func() {
+	// نتیجه همیشه فرستاده می‌شود (حتی در صورت panic) تا Write برای همیشه
+	// منتظر نماند و watchdog همیشه آزاد شود.
+	safeGo(c.app, "mcp.write("+c.name+")", func() {
+		defer func() {
+			if r := recover(); r != nil {
+				recordPanic(c.app, "mcp.write("+c.name+")", r)
+				done <- errors.New("internal error while writing to server stdin")
+			}
+		}()
 		_, werr := c.stdin.Write(append(raw, '\n'))
 		done <- werr
-	}()
+	})
 	timer := time.NewTimer(mcpWriteTimeout)
 	defer timer.Stop()
 	select {
@@ -598,6 +606,15 @@ func (c *mcpClient) writeJSON(payload interface{}) error {
 // readDone بسته می‌شود تا waitExit بداند بافر تخلیه شده است.
 func (c *mcpClient) readLoop() {
 	defer close(c.readDone)
+	// panic در پردازش یک پیام نباید برنامه را بکشد یا فراخوانی‌های منتظر را
+	// معلق بگذارد؛ سرور مرده علامت می‌خورد و backoff معمول اجرا می‌شود.
+	defer func() {
+		if r := recover(); r != nil {
+			recordPanic(c.app, "mcp.readLoop("+c.name+")", r)
+			c.failPending(errors.New("internal error in MCP read loop"))
+			c.markClosed()
+		}
+	}()
 	sc := bufio.NewScanner(c.stdout)
 	sc.Buffer(make([]byte, 0, 64*1024), mcpMaxMessageBytes)
 	for sc.Scan() {
@@ -663,7 +680,7 @@ func (c *mcpClient) handleServerRequest(msg jsonRPCMessage) {
 // ناشناخته‌ها تلورانت نادیده گرفته می‌شوند.
 func (c *mcpClient) handleNotification(msg jsonRPCMessage) {
 	if msg.Method == "notifications/tools/list_changed" && c.listChanged != nil {
-		go c.listChanged() // خارج از readLoop — callback ممکن است با سرور حرف بزند
+		safeGo(c.app, "mcp.notification("+c.name+")", c.listChanged) // خارج از readLoop — callback ممکن است با سرور حرف بزند
 	}
 }
 
@@ -688,6 +705,21 @@ func (c *mcpClient) failPending(err error) {
 // سپس Wait. سقف mcpReadJoinTimeout برای حالت نادرِ فرزندی که stdout را
 // باز نگه می‌دارد.
 func (c *mcpClient) waitExit() {
+	// panic نباید pendingها را معلق بگذارد: همان پاک‌سازی خروج یک‌باره اجرا
+	// می‌شود (exitOnce تضمین می‌کند دوباره انجام نشود).
+	defer func() {
+		if r := recover(); r != nil {
+			recordPanic(c.app, "mcp.waitExit("+c.name+")", r)
+			c.exitOnce.Do(func() {
+				c.failPending(errors.New("internal error while waiting for server process"))
+				c.markClosed()
+				c.tree.close()
+				if cb := c.onExit; cb != nil && !c.deliberate.Load() {
+					cb()
+				}
+			})
+		}
+	}()
 	select {
 	case <-c.readDone:
 	case <-time.After(mcpReadJoinTimeout):
@@ -749,7 +781,7 @@ func (c *mcpClient) drainStderr(r io.ReadCloser) {
 // خروج و آزادسازی pendingها کار goroutine waitExit است (از start).
 func (c *mcpClient) kill() {
 	c.tree.terminate()
-	time.AfterFunc(shellGracePeriod, func() { c.tree.kill() })
+	time.AfterFunc(shellGracePeriod, func() { safeGo(c.app, "mcp.kill", c.tree.kill) })
 }
 
 // shutdownLike kill + بستن stdin (برای توقف عامدانه).
@@ -758,7 +790,7 @@ func (c *mcpClient) stop() {
 	c.markClosed()
 	_ = c.stdin.Close()
 	c.tree.terminate()
-	time.AfterFunc(shellGracePeriod, func() { c.tree.kill() })
+	time.AfterFunc(shellGracePeriod, func() { safeGo(c.app, "mcp.kill", c.tree.kill) })
 }
 
 // ---------------------------------------------------------------- نام‌گذاری ابزارها

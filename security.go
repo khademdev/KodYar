@@ -239,6 +239,7 @@ func (a *App) execCustomTool(ctx context.Context, name string, args map[string]i
 
 // SaveCustomTools ذخیره‌ی لیست ابزارهای سفارشی از UI.
 func (a *App) SaveCustomTools(tools []CustomTool) error {
+	defer a.recoverBound("SaveCustomTools")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	nameRe := regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]{1,30}$`)
@@ -273,6 +274,7 @@ func (a *App) SaveCustomTools(tools []CustomTool) error {
 
 // GetCustomTools لیست ابزارهای سفارشی (مرتب بر اساس نام).
 func (a *App) GetCustomTools() []CustomTool {
+	defer a.recoverBound("GetCustomTools")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	out := copyCustomTools(a.settings.CustomTools)

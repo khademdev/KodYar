@@ -116,6 +116,7 @@ func (a *App) errorLogPath() (string, error) {
 
 // GetErrorLog محتوای لاگ خطاها را (حداکثر آخرین ۳۲KB) برمی‌گرداند.
 func (a *App) GetErrorLog() (string, error) {
+	defer a.recoverBound("GetErrorLog")
 	p, err := resolveErrorLogPath(a)
 	if err != nil {
 		return "", err
@@ -146,6 +147,7 @@ func (a *App) GetErrorLog() (string, error) {
 
 // ClearErrorLog فایل لاگ را پاک می‌کند.
 func (a *App) ClearErrorLog() error {
+	defer a.recoverBound("ClearErrorLog")
 	p, err := resolveErrorLogPath(a)
 	if err != nil {
 		return err

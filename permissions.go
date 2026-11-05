@@ -345,6 +345,7 @@ func (a *App) requestPermissionConfirm(ctx context.Context, ask *permissionAsk) 
 // RespondPermissionConfirm پاسخ کاربر به مودال دسترسی را تحویل می‌دهد.
 // decision: allow | always | session | reject (مقدار نامعتبر = reject).
 func (a *App) RespondPermissionConfirm(askID, decision string) error {
+	defer a.recoverBound("RespondPermissionConfirm")
 	switch strings.ToLower(strings.TrimSpace(decision)) {
 	case permRespondAllow, permRespondAlways, permRespondSession, permRespondReject:
 	default:
@@ -509,6 +510,7 @@ var toolNameRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 // - sensitiveGlobs / defaultSensitiveGlobs (نمایش فقط)
 // - confirmFileWrites / allowCommands برای متن راهنمای UI
 func (a *App) PermissionsView() map[string]interface{} {
+	defer a.recoverBound("PermissionsView")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	confirmWrites := a.settings.ConfirmFileWrites
@@ -567,6 +569,7 @@ func (a *App) PermissionsView() map[string]interface{} {
 // به رفتار پیش‌فرض). اعتبارسنجی نام/تصمیم سخت‌گیرانه است؛ ذخیره فقط با
 // گرفتن a.mu (الگوی مرسوم SetAllowCommands و همتایانش).
 func (a *App) SetToolPermission(tool, decision string) error {
+	defer a.recoverBound("SetToolPermission")
 	tool = strings.TrimSpace(tool)
 	if !toolNameRe.MatchString(tool) {
 		return errors.New("نام ابزار نامعتبر است")
@@ -600,6 +603,7 @@ func (a *App) SetToolPermission(tool, decision string) error {
 // می‌کند تا دستورات متناظر دوباره تأیید بخواهند. حذف بر اساس تطابق دقیق
 // الگوست؛ اگر پیدا نشد خطا برمی‌گردد (بازخورد صریح UI).
 func (a *App) RemoveCommandRule(pattern string) error {
+	defer a.recoverBound("RemoveCommandRule")
 	pattern = strings.TrimSpace(pattern)
 	if pattern == "" {
 		return errors.New("الگوی قاعده خالی است")
@@ -620,6 +624,7 @@ func (a *App) RemoveCommandRule(pattern string) error {
 // قاعده‌های دستور و الگوهای حساس به پیش‌فرض امن برمی‌گردند. لیست سیاه سخت
 // هرگز بخشی از تنظیمات نیست و دست‌نخورده می‌ماند.
 func (a *App) ResetPermissions() error {
+	defer a.recoverBound("ResetPermissions")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.settings.Permissions = PermissionSettings{

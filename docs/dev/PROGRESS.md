@@ -1167,3 +1167,115 @@ GATE: GREEN
 (#diff-accept) و بسته‌شدن پنل تغییرات (#changes-close) به‌عنوان انتخابگرهای تست استفاده شدند.
 
 **گیت:** سبز — خروجی بالا (۴.۱؛ `-race` واقعی با gcc 14.2).
+
+---
+
+# Mission 4 — پایداری و حذف نقص (Stability & defect elimination, v1.8.0)
+
+هدف این مأموریت **فقط پایداری** است: نه قابلیت تازه، نه ابزار تازه. مأموریت
+مرحله‌به‌مرحله و با پروتکل توقف پیش می‌رود (هر مرحله: گیت کامل → ثبت در همین
+فایل → گزارش مرحله → توقف).
+
+## Mission 4 — Stage 0: مبنا (Baseline)
+
+**۱) خواندن مبنا:** `ARCHITECTURE.md`، `README.md`، `docs/dev/FINAL_REPORT.md`،
+انتهای همین `PROGRESS.md` و `go.mod` (Go 1.26، Wails v2.10.1) خوانده شد.
+
+**۲) گیت مبنا RED بود؛ ریشه در تست‌های وابسته به سکو بود، نه در کد محصول.**
+`runShell` در ویندوز همیشه `cmd` را اجرا می‌کند (شله‌ی تزریقی `withFlavor` فقط
+تحلیل/دروازه‌ی دستور را عوض می‌کند)، پس دو انتظار نادرست بود:
+
+- `TestScenarioCommandGateBypassAttempts/posix` انتظار داشت `echo %COMSPEC%`
+  واژه‌ای چاپ شود؛ cmd آن را به `C:\Windows\system32\cmd.exe` بسط می‌دهد.
+- `TestScenarioCheckpointDestructiveCommandRestore` انتظار `"side-effect\n"`
+  داشت؛ cmd با CRLF و یک فاصله پیش از بازالشت می‌نویسد (`"side-effect \r\n"`).
+
+**اصلاح عمدی و مستند (بدون حذف/سست‌کردن تست):** زیرتست POSIX روی ویندوز
+`t.Skip` می‌شود (روی سکوهای POSIX همان تست اجرا می‌شود؛ معنای اجرایی POSIX با
+شله‌ی cmd قابل اثبات نیست)، و بررسی اثر جانبی سناریوی ۸ با `TrimSpace` انجام
+می‌شود. مقصود هر دو تست — «دستور بی‌مجوز هرگز اجرا نشود» و «اثر جانبی وجود
+داشته باشد و با بازگردانی پاک شود» — دست‌نخورده است.
+
+**۳) بررسی وجود فایل‌های مأموریت (فقط خواندن، بدون بازسازی):** `fileread.go`،
+`checkpoint.go`، `turnreview.go`، `cmdgate.go`/`shellparse.go`، `toolbatch.go`،
+`subagent.go`، `mcp.go`/`mcpmanager.go`، `retry.go`، `agent_e2e_test.go` و
+`uicontract_test.go` — همه موجود و در گیت شرکت می‌کنند.
+
+## Mission 4 — Stage 1: جداسازی خرابی (Crash isolation)
+
+**ریشه‌ی نقص:** جز `errorlog.go` هیچ `recover()` ای نبود. در Go یک panic
+مهارنشده در هر goroutine کل فرایند را می‌کشد — از جمله کار ذخیره‌نشده‌ی کاربر.
+workerهای موازی ابزار، گوروتین استریم، حلقه‌ی خواندن MCP، دیده‌بان‌های shell و
+checkpoint و هر متد متصل به Wails روی گوروتین خودشان اجرا می‌شوند.
+
+**چه شد:**
+
+- `safego.go` (تازه): `safeGo(a, where, fn)`، `recoverPanic(a, where)`،
+  `callGuarded(a, where, fn) error`، و دو محافظ متد متصل
+  `(*App).recoverBound(where)` / `(*App).recoverBoundErr(where, *error)`.
+  پشته‌ی ثبت‌شده با `cutUTF8` حداکثر ۸KB است (مرز کاراکتر UTF-8 حفظ می‌شود)،
+  هیچ محتوای فایل/کلید لاگ نمی‌شود، و `panicRecordHook` برای شمارش قطعی در
+  تست‌ها وجود دارد.
+- **همه‌ی گوروتین‌های کد غیرتست** با `safeGo` اجرا می‌شوند و هر کدام وضعیت را
+  بازمی‌گردانند:
+  - `chat.go`: هر پنج `go a.streamChat(...)` → `safeGo`; داخل خودِ `streamChat`
+    یک `defer` مهار اضافه شد که پیام فارسی `«خطای داخلی رخ داد؛ جزئیات در لاگ
+    خطاها ثبت شد.»` را با `emitChatError` می‌فرستد (gen آزاد می‌شود، UI در
+    «در حال تولید» نمی‌ماند) و پاک‌سازی‌های موجود (`done`/`cancel`/`gen=nil`)
+    به‌ترتیب LIFO درست اجرا می‌شوند.
+  - `toolbatch.go`: هر worker نتیجه‌ی خودش را همیشه می‌نویسد — در صورت panic
+    `ERROR: internal error in tool <name> (see the error log).` — پس جفت‌بندی
+    `tool_calls`↔`tool` سالم می‌ماند و بقیه‌ی workerها ادامه می‌دهند.
+  - `subagent.go`: `runSubagent` خروجی‌های نام‌دار گرفت و panic به
+    «ERROR: internal error in sub-agent (see the error log).» تبدیل می‌شود.
+  - `mcp.go`: `readLoop` (failPending + markClosed)، `waitExit` (همان پاک‌سازی
+    یک‌باره با `exitOnce` و onExit)، گوروتین نوشتن stdin (همیشه نتیجه می‌فرستد
+    تا Write/watchdog معلق نماند)، `drainStderr`، `listChanged` و هر دو
+    `time.AfterFunc` (kill/stop) محافظت شدند.
+  - `mcpmanager.go`: گوروتین `scheduleRefresh` (پرچم refreshing همیشه آزاد
+    می‌شود) و گوروتین کشف ابزار هر سرور (نتیجه همیشه — حتی خالی — به کانال
+    می‌رود تا جمع‌کننده معلق نماند).
+  - `shell.go`: گوروتین `cmd.Wait` نتیجه را حتی در صورت panic می‌فرستد
+    (فراخواننده هرگز برای همیشه منتظر نمی‌ماند) و دیده‌بان کشتن درخت با
+    `safeGo`.
+- **متدهای متصل به Wails:** هر ۶۰ متد صادرشده‌ی `*App` در ابتدای بدنه
+  `defer a.recoverBound("<Name>")` دارد (امضاها دست‌نخورده). تست AST
+  `panicguard_test.go` فهرست فایل‌های غیرتست را با `go/parser` می‌خواند و اگر
+  متد صادرشده‌ای محافظ نداشته باشد تست را قرمز می‌کند (allow-list فعلاً خالی
+  است؛ نگهبانِ نگهبان: حداقل ۵۰ متد محافظت‌شده).
+
+**گیت واقعی (آخرین اجرا، `scripts/gate.sh`):**
+
+```
+=== gofmt -l . ===                [OK] (خالی)
+=== go vet ./... ===              [OK]
+=== go build ./... ===            [OK]
+=== go test -race -count=1 ./... === ok  myai  131.226s  [OK]  (اجرای کامل پیش از نهایی‌شدن تست‌ها: 134.023s)
+=== env GOOS=windows GOARCH=amd64 go vet ./... === [OK]
+=== env GOOS=linux   GOARCH=amd64 go vet ./... === [OK]
+GATE: GREEN
+```
+
+**تست‌های تازه:** `safego_test.go` — `TestSafeGoRecoversPanicAndKeepsWorking`،
+`TestCallGuardedConvertsPanicToError`، `TestRecoverBoundKeepsAppAlive`،
+`TestToolWorkerPanicKeepsPairingAndOthersRun` (پیام انگلیسیِ نتیجه‌ی ابزار،
+ادامه‌ی بقیه‌ی workerها، بدون نشت goroutine)، `TestSubagentPanicReturnsErrorReport`.
+`panicguard_test.go` — `TestExportedAppMethodsHavePanicGuard`.
+
+**فرض‌ها/انحراف‌ها:**
+
+- محافظ متدهای متصل فقط **ثبت + زنده‌ماندن** می‌کند و مقدار صفر برمی‌گرداند؛
+  خروجی‌های نام‌دار برای برگرداندن خطا اضافه نشد تا ۶۰ امضای متد (API فرانت‌اند)
+  دست‌نخورده بماند. `recoverBoundErr` آماده است و در مرحله‌های بعد برای متدهایی
+  که این کار بی‌خطر است به‌کار می‌رود.
+- تست‌های تزریق panic قطعی‌اند (قلاب `panicRecordHook` و `toolExecFn` موجود)؛
+  هیچ شبکه/خواب طولانی ندارد.
+
+**محدودیت شناخته‌شده (صادقانه):** بخش‌هایی که `a.mu`/`genMu` را با `Unlock`
+صریح (نه `defer`) آزاد می‌کنند — به‌ویژه پنج نقطه‌ی ورودی چت — در صورت panic
+وسط بخش قفل‌شده می‌توانند قفل را نگه دارند؛ برنامه کشته نمی‌شود ولی می‌تواند
+قفل شود. این مورد در بازبینی قفل‌های Stage 5 (lock/hang audit) با تبدیل به
+`defer`/پرچم بررسی و رفع می‌شود. رفتار واقعی ویندوز (WebView2/Job Object) هم
+مثل قبل فقط با vet متقاطع و چک‌لیست دستی پوشش دارد.
+
+**Stage 1 complete. Waiting for your instruction to continue.**

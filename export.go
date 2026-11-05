@@ -63,6 +63,7 @@ func faDateTimeStatic(ts int64) string {
 
 // GetConversationExport خروجی MD یا JSON متن گفتگو را برمی‌گرداند (برای ذخیره در UI).
 func (a *App) GetConversationExport(convID, format string) (string, error) {
+	defer a.recoverBound("GetConversationExport")
 	a.mu.Lock()
 	c, err := a.loadConversation(convID)
 	a.mu.Unlock()

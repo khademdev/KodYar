@@ -189,6 +189,7 @@ func (a *App) appendWebHostRule(host, decision string) error {
 // RemoveWebHostRule قاعده‌ی ماندگار یک دامنه را حذف می‌کند تا دوباره تأیید
 // بخواهد (همتای RemoveCommandRule برای web_fetch).
 func (a *App) RemoveWebHostRule(host string) error {
+	defer a.recoverBound("RemoveWebHostRule")
 	host = normalizeWebHost(host)
 	if host == "" {
 		return errors.New("دامنه خالی است")

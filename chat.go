@@ -293,6 +293,7 @@ func estimateContentTokens(c interface{}) int64 {
 
 // SendMessage پیام کاربر را ارسال می‌کند و پاسخ را استریم می‌کند.
 func (a *App) SendMessage(convID, content string, images []string) (*Conversation, error) {
+	defer a.recoverBound("SendMessage")
 	content = strings.TrimSpace(content)
 	images = sanitizeImages(images)
 	if content == "" && len(images) == 0 {
@@ -377,12 +378,13 @@ func (a *App) SendMessage(convID, content string, images []string) (*Conversatio
 	})
 
 	// در Plan Mode ابزارها نه ارسال می‌شوند و نه اجرا — فقط prompt کافی نیست.
-	go a.streamChat(ctx, myGen, baseURL, key, model, temperature, history, !planActive)
+	safeGo(a, "streamChat", func() { a.streamChat(ctx, myGen, baseURL, key, model, temperature, history, !planActive) })
 	return conv, nil
 }
 
 // Regenerate پاسخ آخر دستیار را حذف و از روی آخرین پیام کاربر دوباره تولید می‌کند.
 func (a *App) Regenerate(convID string) (*Conversation, error) {
+	defer a.recoverBound("Regenerate")
 	// خط کانتکست git — قبل از گرفتن قفل‌ها (exec زیر a.mu ممنوع است؛ F1)
 	gitLine := a.gitContextLineForSend()
 
@@ -436,7 +438,7 @@ func (a *App) Regenerate(convID string) (*Conversation, error) {
 		"userMessage":  lastUser,
 	})
 
-	go a.streamChat(ctx, myGen, baseURL, key, model, temperature, history, !planActive)
+	safeGo(a, "streamChat", func() { a.streamChat(ctx, myGen, baseURL, key, model, temperature, history, !planActive) })
 	return conv, nil
 }
 
@@ -444,6 +446,7 @@ func (a *App) Regenerate(convID string) (*Conversation, error) {
 // برای پیام کاربر: خود پیام و پاسخ‌های بعدی حذف می‌شوند.
 // برای پیام دستیار/ابزار: از همان نقطه تا انتها بریده می‌شود.
 func (a *App) DeleteMessage(convID, messageID string) (*Conversation, error) {
+	defer a.recoverBound("DeleteMessage")
 	a.genMu.Lock()
 	if a.gen != nil {
 		a.genMu.Unlock()
@@ -478,6 +481,7 @@ func (a *App) DeleteMessage(convID, messageID string) (*Conversation, error) {
 // EditMessage متن یک پیام کاربر را عوض می‌کند، پیام‌های بعد از آن را حذف
 // می‌کند و دوباره از همان نقطه پاسخ می‌سازد (مشابه Regenerate).
 func (a *App) EditMessage(convID, messageID, content string) (*Conversation, error) {
+	defer a.recoverBound("EditMessage")
 	content = strings.TrimSpace(content)
 	if content == "" {
 		return nil, errors.New("متن پیام نمی‌تواند خالی باشد")
@@ -546,7 +550,7 @@ func (a *App) EditMessage(convID, messageID, content string) (*Conversation, err
 		"userMessage":  lastUser,
 	})
 
-	go a.streamChat(ctx, myGen, baseURL, key, model, temperature, history, !planActive)
+	safeGo(a, "streamChat", func() { a.streamChat(ctx, myGen, baseURL, key, model, temperature, history, !planActive) })
 	return conv, nil
 }
 
@@ -554,6 +558,7 @@ func (a *App) EditMessage(convID, messageID, content string) (*Conversation, err
 // پیام تأیید فارسی به تاریخچه اضافه می‌شود و استریم بدون بلوک برنامه‌ریزی
 // (یعنی با اجازه‌ی ابزار) آغاز می‌گردد.
 func (a *App) ApprovePlan(convID string) (*Conversation, error) {
+	defer a.recoverBound("ApprovePlan")
 	// خط کانتکست git — قبل از گرفتن قفل‌ها (exec زیر a.mu ممنوع است؛ F1)
 	gitLine := a.gitContextLineForSend()
 
@@ -610,7 +615,7 @@ func (a *App) ApprovePlan(convID string) (*Conversation, error) {
 	})
 
 	// ApprovePlan همیشه با ابزار اجرا می‌شود (planMode در prepareStream خاموش بود).
-	go a.streamChat(ctx, myGen, baseURL, key, model, temperature, history, true)
+	safeGo(a, "streamChat", func() { a.streamChat(ctx, myGen, baseURL, key, model, temperature, history, true) })
 	return conv, nil
 }
 
@@ -618,6 +623,7 @@ func (a *App) ApprovePlan(convID string) (*Conversation, error) {
 // بستن برنامه). پیام «ادامه بده» ثبت و پاسخ‌دهی دوباره شروع می‌شود.
 // فقط وقتی معنا دارد که آخرین پیام، دستیار یا نتیجه‌ی ابزار باشد.
 func (a *App) ResumeAgent(convID string) (*Conversation, error) {
+	defer a.recoverBound("ResumeAgent")
 	// خط کانتکست git — قبل از گرفتن قفل‌ها (exec زیر a.mu ممنوع است؛ F1)
 	gitLine := a.gitContextLineForSend()
 
@@ -673,7 +679,7 @@ func (a *App) ResumeAgent(convID string) (*Conversation, error) {
 	})
 
 	// ادامهٔ ایجنت همیشه با ابزار
-	go a.streamChat(ctx, myGen, baseURL, key, model, temperature, history, true)
+	safeGo(a, "streamChat", func() { a.streamChat(ctx, myGen, baseURL, key, model, temperature, history, true) })
 	return conv, nil
 }
 
@@ -1075,6 +1081,15 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 			a.gen = nil
 		}
 		a.genMu.Unlock()
+	}()
+	// مهار panic: برنامه زنده می‌ماند، وضعیت «در حال تولید» با emitChatError
+	// آزاد می‌شود و کاربر خطای فارسی می‌بیند. این defer پیش از پاک‌سازی‌های
+	// بالا اجرا می‌شود (ترتیب LIFO) تا قفل gen و done درست بسته شوند.
+	defer func() {
+		if r := recover(); r != nil {
+			recordPanic(a, "streamChat", r)
+			a.emitChatError(myGen, errInternalUI)
+		}
 	}()
 
 	// finish پیام نهایی را با آمار نوبت + آمار زیرایجنت‌های همین نوبت ذخیره و
@@ -1653,6 +1668,7 @@ func (a *App) emitChatError(myGen *genState, msg string) {
 
 // StopGeneration توقف پاسخ در جریان.
 func (a *App) StopGeneration() {
+	defer a.recoverBound("StopGeneration")
 	a.genMu.Lock()
 	g := a.gen
 	a.genMu.Unlock()

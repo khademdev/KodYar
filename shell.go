@@ -93,10 +93,18 @@ func runShell(ctx context.Context, dir, command string, timeout time.Duration, o
 
 	// Wait در goroutine خودش؛ watcher روی لغو/timeout درخت را می‌کشد.
 	waitCh := make(chan error, 1)
-	go func() { waitCh <- cmd.Wait() }()
+	// panic در Wait نباید فرایند را بکشد و نباید فراخواننده را برای همیشه
+	// منتظر بگذارد؛ پس نتیجه همیشه (حتی در صورت panic) فرستاده می‌شود.
+	go func() {
+		var werr error
+		if gerr := callGuarded(nil, "shell.wait", func() error { werr = cmd.Wait(); return nil }); gerr != nil {
+			werr = gerr
+		}
+		waitCh <- werr
+	}()
 
 	watchStop := make(chan struct{})
-	go func() {
+	safeGo(nil, "shell.watchdog", func() {
 		select {
 		case <-cctx.Done():
 			tree.terminate() // SIGTERM گروه / TerminateJobObject
@@ -109,7 +117,7 @@ func runShell(ctx context.Context, dir, command string, timeout time.Duration, o
 			}
 		case <-watchStop:
 		}
-	}()
+	})
 
 	werr := <-waitCh
 	close(watchStop)

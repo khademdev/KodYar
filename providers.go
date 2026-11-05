@@ -36,6 +36,7 @@ func (a *App) findProvider(id string) *Provider {
 
 // GetProviders فهرست Providerها را برمی‌گرداند (کپی امن بدون alias به state داخلی).
 func (a *App) GetProviders() []Provider {
+	defer a.recoverBound("GetProviders")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return copyProviders(a.settings.Providers)
@@ -49,6 +50,7 @@ func (a *App) GetProviders() []Provider {
 //
 // Provider ذخیره‌شده برگردانده می‌شود تا فرانت‌اند بتواند آن را فعال کند.
 func (a *App) SaveProvider(p Provider, apiKey string) (Provider, error) {
+	defer a.recoverBound("SaveProvider")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -126,6 +128,7 @@ func (a *App) SaveProvider(p Provider, apiKey string) (Provider, error) {
 // (کاربر خودش Providerهایش را تعریف می‌کند)؛ در این صورت سرویس‌دهنده‌ی فعال
 // پاک می‌شود و تا تعریف Provider بعدی، ارسال پیام با پیام راهنما رد می‌شود.
 func (a *App) DeleteProvider(id string) error {
+	defer a.recoverBound("DeleteProvider")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -158,6 +161,7 @@ func (a *App) DeleteProvider(id string) error {
 
 // TestProvider یک درخواست کوچک برای اطمینان از درستی آدرس و کلید می‌فرستد.
 func (a *App) TestProvider(providerID, model string) error {
+	defer a.recoverBound("TestProvider")
 	a.mu.Lock()
 	p := a.findProvider(providerID)
 	if p == nil {

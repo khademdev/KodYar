@@ -23,6 +23,7 @@ const commandTimeout = 60 * time.Second
 // تست‌ها که startup اجرا نشده و a.ctx صفر است، به context.Background
 // برمی‌گردیم. مهلت ۶۰ ثانیه‌ی دستور مثل قبل روی همین پایه سوار می‌شود.
 func (a *App) RunCommand(command string) (string, error) {
+	defer a.recoverBound("RunCommand")
 	base := a.appContext()
 	command = strings.TrimSpace(command)
 	if command == "" {

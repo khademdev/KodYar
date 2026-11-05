@@ -179,6 +179,7 @@ func (a *App) shutdown(ctx context.Context) {
 // ToggleFullscreen وضعیت تمام‌صفحه‌ی واقعی پنجره را برمی‌گرداند (F11).
 // جدا از «بیشینه» (maximize) است: نوار عنوان و حاشیه‌ی پنجره مخفی می‌شوند.
 func (a *App) ToggleFullscreen() {
+	defer a.recoverBound("ToggleFullscreen")
 	if a.ctx == nil {
 		return
 	}
@@ -195,6 +196,7 @@ const supportURL = "https://www.coffeebede.com/khademdev"
 // OpenSupportPage صفحه‌ی حمایت از پروژه را در مرورگر پیش‌فرض سیستم باز
 // می‌کند. در محیط تست (بدون Wails) بی‌خطر است و کاری نمی‌کند.
 func (a *App) OpenSupportPage() {
+	defer a.recoverBound("OpenSupportPage")
 	if a.ctx == nil {
 		return
 	}
@@ -204,6 +206,7 @@ func (a *App) OpenSupportPage() {
 // SelectFolder دیالوگ انتخاب پوشه‌ی سیستم‌عامل را باز می‌کند.
 // در صورت لغو توسط کاربر، رشته خالی و خطای nil برمی‌گردد.
 func (a *App) SelectFolder() (string, error) {
+	defer a.recoverBound("SelectFolder")
 	a.mu.Lock()
 	current := strings.TrimSpace(a.settings.WorkspacePath)
 	a.mu.Unlock()

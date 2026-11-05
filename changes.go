@@ -290,6 +290,7 @@ func changeApprovalNote(asked bool) string {
 // RespondFileConfirm پاسخ کاربر به مودال تأیید تغییر را تحویل می‌دهد.
 // این متد از فرانت‌اند (Wails bind) صدا زده می‌شود.
 func (a *App) RespondFileConfirm(changeID string, allow bool) error {
+	defer a.recoverBound("RespondFileConfirm")
 	return a.RespondFileConfirmScope(changeID, allow, "")
 }
 
@@ -299,6 +300,7 @@ func (a *App) RespondFileConfirm(changeID string, allow bool) error {
 //	"generation" — تا پایان پاسخ‌دهی جاری دیگر مودال نیاید
 //	"session"    — تا بستن برنامه (یا خاموش کردن دستی) مودال نیاید
 func (a *App) RespondFileConfirmScope(changeID string, allow bool, scope string) error {
+	defer a.recoverBound("RespondFileConfirmScope")
 	scope = strings.ToLower(strings.TrimSpace(scope))
 	if allow {
 		switch scope {
@@ -655,6 +657,7 @@ func (a *App) recordRejectedChange(ch FileChange) {
 
 // GetFileChanges فهرست تغییرات ثبت‌شده (جدیدترین اول) برای UI.
 func (a *App) GetFileChanges() []FileChange {
+	defer a.recoverBound("GetFileChanges")
 	list := a.loadChanges()
 	out := make([]FileChange, 0, len(list))
 	for i := len(list) - 1; i >= 0; i-- {
@@ -667,6 +670,7 @@ func (a *App) GetFileChanges() []FileChange {
 
 // GetFileChangeDiff متن diff یک تغییر مشخص.
 func (a *App) GetFileChangeDiff(changeID string) (string, error) {
+	defer a.recoverBound("GetFileChangeDiff")
 	for _, c := range a.loadChanges() {
 		if c.ID == changeID {
 			if c.Diff == "" {
@@ -683,6 +687,7 @@ func (a *App) GetFileChangeDiff(changeID string) (string, error) {
 // از باز شدن قفل انجام می‌دهد — EventsEmit زیر قفل خلاف قاعده‌ی
 // معماری است).
 func (a *App) RevertFileChange(changeID string) error {
+	defer a.recoverBound("RevertFileChange")
 	if err := a.revertFileChangeInner(changeID); err != nil {
 		return err
 	}
@@ -828,6 +833,7 @@ func (a *App) revertChange(ch *FileChange) error {
 // RevertAllFileChanges همه‌ی تغییرات اعمال‌شده‌ی قابل‌بازگشت را (از آخر به اول)
 // برمی‌گرداند. تعداد موفق را برمی‌گرداند.
 func (a *App) RevertAllFileChanges() (int, error) {
+	defer a.recoverBound("RevertAllFileChanges")
 	list := a.loadChanges()
 	done := 0
 	var firstErr error

@@ -48,6 +48,7 @@ func compactToolResult(content string) string {
 // را برمی‌گرداند. پیام‌های Pinشده همیشه در کانتکست مدل می‌مانند حتی اگر
 // از پنجره‌ی MaxHistory خارج شوند.
 func (a *App) SetMessagePinned(convID, messageID string, pinned bool) (*Conversation, error) {
+	defer a.recoverBound("SetMessagePinned")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	c, err := a.loadConversation(convID)
@@ -88,6 +89,7 @@ func pinnedOutsideWindow(msgs []Message, start int) []Message {
 // ForkConversation شاخه‌ی جدیدی از گفتگو می‌سازد که فقط تا پیام مشخص‌شده
 // را دارد (خود پیام هم شامل است). عنوان با پسوند «(شاخه)» ذخیره می‌شود.
 func (a *App) ForkConversation(convID, fromMessageID string) (*Conversation, error) {
+	defer a.recoverBound("ForkConversation")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	src, err := a.loadConversation(convID)
@@ -130,6 +132,7 @@ func (a *App) ForkConversation(convID, fromMessageID string) (*Conversation, err
 // و Attached پیام‌های قدیمی (به‌جز آخرین پیام کاربر) را در «فایل ذخیره‌شده»
 // فشرده می‌کند. گفتگوی به‌روزشده را برمی‌گرداند. عملیات قابل بازگشت نیست.
 func (a *App) CompactConversation(convID string) (*Conversation, error) {
+	defer a.recoverBound("CompactConversation")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	c, err := a.loadConversation(convID)
