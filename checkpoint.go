@@ -150,6 +150,7 @@ func runGitCheckpoint(ctx context.Context, ws string, env []string, timeout time
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(cctx, "git", checkpointArgs(ws, args...)...)
+	hideConsoleWindow(cmd)
 	cmd.WaitDelay = 3 * time.Second
 	out := newCappedGitBuffer(gitCaptureCap)
 	errb := newCappedGitBuffer(gitCaptureCap)
@@ -187,6 +188,7 @@ func runGitCheckpointInput(ctx context.Context, ws string, env []string, timeout
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(cctx, "git", checkpointArgs(ws, args...)...)
+	hideConsoleWindow(cmd)
 	cmd.WaitDelay = 3 * time.Second
 	cmd.Stdin = strings.NewReader(input)
 	out := newCappedGitBuffer(gitCaptureCap)
@@ -591,6 +593,7 @@ type blobBatch struct {
 func newBlobBatch(ctx context.Context, ws string) (*blobBatch, error) {
 	cctx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(cctx, "git", checkpointArgs(ws, "cat-file", "--batch")...)
+	hideConsoleWindow(cmd)
 	cmd.WaitDelay = 3 * time.Second
 	cmd.Env = gitEnv()
 	in, err := cmd.StdinPipe()

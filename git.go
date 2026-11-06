@@ -78,6 +78,7 @@ func (a *App) runGitIn(ctx context.Context, ws string, args ...string) (string, 
 	cctx, cancel := context.WithTimeout(ctx, gitTimeoutSec*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(cctx, "git", append([]string{"-C", ws}, args...)...)
+	hideConsoleWindow(cmd) // بدون این، هر فرمان git پنجره‌ی کنسول فلش می‌زد
 	// نویسنده‌های غیر-فایل → exec لوله و goroutine کپی می‌سازد؛ اگر فرزندی
 	// از git (credential helper/hook/filter) لوله را باز نگه دارد، Run بعد
 	// از کشتنِ خود git هم بلاک می‌ماند. WaitDelay سقف همان انتظار است

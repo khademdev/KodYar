@@ -309,6 +309,7 @@ func startMCPClient(ctx context.Context, app *App, cfg MCPServerConfig, onListCh
 	}
 
 	cmd := exec.Command(lp, cfg.Args...)
+	hideConsoleWindow(cmd) // سرور MCP هم نباید پنجره‌ی کنسول فلش کند
 	cmd.Env = env
 	tree, terr := prepareProcessTree(cmd)
 	if terr != nil {

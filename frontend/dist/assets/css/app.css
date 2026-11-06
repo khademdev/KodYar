@@ -498,3 +498,42 @@ html[data-theme="light"] .log-view {
 /* Diff confirm: allow-for-turn / session buttons */
 .diff-foot{flex-wrap:wrap;gap:8px}
 #diff-allow-gen,#diff-allow-session{font-size:calc(var(--ui-size) - 1.5px);white-space:nowrap}
+
+/* ============================================================
+   MyAI 1.10.0 — Mission 6 (UI fixes) — additive block
+   ============================================================ */
+
+/* —— ایراد ۱: دکمه‌های فوتر هیچ مودالی نباید بریده شوند —— */
+.modal-foot{flex-wrap:wrap;row-gap:8px}
+.modal-foot .btn{flex-shrink:0;white-space:nowrap}
+#confirm-msg{overflow-wrap:anywhere;margin:0}
+.modal-sm.modal{max-height:72vh}
+
+/* مودال دسترسی: فوتر شبکه‌ای با دکمه‌های هم‌عرض — هرگز بیرون نمی‌زند */
+.perm-ask .modal-foot{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:8px;padding-top:12px}
+.perm-ask .modal-foot .spacer{display:none}
+.perm-ask .modal-foot .btn{width:100%;justify-content:center;margin:0}
+
+/* —— ایراد ۲: پیش‌نمایش تغییرات ایجنت — جمع‌وجور، فوتر مرتب —— */
+.modal-diff{width:min(680px,calc(100vw - 44px))}
+.diff-foot .hint-row{flex:1 1 100%;min-width:0;order:-1;padding-bottom:2px}
+
+/* —— ایراد ۳: جستجوی مدل در پاپ‌آور مدل‌ها —— */
+.pop-search{position:sticky;top:0;z-index:1;background:var(--panel);padding:6px 6px 5px;margin:-2px -2px 3px;border-bottom:1px solid var(--border)}
+.pop-search input{width:100%;background:var(--bg-soft);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-family:var(--font-fa);font-size:calc(var(--ui-size) - 1px);padding:6px 10px;outline:0}
+.pop-search input:focus{border-color:var(--accent)}
+.pop-search input::placeholder{color:var(--text3)}
+
+/* —— ایراد ۴: تنظیمات دسکتاپی — نوار کناری عمودی (راست در RTL) —— */
+@media (min-width: 560px) {
+  #settings-overlay .modal{width:min(880px,calc(100vw - 40px));height:min(640px,calc(100vh - 48px));display:grid;grid-template-columns:198px minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
+  #settings-overlay .modal-head{grid-column:1/-1;grid-row:1}
+  #settings-overlay .modal-tabs{grid-column:1;grid-row:2;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;flex-wrap:nowrap;gap:2px;padding:8px;border-bottom:0;border-inline-end:1px solid var(--border);overflow-y:auto;flex-shrink:0}
+  #settings-overlay .modal-body{grid-column:2;grid-row:2}
+  #settings-overlay .modal-tab{padding:9px 12px;margin-bottom:0;border-radius:var(--radius-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #settings-overlay .modal-tab.active{background:var(--accent-softer)}
+  #settings-overlay .modal-tab.active:after{inset-inline:auto;inset-inline-start:0;top:18%;bottom:18%;width:3px;height:auto;background:var(--accent)}
+}
+
+/* —— ایراد ۵ (UI): کشوی تغییرات نباید روی مودال‌ها بیفتد —— */
+#changes-overlay{z-index:95}

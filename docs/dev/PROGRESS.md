@@ -1920,3 +1920,93 @@ OpenAI فهرست عمومی مدل ندارد (ورود دستی)؛ endpointه�
 `/models` را پیاده نکرده‌اند پیام 404 روشن می‌دهند.
 
 **Mission 5 complete. Waiting for your instruction to continue.**
+
+---
+
+# Mission 6 — «پولیش رابط کاربری + حذف فلش کنسول» (1.9.0 → **1.10.0**) — DONE (2026-11-07)
+
+کاربر ۵ ایراد UI گزارش کرد؛ هر ۵ مورد با بازتولید واقعی در مرورگر headless
+(حالت mock روی `frontend/tests/serve.js`) تأیید و رفع و دوباره بصری
+راستی‌آزمایی شد. اجرای مأموریت: Stage A (بک‌اند) → Stage B (فرانت‌اند) →
+گیت → مستندات → انتشار.
+
+## ایرادهای تأییدشده (با شواهد اندازه‌گیری)
+
+1. **مودال «تأیید دسترسی» کامل نمایش داده نمی‌شد** — ۴ دکمه در
+   `.modal-foot` بدون `flex-wrap`؛ اندازه‌گیری DOM: دکمه‌ی «اجازه یک‌بار»
+   `scrollWidth > clientWidth` و بریده با متن نصفه. ریشه: فشرده‌شدن با
+   `flex-shrink` به‌جای شکستن خط.
+2. **نمایش «ایجنت در حال کار» کشیده/نامرتب** — مودال پیش‌نمایش تغییرات
+   ۷۴۰px عرض + hint فوتر با استایل inline (‎flex:1‎) در عرض ~۴۰px
+   حرف‌به‌حرف عمودی له می‌شد و دکمه‌ی «اعمال تغییر» هم بریده بود.
+3. **نبود جستجوی مدل** — با ۴۰ مدل: `scrollHeight=1400` در پاپ‌آور
+   `clientHeight=378`، بدون فیلتر.
+4. **تنظیمات غیردسکتاپی** — ۹ تب افقیِ wrap‌شده در ردیف(های) وسط‌چین.
+5. **فلش پنجره‌ی سیاه هنگام ارسال پیام** — ریشه در بک‌اند: `runGitIn`
+   (git.go)، `runGitCheckpoint`/`runGitCheckpointInput`/`newBlobBatch`
+   (checkpoint.go) و `startMCPClient` (mcp.go) بدون `HideWindow`/
+   `CREATE_NO_WINDOW` — چک‌پوینتِ gitِ ابتدای هر نوبت پنجره‌ی cmd
+   لحظه‌ای باز می‌کرد. (shell.go و taskkill از قبل پوشش داشتند.)
+6. **(کشف در بازبینی)** کشوی «تغییرات فایل» (`#changes-overlay`، بعد از
+   تنظیمات در DOM) روی مودال بازِ تنظیمات رندر می‌شد — تداخل z-index.
+7. **(کشف در بازبینی)** متن تأیید حذف (`#confirm-msg`) شکستن امن کلمه
+   نداشت.
+
+## تغییرات فایل‌به‌فایل
+
+- `console_windows.go` (جدید) — `hideConsoleWindow(cmd)`:
+  `SysProcAttr{HideWindow:true, CreationFlags:0x08000000}` با توضیح
+  فارسی؛ `console_other.go` (جدید) — no-op برای غیر ویندوز.
+- `git.go` / `checkpoint.go` (۳ سایت) / `mcp.go` — اعمال
+  `hideConsoleWindow` بلافاصله پس از ساخت cmd؛ فقط ۵ خط افزودنی.
+- `consolehide_test.go` (جدید) — تست نگهبان AST: هر
+  `exec.Command(Context)` در کد غیرتستی باید در همان تابع
+  `hideConsoleWindow`/`configureShell`/تخصیص `SysProcAttr` داشته باشد یا
+  در `consoleHideAllowList` با دلیل ثبت شود؛ + تست وجود قراردادی helper.
+- `frontend/dist/assets/css/app.css` — بلوک افزودنی Mission 6:
+  فوتر مودال‌ها (`flex-wrap` + `white-space:nowrap` + `flex-shrink:0`)،
+  فوتر شبکه‌ای `.perm-ask`، `.modal-sm` تا ۷۲vh، `#confirm-msg` شکستن
+  امن، مودال دیف ۶۸۰px + hint با `flex:1 1 100%;order:-1`، جعبه‌ی جستجوی
+  `.pop-search` (sticky)، چیدمان گرید سایدباری تنظیمات فقط در
+  `min-width:560px` (رفتار قبلی در پنجره‌ی باریک)، `#changes-overlay`
+  z-index:95.
+- `frontend/dist/index.html` — فقط حذف استایل inline از hint فوتر دیف
+  (مالکیت استایل به CSS رفت)؛ هیچ id/ساختاری عوض نشد.
+- `frontend/dist/assets/js/popovers.js` — هوک افزودنی در انتهای فایل
+  (بدنه‌ی فشرده دست‌نخورده): MutationObserver روی کلاس `#model-popover`؛
+  با ≥۸ مدل جعبه‌ی جستجوی چسبان + فیلتر سبک (`style.display` — بدون
+  بازسازی DOM)، Enter=اولین نتیجه، Esc=بستن؛ با <۸ مدل جعبه حذف می‌شود.
+- `build.sh` + `.github/workflows/ci.yml` — `-H windowsgui` صریح در
+  ldflags (گارانتی باینری windowed مستقل از پیش‌فرض Wails) + نسخه.
+- `main.go`/`wails.json` — 1.10.0. `go.mod` دست‌نخورده — بدون وابستگی تازه.
+- `CHANGELOG.md`/`README.md` — ورودی 1.10.0.
+
+## اثبات بصری (headless، حالت mock)
+
+- قبل: اسکرین‌شات مودال دسترسی با «اجازه یک‌ب…» بریده؛ دیف با «اع…» بریده
+  و hint عمودی؛ پاپ‌آور مدل بدون جستجو؛ تنظیمات با ردیف تب فشرده.
+- بعد: فوتر دسترسی `display:grid` دو ستونه با صفر دکمه‌ی بریده؛ فیلتر
+  «4.2» روی ۴۰ مدل → ۱۱ نتیجه در لحظه؛ سایدبار تنظیمات ستون راست با
+  `tabRight == modalRight`؛ مودال دیف ۶۸۰×۳۶۹ (قبل ۷۴۰×۶۲۰) با hint
+  تک‌خط (height 24px) و صفر دکمه‌ی بریده؛ در ۵۰۰px گرید خاموش (رفتار قدیمی).
+- کارایی: فیلتر فقط `style.display` روی نودهای موجود است؛ MutationObserver
+  فقط روی attribute کلاسِ یک المان؛ CSS همه‌ی قواعد ساده بدون selector
+  سنگین — برای سیستم ضعیف قابل‌قبول؛ `content-visibility` قبلی دست‌نخورده.
+
+## Gate و اثبات
+
+- `gofmt -l .` خالی؛ `go vet ./...`؛ `go build ./...`؛
+  `go test -race -count=1 ./...` → `ok myai 31.289s`؛ cross-vet
+  GOOS=windows و GOOS=linux هر دو سبز → **GATE: GREEN**.
+- تست‌ها: ۵۴۲ تابع تست/fuzz در ۶۷ فایل (۱۰ هدف fuzz) — دو نگهبان تازه:
+  `TestEveryExecCommandHidesConsole` و `TestHideConsoleHelperExists`.
+- قرارداد UI (uicontract) و بایندینگ‌ها سبز — تغییرات JS/CSS افزودنی‌اند.
+
+**محدودیت‌ها / راستی‌آزمایی‌نشده:** فلش کنسول ذاتاً رفتار ویندوز است و در
+سندباکس لینوکسی با cross-vet + تست AST پوشش داده شده — تأیید نهایی
+«دیده‌نشدن پنجره» با چک‌لیست دستی کاربر روی ویندوز است؛ اثر `-H windowsgui`
+روی exe واقعی هم فقط روی ویندوز قابل مشاهده است. چیدمان سایدبار در
+نسبت‌های خیلی عجیب پنجره (مثلاً زیر ۵۶۰px با زوم بالا) به رفتار قبلی
+برمی‌گردد — عمدی و امن.
+
+**Mission 6 complete. Waiting for your instruction to continue.**

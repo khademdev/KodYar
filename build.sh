@@ -10,10 +10,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-VERSION="${1:-1.9.0}"
+VERSION="${1:-1.10.0}"
 
 echo "==> MyAI ${VERSION}: building windows/amd64 (skipbindings) ..."
 wails build -platform windows/amd64 -skipbindings \
-    -ldflags "-s -w -X main.version=${VERSION}"
+    -ldflags "-s -w -H windowsgui -X main.version=${VERSION}"
 
 echo "==> done: build/bin/MyAI.exe"
