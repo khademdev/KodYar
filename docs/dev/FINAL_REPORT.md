@@ -383,3 +383,285 @@ GATE: GREEN
 10. **(j) قانون هر دامنه‌ی web_fetch:** یک صفحه‌ی وب بخواهید و «همیشه برای این دامنه» را بزنید. *انتظار:* در تب «دسترسی‌ها» فقط همین دامنه ذخیره می‌شود؛ دامنه‌ی دوم دوباره می‌پرسد؛ گزینه‌ی «همیشه برای کل ابزار» وجود ندارد.
 11. **(k) بستن برنامه:** پس از پایان کار، برنامه را ببندید و Task Manager را چک کنید. *انتظار:* هیچ فرایند node/git/MCP جامانده‌ای نماند.
 12. **(l) تنظیمات و گفتگوهای قدیمی:** با settings.json قدیمی (بدون فیلدهای جدید، با `confirmFileWrites`) و گفتگوهای قدیمی اجرا کنید. *انتظار:* همه‌چیز بار می‌شود؛ حالت ویرایش معادل مهاجرت می‌کند؛ قاعده‌ی سراسری web_fetch قدیمی به «پرسش» برمی‌گردد و در لاگ خطاها ثبت شده است.
+
+---
+
+# Mission 4 — «پایداری و حذف نقص؛ بدون قابلیت تازه» (1.8.0 → **1.8.1**) — DONE (2026-11-06)
+
+سند مأموریت: `MyAI_Stability_Prompt.md`؛ لاگ کامل هر مرحله با خروجی واقعی گیت:
+`PROGRESS.md` (بخش‌های Mission 4). مأموریت فقط پایداری بود — **هیچ قابلیت،
+ابزار، تنظیمِ UI یا وابستگی تازه‌ای اضافه نشد** (`go.mod` در هیچ کامیت Mission 4
+دست نخورد). محیط: همان sandbox لینوکسی (Go 1.26، gcc 14.2 → `-race` واقعی)؛
+رفتار خاص ویندوز فقط با vet متقاطع، تست‌های مستقل از سکو و چک‌لیست دستی بند ۷
+زیر پوشش دارد.
+
+## 1. وضعیت مراحل
+
+| مرحله | دامنه | وضعیت |
+|---|---|---|
+| 0 | مبنا: گیت RED سه‌جا — ریشه تست‌های وابسته به سکو بود، نه کد محصول | **DONE** |
+| 1 | جداسازی خرابی: `safego.go` + نگهبان همه‌ی متدهای متصل به Wails | **DONE** |
+| 2 | نگهبان سکون استریم (پایان «فکر کردن بی‌پایان») | **DONE** |
+| 3 | نوشتن اتمیک مقاوم + بازیابی داده (`.bak`/نجات/`.corrupt-*`) | **DONE** |
+| 4 | خواندن جزئی، چک‌پوینت بدون فیلتر، بازگردانی ایمن، بهداشت | **DONE** |
+| 5 | فاز/soak/تزریق خرابی + ممیزی قفل (+ تکمیل: کشتن درخت فرایند git) | **DONE** |
+| 6 | مستندات، انتشار 1.8.1، خودبازبینی نهایی | **DONE** |
+
+گیت نهایی (خروجی واقعی، آخرین اجرا در Stage 6):
+
+```
+=== gofmt -l . ===                [OK] (خالی)
+=== go vet ./... ===              [OK]
+=== go build ./... ===            [OK]
+=== go test -race -count=1 ./... === ok  myai  35.033s  [OK]
+=== env GOOS=windows GOARCH=amd64 go vet ./... === [OK]
+=== env GOOS=linux   GOARCH=amd64 go vet ./... === [OK]
+GATE: GREEN
+```
+
+وضعیت race: **کاملاً راستی‌آزمایی‌شده** — همه‌ی مراحل با `-race` واقعی اجرا
+شدند؛ هیچ مرحله‌ای race-unverified نیست. مجموعه‌ی نهایی: **۵۲۹ تابع Test/Fuzz
+در ۶۵ فایل** + **۹ هدف fuzz** با ۱۸ فایل کورپوس کامیت‌شده (ورودی Mission 4:
+۴۷۸/۵۱). شمارش پس از Stage 6 به‌طور مستقل بازتأیید شد.
+
+## 2. نقص‌های تأییدشده: ریشه → رفع → تست اثبات
+
+**۱) بدون recover — panic هر گوروتینی کل برنامه را می‌کشت (Stage 1).**
+ریشه: جز `errorlog.go` هیچ `recover()`ای نبود؛ workerهای موازی ابزار، گوروتین
+استریم، حلقه‌های MCP و هر متد متصل به Wails روی گوروتین خودشان اجرا می‌شدند.
+رفع: `safego.go` تازه — `safeGo`/`recoverPanic`/`callGuarded` و نگهبان متدهای
+متصل `recoverBound`/`recoverBoundErr`؛ همه‌ی گوروتین‌های کد غیرتست با `safeGo`
+و رفتار بازگردانی وضعیت (نتیجه‌ی ابزار همیشه نوشته می‌شود، UI در «در حال تولید»
+گیر نمی‌کند، سرور MCP مرده علامت می‌خورد)، هر ۶۰ متد صادرشده‌ی `*App` نگهبان
+دارد (امضاها دست‌نخورده). تست‌ها: `TestSafeGoRecoversPanicAndKeepsWorking`،
+`TestToolWorkerPanicKeepsPairingAndOthersRun`، `TestSubagentPanicReturnsErrorReport`،
+`TestRecoverBoundKeepsAppAlive` و نگهبان AST
+`TestExportedAppMethodsHavePanicGuard`.
+
+**۲) «فکر کردن بی‌پایان» — سکون وسط استریم (Stage 2).**
+ریشه: کلاینت HTTP فقط `ResponseHeaderTimeout` (۹۰s) داشت؛ سکون سرویس‌دهنده/پروکسی
+وسط استریم بدون بستن اتصال، خواندن بدنه را تا ابد بلاک می‌کرد. رفع:
+`streamwatch.go` — `streamIdleGuard` دور بدنه‌ی هر استریم (اصلی و زیرایجنت)؛
+پیش‌فرض ۱۲۰s، کران ۳۰–۹۰۰، تنظیم پنهان `streamIdleTimeoutSec`. سکون پیش از
+خروجی → خطای موقتِ قابل‌تلاش‌مجدد؛ پس از خروجی → ذخیره‌ی نیمه‌کاره + بدون تلاش
+مجدد + «ادامه»؛ توقف کاربر هرگز سکون گزارش نمی‌شود. تست‌ها:
+`TestStreamStallBeforeFirstByteRetries`، `TestStreamStallMidStreamSavesPartialNoRetry`،
+`TestStreamKeepAlivePreventsWatchdog`، `TestStreamStallDoesNotOverrideUserStop`،
+`TestSubagentStallReturnsErrorReport`، `TestStreamIdleClampAndDefault`،
+`TestStreamWatchdogNoGoroutineLeak`.
+
+**۳) نوشتن اتمیک ویندوز (Stage 3.1).**
+ریشه: نام موقت ثابت `path+".tmp"` (تصادم دو نویسنده‌ی هم‌زمان) و `os.Rename`
+تک‌تلاش که روی مقصدِ لحظه‌ای باز (ویرایشگر/آنتی‌ویروس/ایندکسر) گذرا با
+ACCESS_DENIED/SHARING_VIOLATION/LOCK_VIOLATION شکست می‌خورد. رفع: تمپ یکتای
+`os.CreateTemp` + Sync + `renameWithRetry` (۶ تلاش، ۲۵→۴۰۰ms، errnoهای ۵/۳۲/۳۳
+— فقط ویندوز؛ POSIX همان rename). تست‌ها: `TestAtomicWriteConcurrentUniqueTemp`
+(۲۴ نویسنده‌ی هم‌زمان)، `TestSweepRecognizesUniqueTempNames`.
+
+**۴) خرابی گفتگو/`changes.json` = از دست رفتن داده (Stage 3.2).**
+ریشه: JSON خراب فقط خطای خام می‌داد؛ هیچ `.bak` و هیچ بازیابی‌ای نبود. رفع:
+`recovery.go` — `atomicWriteFileWithBackup` با چرخش یک‌نسلی `.bak` به ترتیب
+کرش‌ایمن؛ `salvageConversation` با `json.Decoder` تا آخرین پیام کامل؛
+`.corrupt-<ts>` با سقف ۵؛ زنجیره‌ی main → `.bak` → نجات در هر دو لودر؛ اعلان
+فارسی «گفتگو آسیب دیده بود؛ n پیام بازیابی شد.» تست‌ها:
+`TestConversationBackupRotationAndRecovery`، `TestConversationSalvageTruncated`
+(ZWNJ بایت‌به‌بایت)، `TestCorruptFilesAreBounded`، `TestChangesJSONRecoversFromBackup`.
+
+**۵) دیسک پر / خطای نوشتن (Stage 3.3).**
+ریشه: پیام مبهم و نامشخص بودن سالم‌ماندن فایل قبلی. رفع: هر خطا فقط فایل موقت
+را پاک می‌کند؛ مقصد هرگز truncate نمی‌شود؛ وضعیت حافظه حفظ می‌شود؛ خطای فارسی
+«ذخیره‌ی گفتگو روی دیسک ناموفق بود (فایل قبلی دست‌نخورده است)». تست‌ها:
+`TestDiskFullKeepsExistingFileAndMemory` + سناریوی تزریق خرابی
+`disk_full_mid_turn_surfaces_notice_and_keeps_file`.
+
+**۶) نام‌های ممنوع/مسیرهای بلند ویندوز (Stage 3.4).**
+ریشه: نام‌های رزروشده (CON/NUL/COM1…)، نقطه/فاصله‌ی پایانی و مسیرهای >۲۵۹ نویسه
+خطای مبهم یا نوشتن روی شبه‌دستگاه می‌دادند. رفع: `pathnames.go` —
+`validatePathName`/`validatePathForWrite` (روی POSIX فقط مسیر خالی رد می‌شود)؛
+`checkpointAbs` از آن استفاده می‌کند. تست‌ها: `TestValidatePathName`،
+`TestValidatePathForWriteLongPath`.
+
+**۷) خواندن جزئی مجوز بازنویسی کامل می‌شد (Stage 4.1).**
+ریشه: هر `read_file` موفق هش **کل** فایل را ثبت می‌کرد؛ پس از دیدن ۲۰ خط از فایل
+۵۰۰۰ خطی، `write_file` کل فایل ممکن بود و بخش دیده‌نشده بی‌صدا نابود می‌شد. رفع:
+رکورد `Full bool` فقط برای خواندن کاملِ بدون برش؛ `intentOverwrite` رکورد
+غیرـFull را رد می‌کند («read the entire file first, or use edit_file»)؛
+`edit_file` با رکورد جزئی مجاز می‌ماند (تطبیق دقیق `old_string` محافظ آن است).
+تست‌ها: `TestPartialReadRejectsWholeFileOverwrite`، `TestTruncatedReadRejectsOverwrite`،
+`TestFullReadAllowsOverwrite`، `TestFullReadAfterPartialAllowsOverwrite`،
+`TestEditAfterPartialIsAllowed`، `TestStaleAfterPartialReadStillRejected`،
+`TestPersianCRLFBOMFullReadThenOverwrite` (BOM+CRLF+ZWNJ بایت‌به‌بایت)،
+`TestLargeFilePartialReadGuard`.
+
+**۸) چک‌پوینت بایت‌به‌بایت نبود (Stage 4.2).**
+ریشه: snapshot با `git add -A` و بازگردانی با `checkout-index` → `core.autocrlf`
+کاربر، `.gitattributes` و فیلترهای clean/smudge (LFS) روی محتوا اعمال می‌شدند؛
+خط‌پایه‌ها عوض می‌شدند و LFS خراب برمی‌گشت. رفع: پایپ‌لاین بدون فیلتر —
+`git hash-object -w --no-filters --stdin-paths` + `git update-index -z --add
+--index-info` + `write-tree` (بدون `git add`)؛ همه‌ی فراخوانی‌های git با
+`-c core.autocrlf=false -c core.safecrlf=false -c core.fsmonitor=false -c
+core.hooksPath=<خالی>` و `GIT_ATTR_NOSYSTEM=1`؛ بازگردانی خام با `git cat-file
+--batch`. تست‌ها: `TestCheckpointNoFilterByteFaithful` (autocrlf=true +
+`.gitattributes` + CRLF/LF/باینری/فارسی → درخت بایت‌به‌بایت)،
+`TestCheckpointPreviewListsOnlyChanged`.
+
+**۹) بازگردانی ناایمن به symlink و بی‌کران در حافظه (Stage 4.3).**
+ریشه: بررسی مسیر فقط لفظی (`withinDir`) بود — symlink/junction بعد از snapshot
+→ نوشتن بیرون پروژه — و materialize کل snapshot + `os.ReadFile×2` + مقایسه‌ی
+رشته‌ای، حافظه/دیسک را می‌بلعید. رفع: `resolveRestorePath` (EvalSymlinks + رد
+reparse/هدف symlink + بررسی نام/طول)؛ مقایسه و نوشتن **جریانی** ۶۴KiB با
+`atomicWriteStream`؛ برنامه (plan) پیش از نخستین نوشتن و با کران فایل/مهلت.
+تست‌ها: `TestResolveRestorePathRefusesSymlinkedParent`،
+`TestResolveRestorePathRefusesOutsideResolution`، `TestRestoreLargeFileMemoryBounded`،
+`TestCheckpointLimitExceededChangesNothing`.
+
+**۱۰) بهداشت (Stage 4.4).** `README.txt` منسوخ حذف شد؛ فایل‌های تستِ
+نسخه‌دار به نام موضوعی منتقل شدند (`v13_test.go` → `providermigration_test.go` +
+`conversationdelete_test.go`؛ `finalaudit_test.go` → `mcpsafeguards_test.go` +
+`frontendhooks_test.go` + `settingssecurity_test.go`؛ `finalfix_test.go` →
+`settingsrevert_test.go` + `toolcustomize_test.go` + `appresume_test.go` —
+بدنه‌ها بدون تغییر)؛ `rg 'TODO|FIXME|XXX'` صفر؛ رفع ابطال‌نشدن کش
+`errLogPath` (`resolveErrorLogPath` کش را وقتی پوشه نیست باطل می‌کند).
+
+**۱۱) یافته‌های Stage 5 (خارج از فهرست اولیه، واقعی).**
+- ممیزی AST ترتیب قفل (`lockaudit_test.go`) نقض واقعی یافت: `finishChat`
+  اعلان `chat:notice` را **زیر قفل `a.mu`** می‌فرستاد → پرچم `saveFailed` زیر
+  قفل، emit بیرون از قفل و پیش از `chat:done`.
+- نوه‌های git هنگ‌کرده یتیم می‌ماندند و پایپ stdout را باز نگه می‌داشتند (Wait
+  تا پایان WaitDelay معطل) → کشتن درخت فرایند git در هر سه نقطه
+  (`startGitProcess`/`watchGitTree` + لغو پیش از Wait در `blobBatch.Close`)؛
+  اثبات قرمز→سبز واقعی: تست پیش از رفع با «۳.۴s > ۳s» و بقای فرزند پس‌زمینه
+  قرمز بود و پس از رفع در ۰.۴۶s سبز شد.
+
+## 3. فایل‌های افزوده/تغییریافته به تفکیک مرحله (از `git diff-tree`)
+
+- **Stage 0+1 (`38e42d4`):** جدید: `safego.go`، `safego_test.go`،
+  `panicguard_test.go`. تغییر: `chat.go`، `toolbatch.go`، `subagent.go`،
+  `mcp.go`، `mcpmanager.go`، `shell.go`، `app.go`، `changes.go`،
+  `checkpoint.go`، `commands.go`، `context.go`، `conversations.go`،
+  `errorlog.go`، `export.go`، `history.go`، `permissions.go`، `providers.go`،
+  `security.go`، `settings.go`، `turnreview.go`، `webfetchperm.go`،
+  `agent_e2e_test.go` (اصلاح مستند دو انتظار وابسته به سکو).
+- **Stage 2 (`ab41adf`):** جدید: `streamwatch.go`، `streamwatch_test.go`.
+  تغییر: `chat.go`، `subagent.go`، `settings.go`.
+- **Stage 3 (`f3b469a`):** جدید: `recovery.go`، `pathnames.go`،
+  `atomicwrite_windows.go`، `atomicwrite_other.go`، `stage3_test.go`. تغییر:
+  `crypto.go`، `conversations.go`، `changes.go`، `checkpoint.go`.
+- **Stage 4 (`86de28d`):** جدید: `readguard_test.go`،
+  `checkpointfidelity_test.go`، `reparse_windows.go`، `reparse_other.go` و
+  ۷ فایل تستِ انتقالی. حذف: `README.txt`، `v13_test.go`، `finalaudit_test.go`،
+  `finalfix_test.go`. تغییر: `fileread.go`، `agent.go`، `checkpoint.go`،
+  `crypto.go`، `changes.go`، `errorlog.go`، `agent_test.go`، `safego_test.go`،
+  `streamwatch_test.go`.
+- **Stage 5 (`e99a483`):** جدید: `fuzz_test.go`، `soak_test.go`،
+  `lockaudit_test.go`، `testdata/fuzz/**` (۱۸ کورپوس). تغییر:
+  `agent_e2e_test.go` (تزریق `Stall`)، `toolbatch.go` (`callToolGuarded`)،
+  `checkpoint.go` (`checkpointTimeout` const→var)، `chat.go` (رفع نقض قفل).
+- **Stage 5 تکمیل (`13ea4cb`):** تغییر: `checkpoint.go` (کشتن درخت فرایند
+  git)، `soak_test.go`.
+- **Stage 6 (`e8642a6`):** `ARCHITECTURE.md`، `CHANGELOG.md`، `README.md`،
+  `main.go`، `wails.json`، `build.sh`، `.github/workflows/ci.yml`،
+  `turnreview_test.go` (خط نسخه)، `docs/dev/PROGRESS.md`.
+
+**وابستگی تازه: هیچ** — فقط کتابخانه‌ی استاندارد؛ `go.mod` دست نخورد.
+
+## 4. تست‌های افزوده و اثبات‌ها (خلاصه)
+
+نام دقیق تست هر نقص در بند ۲ آمده است. موارد فارسی/RTL: حفظ ZWNJ بایت‌به‌بایت
+در نجات گفتگو (`TestConversationSalvageTruncated`)، BOM+CRLF+فارسی در محافظ
+خواندن (`TestPersianCRLFBOMFullReadThenOverwrite`) و چک‌پوینت
+(`TestCheckpointNoFilterByteFaithful`)، مسیرهای فارسی در اعتبارسنج نام
+(`TestValidatePathName`) و کورپوس‌های فارسی/ZWNJ در فازها. به‌علاوه:
+
+- **فاز (۹ هدف `testing.F`):** `FuzzParseShellCommand`، `FuzzReadSSEChunks`،
+  `FuzzApplyEditOpAndReindent`، `FuzzHTMLToReadableText`،
+  `FuzzGitignoreMatcher`، `FuzzSafeCheckpointRel`، `FuzzValidateHistory`،
+  `FuzzParseToolArgs`، `FuzzCommandCompositionNeverLoosens` — بذرهای
+  درون‌فایلی + کورپوس کامیت‌شده؛ در گیت عادی هر بذر < ۲۰۰ms؛ حالت کشف پیوسته
+  (`go test -fuzz`) کار توسعه‌دهنده است.
+- **soak (`TestSoakAgentLoop`):** ۵ دور حلقه‌ی واقعی ایجنت (نوشتن → تست واقعی
+  `run_command` → برگرداندن → چک‌پوینت → جهش فایل → بازگردانی → فشرده‌سازی →
+  Stop) زیر `-race` با کران‌های رشد (گوروتین +۸، heap +۳۲MB، fd +۱۶، ورودی
+  config +۱۲۰)؛ حالت بلند با `MYAI_SOAK_ITERATIONS`.
+- **تزریق خرابی (۹ سناریو در `TestFaultInjectionEndStates`):** 429/5xx، SSE
+  خراب، panic ابزار، دیسک پر، سکون وسط استریم از طریق هارنس، crash/هنگ MCP،
+  git ناموجود/هنگ با بررسی یتیم — همه با دیده‌بان بن‌بست `runWithDeadline` و
+  الزام پایان سازگار (نه «در حال تولید»، جفت‌بندی ابزار سالم، JSON معتبر).
+- **ممیزی‌های AST:** `TestExportedAppMethodsHavePanicGuard` (allowlist خالی) و
+  `TestLockAuditNoRuntimeEmitUnderAppLocks` (a.mu/genMu/checkpointMu هرگز روی
+  emit).
+
+## 5. تغییرات رفتاری که کاربر می‌بیند
+
+- سکون سرویس‌دهنده دیگر «فکر کردن بی‌پایان» نیست: پیش از خروجی → تلاش مجدد با
+  اعلان «پاسخ از سرویس‌دهنده قطع شد؛ تلاش مجدد …»؛ پس از خروجی → پاسخ
+  نیمه‌کاره ذخیره و «دریافت پاسخ متوقف شد (بدون داده برای n ثانیه). می‌توانید
+  «ادامه» را بزنید.»
+- panic داخلی برنامه را نمی‌کشد: پیام فارسی «خطای داخلی رخ داد؛ جزئیات در لاگ
+  خطاها ثبت شد.» و ادامه‌ی کار (ابزار خراب فقط نتیجه‌ی خطای خودش را می‌دهد).
+- گفتگوی خراب/بریده خودش بازیابی می‌شود («گفتگو آسیب دیده بود؛ n پیام بازیابی
+  شد.») و پشت هر ذخیره یک نسل `.bak` است؛ دیسک پر → اعلان فارسی و فایل قبلی سالم.
+- بازنویسی کامل فایل پس از خواندن جزئی/بریده رد می‌شود (پیام انگلیسی «read the
+  entire file first, or use edit_file»)؛ `edit_file` همان‌طور که بود کار می‌کند.
+- بازگردانی چک‌پوینت دیگر خط‌پایه‌ها را عوض نمی‌کند و پیش‌نمایش فقط تغییرهای
+  واقعی را نشان می‌دهد؛ پوشه‌ی symlink/junction در مسیر بازگردانی رد و گزارش می‌شود.
+- **مهاجرت: هیچ** — تنظیمات/گفتگو/`changes.json` قدیمی بدون تغییر بار می‌شوند؛
+  `streamIdleTimeoutSec` جدیدِ `omitempty` با صفر = پیش‌فرض ۱۲۰ ثانیه.
+
+## 6. فرض‌ها، انحراف‌ها، محدودیت‌ها (صادقانه)
+
+- **دستورها sandbox نشده‌اند** — گیت سه‌لایه‌ی دستورات، بازبینی پایان نوبت و
+  چک‌پوینت‌ها شبکه‌ی ایمنی هستند؛ تضمین‌های پایداری 1.8.1 (مهار panic، نگهبان
+  سکون، نوشتن اتمیک) جایگزین سندباکس نیستند.
+- گیت مبنا (Stage 0) RED بود؛ ریشه دو انتظار تستِ وابسته به سکو بود نه کد
+  محصول — اصلاح مستند (`t.Skip` زیرتست POSIX روی ویندوز + `TrimSpace`) بدون
+  سست‌شدن assertion. دو تست نیمه‌کاره‌ی ورودی Stage 5 هم با معماری واقعی اصلاح
+  شدند (نه سست).
+- همه‌ی پیوندها/junctionهای مسیر بازگردانی رد می‌شوند (سخت‌گیرانه‌تر از متن
+  سند و ایمن‌تر)؛ تست ۲۰۰MB به ۳۲MB کاهش یافت (همان خاصیت، گیت سریع‌تر)؛
+  `checkpointMaxFiles` const→var برای تست کران.
+- مهلت سکون در شروع نوبت ثابت خوانده می‌شود؛ سکون «فاز هدر» زیر همان
+  `ResponseHeaderTimeout` (۹۰s) است. `.bak` فقط یک نسل؛ اگر main و `.bak` هر
+  دو خراب باشند فقط پیام‌های کامل تا محل خرابی نجات می‌یابند و اصل در
+  `.corrupt-*` می‌ماند.
+- راستی‌آزمایی‌نشده: رفتار واقعی ویندوز (junction، آنتی‌ویروس، WebView2، Job
+  Object، مسیرهای >۲۶۰ در NTFS) — فقط vet متقاطع + تست‌های مستقل از سکو +
+  چک‌لیست دستی بند ۷؛ GitHub Actions اجرا نشد (رانر نیست).
+
+## 7. چک‌لیست پذیرش دستی برای انسان (UI فارسی — مراحل دقیق و نتیجه‌ی مورد انتظار)
+
+1. **(a) سکون/قطعی شبکه وسط پاسخ:** از ایجنت پاسخ بلند بخواهید و در میانه‌ی
+   استریم شبکه را قطع کنید (یا پروکسی ساکت بگذارید). *انتظار:* حداکثر پس از
+   ~۱۲۰ ثانیه پایان مودبانه با «دریافت پاسخ متوقف شد…»؛ اگر خروجی داده شده بود،
+   پاسخ نیمه‌کاره ذخیره شده و «ادامه» کار می‌کند؛ UI در «در حال تولید» گیر
+   نمی‌کند.
+2. **(b) خطای داخلی (معادل دستی قلاب تست):** یک سرور MCP با فرمان ناموجود در
+   تنظیمات بسازید و ابزارش را صدا بزنید. *انتظار:* فقط همان ابزار نتیجه‌ی خطا
+   می‌دهد؛ برنامه زنده می‌ماند، پیام فارسی خطا دیده می‌شود و در «لاگ خطاها»
+   ثبت است؛ UI در «در حال تولید» گیر نمی‌کند.
+3. **(c) فایل باز در ویرایشگر/پوشه‌ی اسکن آنتی‌ویروس:** فایلی را در ویرایشگر
+   باز نگه دارید و از ایجنت بخواهید همان را ذخیره کند (چند بار). *انتظار:*
+   دیگر شکست گذرا دیده نمی‌شود (تلاش مجدد ~۰.۸ ثانیه‌ای ویندوز)؛ در نهایت یا
+   ذخیره موفق است یا خطای فارسیِ نام‌برنده‌ی فایل — هرگز فایل نیم‌نوشته/خراب.
+4. **(d) خرابی دستی گفتگو:** برنامه را ببندید، یکی از فایل‌های JSON گفتگو در
+   `%AppData%\MyAI` را وسطش برش بزنید و برنامه را باز کنید. *انتظار:* گفتگو با
+   پیام‌های کامل بازیابی‌شده باز می‌شود + اعلان «گفتگو آسیب دیده بود؛ n پیام
+   بازیابی شد.»؛ فایل بریده در `.corrupt-<زمان>` و نسخه‌ی قبلی در `.bak` باقی است.
+5. **(e) محافظ خواندن کامل:** از ایجنت بخواهید فقط خطوط ۱–۲۰ یک فایل بزرگ را
+   بخواند و بعد کل فایل را بازنویسی کند. *انتظار:* رد می‌شود با پیام انگلیسی
+   «read the entire file first, or use edit_file»؛ محتوای شما دست‌نخورده.
+6. **(f) چک‌پوینت در مخزن autocrlf:** در مخزنی با `core.autocrlf=true` و
+   `.gitattributes`، نوبتی اجرا کنید که فایل بسازد/ویرایش/حذف کند، سپس
+   «بازگردانی کل پروژه به قبل از این نوبت». *انتظار:* پیش‌نمایش فقط فایل‌های
+   واقعاً تغییرکرده را نشان می‌دهد (بدون rewrite انبوه)؛ پس از بازگردانی درخت
+   بایت‌به‌بایت برمی‌گردد (CRLF/LF عوض نمی‌شود).
+7. **(g) پوشه‌ی symlink/junction:** داخل پروژه یک junction به بیرون بسازید و
+   بازگردانی چک‌پوینت را اجرا کنید. *انتظار:* آن مسیر در «ردشده‌ها» گزارش
+   می‌شود و چیزی بیرون از پروژه نوشته نمی‌شود.
+8. **(h) اجرای طولانی:** ۳۰+ نوبت پیاپی (شامل نوشتن/بازگردانی/چک‌پوینت) اجرا
+   کنید و Task Manager را ببینید. *انتظار:* رشد پیوسته‌ی حافظه/هندل دیده
+   نمی‌شود.
+9. **(i) بستن برنامه:** پس از پایان کار برنامه را ببندید و Task Manager را
+   چک کنید. *انتظار:* هیچ فرایند git/node/MCP جامانده‌ای نماند.
+10. **(j) نسخه و داده‌ی قدیمی:** در «درباره» نسخه‌ی 1.8.1 دیده شود؛ گفتگوها،
+    تنظیمات و `changes.json` قدیمی بعد از ارتقا بدون اعلان خرابی باز شوند.
