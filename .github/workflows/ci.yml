@@ -141,7 +141,7 @@ jobs:
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1
 
       - name: Wails build (windows/amd64, skipbindings)
-        run: wails build -platform windows/amd64 -skipbindings -ldflags "-s -w -X main.version=1.8.1"
+        run: wails build -platform windows/amd64 -skipbindings -ldflags "-s -w -X main.version=1.9.0"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

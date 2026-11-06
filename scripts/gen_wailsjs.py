@@ -82,8 +82,8 @@ for f in sorted(glob.glob(os.path.join(GO_DIR, "*.go"))):
                 return "number"
             if go == "[]string":
                 return "string[]"
-            if go in ("map[string]interface{}", "[]map[string]string"):
-                return "any"
+            if "map[" in go:
+                return "any"  # انواع map برای فرانت‌اند مات (MCPStatus و…)
             if go.startswith("[]"):
                 return "main." + go[2:] + "[]"
             if go.startswith("*"):
@@ -104,8 +104,8 @@ for f in sorted(glob.glob(os.path.join(GO_DIR, "*.go"))):
         methods.append((name, [ts_type(p) for p in ptypes], ts_ret))
 
 methods.sort(key=lambda x: x[0])
-if len(methods) != 51:
-    print(f"WARN: expected 51 bound methods, found {len(methods)}")
+if len(methods) != 67:
+    print(f"WARN: expected 67 bound methods, found {len(methods)}")
 
 uses_models = any(t.startswith("main.") for _, ps, _ in methods for t in ps) or \
               any(r.startswith("main.") for _, _, r in methods)
@@ -131,7 +131,9 @@ for name, ptypes, ret in methods:
 # ---- models.ts -------------------------------------------------------------
 MODEL_TYPES = ["Settings", "PermissionSettings", "PermissionRule", "Provider",
                "CustomTool", "Conversation", "ConversationMeta", "Message",
-               "toolCallRecord", "FileChange", "RulesInfo", "MentionItem"]
+               "toolCallRecord", "FileChange", "RulesInfo", "MentionItem",
+               "ModelInfo", "TurnChangesReport", "CheckpointRestorePreview",
+               "CheckpointRestoreReport"]
 
 struct_re = re.compile(r'^type (\w+) struct \{$')
 field_re = re.compile(r'^\t(\w+)\s+(\S+)\s+`json:"([^"]*)"`')
@@ -171,6 +173,10 @@ def model_ts(go, in_ns):
         return "string[]"
     if go == "map[string]string":
         return "{[key: string]: string}"
+    if go == "map[string]int64":
+        return "{[key: string]: number}"
+    if go == "map[string]interface{}":
+        return "{[key: string]: any}"
     if go.startswith("[]"):
         return go[2:] + ("[]" if in_ns else "main." + go[2:] + "[]")
     if go.startswith("*"):

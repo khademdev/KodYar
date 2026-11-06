@@ -19,8 +19,13 @@ export namespace main {
 		maxHistory: number;
 		tokenLimit: number;
 		tokensUsed: number;
+		tokensByProvider?: {[key: string]: number};
 		recentUsage: number[];
 		confirmFileWrites: boolean;
+		editMode?: string;
+		protectedGlobs?: string[];
+		maxTurnTokens?: number;
+		streamIdleTimeoutSec?: number;
 		planMode: boolean;
 		contextFiles: number;
 		projectRules: string;
@@ -34,6 +39,9 @@ export namespace main {
 		fontSize: number;
 		density: string;
 		customTools: CustomTool[];
+		mcpServers?: MCPServerConfig[];
+		proxyMode?: string;
+		proxyURL?: string;
 		permissions: PermissionSettings;
 		defaultsRemoved: boolean;
 	}
@@ -42,6 +50,7 @@ export namespace main {
 		tools?: {[key: string]: string};
 		commandRules?: PermissionRule[];
 		sensitiveGlobs?: string[];
+		webHosts?: PermissionRule[];
 	}
 
 	export class PermissionRule {
@@ -75,13 +84,11 @@ export namespace main {
 		createdAt: number;
 		updatedAt: number;
 		messages: Message[];
+		tokensUsed?: number;
+		tokensExact?: boolean;
+		contextTokens?: number;
 		todos?: TodoItem[];
-	}
-
-	export class TodoItem {
-		id: string;
-		content: string;
-		status: string;
+		turnSummaries?: TurnSummary[];
 	}
 
 	export class ConversationMeta {
@@ -89,14 +96,6 @@ export namespace main {
 		title: string;
 		updatedAt: number;
 		count: number;
-	}
-
-	export class MCPServerConfig {
-		name: string;
-		command: string;
-		args?: string[];
-		env?: Record<string, string>;
-		enabled: boolean;
 	}
 
 	export class Message {
@@ -146,6 +145,28 @@ export namespace main {
 		confirmNote?: string;
 	}
 
+	export class RulesInfo {
+		enabled: boolean;
+		userRules: string;
+		filePath: string;
+		fileExists: boolean;
+		fileContent: string;
+	}
+
+	export class MentionItem {
+		path: string;
+		label: string;
+		isDir: boolean;
+	}
+
+	export class ModelInfo {
+		id: string;
+		displayName?: string;
+		ownedBy?: string;
+		contextWindow?: number;
+		chatLikely: boolean;
+	}
+
 	export class TurnChangesReport {
 		reverted: string[];
 		conflicts: string[];
@@ -167,20 +188,6 @@ export namespace main {
 		skipped: string[];
 		errors: string[];
 		trashDir?: string;
-	}
-
-	export class RulesInfo {
-		enabled: boolean;
-		userRules: string;
-		filePath: string;
-		fileExists: boolean;
-		fileContent: string;
-	}
-
-	export class MentionItem {
-		path: string;
-		label: string;
-		isDir: boolean;
 	}
 
 }

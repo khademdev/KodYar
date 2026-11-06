@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"data\":[{\"id\":\"gpt-4o\",\"owned_by\":\"openai\"}]}")

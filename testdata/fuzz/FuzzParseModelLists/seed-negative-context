@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"data\":[{\"id\":\"x\",\"context_window\":-5},{\"id\":\"y\",\"context_window\":9999999999999999}]}")

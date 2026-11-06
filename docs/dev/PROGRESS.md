@@ -1838,3 +1838,85 @@ GATE: GREEN
 شوند (بدون اعلان خرابی).
 
 **Stage 6 complete. Waiting for your instruction to continue.**
+
+---
+
+# Mission 5 — «تشخیص خودکار مدل‌ها» (1.8.1 → **1.9.0**) — DONE (2026-11-06)
+
+اولین مأموریت قابلیت‌محور پس از مأموریت‌های پایداری، با همان نظم (طرح →
+پیاده‌سازی → تست → gate → مستندات → انتشار). درخواست کاربر: «فقط API و
+Base URL داده شود، مدل‌های در دسترس خودکار تشخیص داده شوند» (الگو: OpenCode).
+
+## Stage 1 — بک‌اند (modeldiscovery.go) — DONE
+
+- متد بایندشده‌ی جدید `DiscoverModels(baseURL, apiKey, providerID string) ([]ModelInfo, error)`
+  با `recoverBound` و همان قواعد قفل‌گذاری `TestProvider`.
+- **سه مسیر کشف:** (۱) استاندارد سازگار OpenAI — `GET {base}/models` با
+  Bearer؛ (۲) بومی Google AI Studio — `/v1beta/models` با هدر
+  `x-goog-api-key`، فیلتر `generateContent`، پیگیری `nextPageToken` تا
+  ۳ صفحه، نگاشت `inputTokenLimit` به پنجره‌ی کانتکست؛ (۳) پایه‌ی سازگار
+  OpenAI گوگل (`…/v1beta/openai`) از همان مسیر ۱.
+- **اولویت منابع ورودی:** آرگومان صریح → Provider ذخیره‌شده (آدرس + کلید
+  رمزگشایی‌شده؛ رعایت NoKey) → حدس از پیشوند کلید (`AIza…` → گوگل،
+  `sk-or-…` → OpenRouter، `gsk_…` → Groq؛ برای «sk-» عمومی حدس ممنوع —
+  مبهم است، خطای راهنما می‌دهد).
+- **پارس مقاوم:** شکل `{data:[…]}` و آرایه‌ی خام؛ فیلدهای اختیاری
+  OpenRouter (`name`، `context_window`، `context_length`) و vLLM
+  (`max_model_len`)؛ سقف پنجره‌ی نامعقول → «نامشخص».
+- **مرتب‌سازی/ dedup:** مدل‌های چت‌مانند اول (heuristic `nonChatHints`
+  برای embed/tts/dall-e/imagen/realtime/…)، هر گروه الفباییِ
+  case-insensitive، تکراری حذف؛ هیچ مدلی حذف نمی‌شود.
+- **امنیت:** کلید هرگز در خطا/لاگ (`redactKey` — شامل url.Error)؛ فقط
+  http/https؛ سقف بدنه ۴MB؛ timeout سخت ۲۰ ثانیه (`discoveryHTTPClient`
+  روی `chatTransport` — پروکسی‌آگاه)؛ پیام فارسی روشن برای
+  401/403/404/429/5xx و پاسخ غیرJSON؛ timeout جدا از خطای شبکه تفکیک می‌شود.
+
+## Stage 2 — تست‌ها (modeldiscovery_test.go) — DONE
+
+- ۱۰ تست جدید: جدولیِ خالص (حدس کلید، دسته‌بندی endpoint، پارس هر دو شکل،
+  مرتب‌سازی/dedup) + httptest (جریان کامل با بررسی هدر Authorization،
+  استفاده از کلید/آدرس ذخیره‌شده، ۴۰۱/۴۰۳/۴۰۴/۴۲۹/۵۰۰، قرارداد
+  «کلید در متن خطا نمی‌آید» با بدنه‌ی آلوده و سرور مرده، پاسخ HTML،
+  نیازمندی کلید برای مسیر بومی گوگل).
+- هدف fuzz ششم: `FuzzParseModelLists` (پارس هر دو شکل + نرمال‌سازی) با
+  ۶ seed مصوب در `testdata/fuzz/FuzzParseModelLists/`.
+- تعداد هدف‌های fuzz: ۹ → **۱۰**.
+
+## Stage 3 — فرانت‌اند و قرارداد بایندینگ — DONE
+
+- `index.html`: دکمه‌ی `#prov-models-detect` (کلاس استاندارد
+  `input-action`، آیکون sparkles) + hint فارسی زیر فیلد مدل‌ها.
+- `modals.js`: تابع `DetectModels` — ورودی از فیلدهای URL/کلید/Provider
+  جاری، فراخوانی `DiscoverModels`، ادغام نتیجه با مدل‌های دستی موجود
+  (بدون تکرار، case-insensitive)، toast فارسی با شمارش چت/غیرچت، حالت
+  disabled دکمه با `finally`.
+- `mock.js`: پشتیبانی Mock-mode از `DiscoverModels` (قاعده‌ی ۱.۴ —
+  smoke مرورگری بدون بک‌اند کار می‌کند).
+- `scripts/gen_wailsjs.py`: تعداد متدهای مورد انتظار → ۶۷، `ModelInfo` +
+  `TurnChangesReport` + `CheckpointRestorePreview` + `CheckpointRestoreReport`
+  به MODEL_TYPES افزوده شد (کلاس‌های ارجاعی در App.d.ts که از دست رفته
+  بودند) و انواع `map[…]` اکنون همیشه `any` می‌شوند (رفع باگ نهفته‌ی
+  `MCPStatus` که `main.map[string]interface{}[]` تولید می‌کرد).
+  Bindings (`App.js`/`App.d.ts`/`models.ts`) با اسکریپت بازتولید شدند —
+  اکنون دقیقاً همگام با reflection (۶۷ متد) و تست‌های قرارداد سبز.
+
+## Stage 4 — مستندات و انتشار 1.9.0 — DONE
+
+- ارتقای نسخه در چهار مکان: `main.go`، `wails.json`، `build.sh`، CI.
+- `CHANGELOG.md`: ورودی کامل 1.9.0؛ `README.md`: بخش «تازه‌های نسخه‌ی
+  1.9.0»؛ همین بخش PROGRESS.md.
+- go.mod دست‌نخورده — بدون وابستگی تازه.
+
+## Gate و اثبات
+
+- `go build` + `go vet` + `gofmt -l .` خالی؛ `go test -race -count=1 ./...`
+  سبز روی کل درخت (۵۳۰+ تابع تست در ۶۶ فایل، ۱۰ هدف fuzz).
+- قرارداد بایندینگ (bindings_test) و قرارداد UI (uicontract) هر دو سبز.
+
+**محدودیت‌ها / راستی‌آزمایی‌نشده:** رفتار با سرویس‌دهنده‌های واقعی
+(Google/OpenRouter/Groq/OpenAI) در sandbox فقط با httptest شبیه‌سازی
+شده — تأیید نهایی روی سرویس واقعی با چک‌لیست دستی کاربر است؛ Azure
+OpenAI فهرست عمومی مدل ندارد (ورود دستی)؛ endpointهای شرکتی که
+`/models` را پیاده نکرده‌اند پیام 404 روشن می‌دهند.
+
+**Mission 5 complete. Waiting for your instruction to continue.**
