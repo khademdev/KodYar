@@ -1690,3 +1690,51 @@ GATE: GREEN
   عادی تمام می‌شود، برنامه زنده.
 
 **Stage 5 complete. Waiting for your instruction to continue.**
+
+## Mission 4 — Stage 5 (تکمیل/مهر نهایی): اثبات فرزندِ فرزند و نگهبان همه‌ی سناریوها — DONE (2026-11-06)
+
+بازبینی نهایی Stage 5 سه شکاف واقعی نسبت به متن سند پیدا کرد و رفع شد
+(هیچ assertionی سست نشد؛ یک رفتار غلطِ محصول اصلاح شد):
+
+۱) **یافته‌ی محصولی — یتیمِ git هنگ‌کرده:** `runGitCheckpoint` /
+`runGitCheckpointInput` / `newBlobBatch` فقط با `exec.CommandContext`
+کار می‌کردند که فقط **فرزند مستقیم** را می‌کشد؛ نوه‌های git (هوک/پوسته)
+یتیم می‌ماندند و پایپ stdout را باز نگه می‌داشتند (Wait تا پایان
+WaitDelay معطل می‌ماند). رفع: همان الگوی `runShell` — `prepareProcessTree`
++ `cmd.Cancel = terminate` + نگهبان SIGKILL بعد از `shellGracePeriod`
+(کمک‌تابع‌های تازه‌ی `startGitProcess`/`watchGitTree`)، و در
+`blobBatch.Close` لغو **پیش از** Wait تا git هنگ‌کرده هم بلاک‌نشونده
+بکشته شود. اثبات قرمز→سبز: تست strengthened، پیش از رفع با
+«۳.۴s > ۳s» و بقای فرزند پس‌زمینه قرمز بود و پس از رفع در ۰.۴۶s سبز شد.
+(سناریوی `git_hang_times_out_and_leaves_no_orphan` حالا با اسکریپتی که
+فرزند پس‌زمینه می‌سازد، بررسی «فرزندِ فرزند» را با الگوی
+`TestRunShellTimeoutKillsChildTree` انجام می‌دهد.)
+
+۲) پای «تست» چرخه‌ی soak (بند ۷.۲ سند: edit → **test** → revert → …)
+اضافه شد: هر دور soak حالا یک `run_command` واقعی (`echo soak-ok`) از
+طریق دروازه‌ی دستور و `runShell` اجرا و خروجی‌اش راستی‌آزمایی می‌شود —
+spawn/teardown فرایند و پایپ‌ها هم زیر `-race` در حلقه قرار گرفت.
+
+۳) نگهبان بن‌بست (`runWithDeadline`) روی دو سناریوی استریم‌دارِ باقی‌مانده
+(`rate_limit_burst_then_success`، `malformed_sse_ends_cleanly`) هم اعمال
+شد تا «هر سناریو بیش از مهلتش، دامپ گوروتین بدهد» واقعاً روی همه برقرار
+باشد.
+
+**گیت واقعی (اجرای `scripts/gate.sh`):**
+
+```
+=== gofmt -l . ===                [OK] (خالی)
+=== go vet ./... ===              [OK]
+=== go build ./... ===            [OK]
+=== go test -race -count=1 ./... === ok  myai  32.335s  [OK]
+=== env GOOS=windows GOARCH=amd64 go vet ./... === [OK]
+=== env GOOS=linux   GOARCH=amd64 go vet ./... === [OK]
+GATE: GREEN
+```
+
+**فایل‌های تغییر:** `checkpoint.go` (کشتن درخت فرایند git در ۳ نقطه + ۲
+کمک‌تابع)، `soak_test.go` (پای run_command در soak، فرزندِ فرزند git،
+نگهبان ۲ سناریو، `waitPIDGone`). بدون وابستگی تازه؛ بدون تغییر امضای
+متد صادرشده؛ `grep TODO/FIXME/XXX` خالی.
+
+**Stage 5 complete. Waiting for your instruction to continue.**

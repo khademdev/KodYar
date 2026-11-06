@@ -95,6 +95,56 @@ func checkpointArgs(ws string, args ...string) []string {
 	return append(out, args...)
 }
 
+// startGitProcess پیش از Start: فرایند git در گروه/Job خودش قرار می‌گیرد
+// و روی لغوِ exec (پایان مهلت/لغو ctx) کل درخت SIGTERM می‌شود — نه فقط
+// فرزند مستقیم (رفتار پیش‌فرض CommandContext). نوه‌های git — هوک‌ها،
+// پوسته‌ها — بدون این، یتیم می‌ماندند و پایپ stdout را باز نگه می‌داشتند
+// (Wait تا پایان WaitDelay معطل می‌شد). همان الگوی runShell.
+func startGitProcess(cctx context.Context, cmd *exec.Cmd) (*procTree, error) {
+	tree, terr := prepareProcessTree(cmd)
+	if terr != nil {
+		return nil, fmt.Errorf("process tree setup: %w", terr)
+	}
+	cmd.Cancel = func() error { tree.terminate(); return nil }
+	if err := cmd.Start(); err != nil {
+		tree.close()
+		return nil, err
+	}
+	if err := tree.attach(cmd); err != nil {
+		// بدون attach نمی‌توان درخت را کشت → همین فرایند را بکش و رها کن
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+		tree.close()
+		return nil, fmt.Errorf("attach process tree: %w", err)
+	}
+	if cctx.Err() != nil {
+		// ctx پیش از attach لغو شده بود — درخت را همان‌جا بکش
+		tree.terminate()
+		tree.kill()
+	}
+	return tree, nil
+}
+
+// watchGitTree نگهبان کشتن درخت: روی لغو cctx اول SIGTERM به گروه/Job و
+// بعد از shellGracePeriod SIGKILL (Cancel داخلی exec فقط فرزند مستقیم را
+// SIGKILL می‌زند). توقف با بستن watchStop؛ تایمر همیشه بسته می‌شود.
+func watchGitTree(cctx context.Context, tree *procTree, watchStop <-chan struct{}) {
+	safeGo(nil, "git.watchdog", func() {
+		select {
+		case <-cctx.Done():
+			tree.terminate()
+			grace := time.NewTimer(shellGracePeriod)
+			defer grace.Stop()
+			select {
+			case <-watchStop:
+			case <-grace.C:
+				tree.kill()
+			}
+		case <-watchStop:
+		}
+	})
+}
+
 // runGitCheckpoint یک فرمان git با محیط/مهلت مشخص اجرا می‌کند (کران‌دار).
 func runGitCheckpoint(ctx context.Context, ws string, env []string, timeout time.Duration, args ...string) (string, error) {
 	cctx, cancel := context.WithTimeout(ctx, timeout)
@@ -109,7 +159,16 @@ func runGitCheckpoint(ctx context.Context, ws string, env []string, timeout time
 	} else {
 		cmd.Env = gitEnv()
 	}
-	if err := cmd.Run(); err != nil {
+	tree, serr := startGitProcess(cctx, cmd)
+	if serr != nil {
+		return "", fmt.Errorf("git %s: %s", args[0], serr)
+	}
+	watchStop := make(chan struct{})
+	watchGitTree(cctx, tree, watchStop)
+	err := cmd.Wait()
+	close(watchStop)
+	tree.close()
+	if err != nil {
 		if cctx.Err() == context.DeadlineExceeded {
 			return "", fmt.Errorf("git %s timed out", args[0])
 		}
@@ -138,7 +197,16 @@ func runGitCheckpointInput(ctx context.Context, ws string, env []string, timeout
 	} else {
 		cmd.Env = gitEnv()
 	}
-	if err := cmd.Run(); err != nil {
+	tree, serr := startGitProcess(cctx, cmd)
+	if serr != nil {
+		return "", fmt.Errorf("git %s: %s", args[0], serr)
+	}
+	watchStop := make(chan struct{})
+	watchGitTree(cctx, tree, watchStop)
+	err := cmd.Wait()
+	close(watchStop)
+	tree.close()
+	if err != nil {
 		if cctx.Err() == context.DeadlineExceeded {
 			return "", fmt.Errorf("git %s timed out", args[0])
 		}
@@ -509,13 +577,15 @@ const checkpointBlobChunk = 64 * 1024
 // (بدون smudge/filter/eol) و جریانی می‌خواند تا نه حافظه و نه دیسک با کل
 // snapshot درگیر شود.
 type blobBatch struct {
-	cmd    *exec.Cmd
-	in     io.WriteCloser
-	out    *bufio.Reader
-	errB   *cappedGitBuffer
-	cancel context.CancelFunc
-	remain int64
-	size   int64
+	cmd       *exec.Cmd
+	in        io.WriteCloser
+	out       *bufio.Reader
+	errB      *cappedGitBuffer
+	cancel    context.CancelFunc
+	tree      *procTree
+	watchStop chan struct{}
+	remain    int64
+	size      int64
 }
 
 func newBlobBatch(ctx context.Context, ws string) (*blobBatch, error) {
@@ -536,11 +606,14 @@ func newBlobBatch(ctx context.Context, ws string) (*blobBatch, error) {
 	}
 	errB := newCappedGitBuffer(gitCaptureCap)
 	cmd.Stderr = errB
-	if err := cmd.Start(); err != nil {
+	tree, serr := startGitProcess(cctx, cmd)
+	if serr != nil {
 		cancel()
-		return nil, err
+		return nil, fmt.Errorf("git cat-file: %s", serr)
 	}
-	return &blobBatch{cmd: cmd, in: in, out: bufio.NewReaderSize(outPipe, checkpointBlobChunk), errB: errB, cancel: cancel}, nil
+	watchStop := make(chan struct{})
+	watchGitTree(cctx, tree, watchStop)
+	return &blobBatch{cmd: cmd, in: in, out: bufio.NewReaderSize(outPipe, checkpointBlobChunk), errB: errB, cancel: cancel, tree: tree, watchStop: watchStop}, nil
 }
 
 // open شیء درخواستی را باز می‌کند و اندازه‌اش را برمی‌گرداند.
@@ -589,14 +662,19 @@ func (b *blobBatch) finish() error {
 	return err
 }
 
-// Close فرآیند را می‌بندد (کران‌دار، بدون نشت).
+// Close فرآیند را می‌بندد (کران‌دار، بدون نشت و بدون فرایند یتیم).
+// cancel **پیش از** Wait: در مسیر عادی git با بسته‌شدن stdin (EOF) خودش
+// تمام شده است و SIGTERMِ گروه به آن نمی‌رسد؛ اما اگر git هنگ کرده باشد،
+// بدون این، Wait تا ابد بلاک می‌شد و درخت هرگز کشته نمی‌شد.
 func (b *blobBatch) Close() {
 	if b == nil {
 		return
 	}
 	_ = b.in.Close()
-	_ = b.cmd.Wait()
 	b.cancel()
+	_ = b.cmd.Wait()
+	close(b.watchStop)
+	b.tree.close()
 }
 
 // compareBlobToFile مقایسه‌ی جریانی blob با فایل: اول اندازه، بعد تکه‌های

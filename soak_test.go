@@ -113,6 +113,10 @@ func TestSoakAgentLoop(t *testing.T) {
 			env.model.addSteps(
 				stepTool(fmt.Sprintf("w%d", i), "write_file",
 					fmt.Sprintf(`{"path":%q,"content":"value %d\n"}`, name, i)),
+				// پای «تست» چرخه‌ی Stage 5.2: اجرای واقعی فرایند در هر دور
+				// (spawn/teardown، پایپ‌ها، دروازه‌ی دستور) — «echo» الگوی
+				// راستی‌آزمایی نیست، پس تذکر پایان نوبت سر جایش می‌ماند.
+				stepTool(fmt.Sprintf("c%d", i), "run_command", `{"command":"echo soak-ok"}`),
 				stepText("نوشته شد."),
 				// تذکر راستی‌آزمایی پس از نوشتنِ تأییدنشده یک درخواست دیگر
 				// مصرف می‌کند (همان‌طور که TestNudgeFiresOnceWhenUnverified
@@ -120,9 +124,12 @@ func TestSoakAgentLoop(t *testing.T) {
 				// (نگه‌داشته‌ی Stop) را می‌بلعد و حلقه هنگ می‌کند.
 				stepText("نوشتم ولی راستی‌آزمایی نکردم."),
 			)
-			env.send("فایل را بساز")
+			env.send("فایل را بساز و دستور را اجرا کن")
 			if got := env.readFile(name); got != fmt.Sprintf("value %d\n", i) {
 				t.Fatalf("iteration %d: file content %q", i, got)
+			}
+			if out := env.toolResult(t, fmt.Sprintf("c%d", i)); !strings.Contains(out, "soak-ok") {
+				t.Fatalf("iteration %d: run_command output %q", i, out)
 			}
 
 			// برگرداندن تغییر فایل ابزار
@@ -261,16 +268,20 @@ func TestFaultInjectionEndStates(t *testing.T) {
 			scenarioStep{Status: 503},
 			stepText("پاسخ نهایی پس از تلاش مجدد"),
 		)
-		conv := env.send("سلام")
-		if got := lastAssistant(conv); !strings.Contains(got, "پاسخ نهایی") {
-			t.Fatalf("retry burst must end with the real answer, got %q", got)
-		}
+		runWithDeadline(t, 30*time.Second, "rate_limit scenario", func() {
+			conv := env.send("سلام")
+			if got := lastAssistant(conv); !strings.Contains(got, "پاسخ نهایی") {
+				t.Fatalf("retry burst must end with the real answer, got %q", got)
+			}
+		})
 		assertTurnEndsClean(t, env.app, env.convID)
 	})
 
 	t.Run("malformed_sse_ends_cleanly", func(t *testing.T) {
 		env := newE2E(t, scenarioStep{Raw: "data: {this is not json\n\n"})
-		env.send("سلام")
+		runWithDeadline(t, 30*time.Second, "malformed_sse scenario", func() {
+			env.send("سلام")
+		})
 		assertTurnEndsClean(t, env.app, env.convID)
 	})
 
@@ -513,9 +524,14 @@ func TestFaultInjectionEndStates(t *testing.T) {
 
 		dir := t.TempDir()
 		pidFile := filepath.Join(dir, "hang.pid")
-		// git جعلی: PID خودش را می‌نویسد و با exec جایگزین sleep می‌شود —
-		// پس PID فایل همان پروسه‌ای است که CommandContext باید بکشد.
-		script := "#!/bin/sh\necho $$ > " + pidFile + "\nexec sleep 60\n"
+		// git جعلی: PID خودش را می‌نویسد، یک فرزند پس‌زمینه می‌سازد
+		// (PID آن هم ثبت می‌شود) و بعد هنگ می‌کند — بررسی «فرزندِ فرزند»
+		// با الگوی TestRunShellTimeoutKillsChildTree: بعد از مهلت، نه
+		// فقط git جعلی بلکه فرزندِ ساخته‌ی آن هم باید مرده باشد (بدون
+		// یتیم). («exec sleep» قبلی هیچ نوه‌ای نمی‌ساخت و کشتنِ درخت
+		// را اثبات نمی‌داد.)
+		childPidFile := filepath.Join(dir, "child.pid")
+		script := "#!/bin/sh\necho $$ > " + pidFile + "\nsleep 60 &\necho $! > " + childPidFile + "\nwait\n"
 		if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -536,23 +552,31 @@ func TestFaultInjectionEndStates(t *testing.T) {
 		if elapsed > 3*time.Second {
 			t.Fatalf("checkpoint must respect the (shortened) git timeout, took %s", elapsed)
 		}
-		// بدون فرایند یتیم: PID ثبت‌شده باید تا چند صد میلی‌ثانیه بمیرد.
-		raw, rerr := os.ReadFile(pidFile)
-		if rerr != nil {
-			t.Fatalf("fake git never wrote its pid: %v", rerr)
-		}
-		pid := strings.TrimSpace(string(raw))
-		deadline := time.Now().Add(3 * time.Second)
-		for {
-			if _, lerr := os.Stat(filepath.Join("/proc", pid)); lerr != nil {
-				break // دیگر وجود ندارد — کشته شده
-			}
-			if time.Now().After(deadline) {
-				t.Fatalf("orphan git process %s is still alive", pid)
-			}
-			time.Sleep(50 * time.Millisecond)
-		}
+		// بدون فرایند یتیم: git جعلی و فرزند پس‌زمینه‌اش هر دو باید تا
+		// چند صد میلی‌ثانیه بمیرند (کشتن گروه فرایند، نه فقط فرزند مستقیم).
+		waitPIDGone(t, pidFile, "fake git")
+		waitPIDGone(t, childPidFile, "fake git's background child")
 	})
+}
+
+// waitPIDGone منتظر می‌ماند تا پروسه‌ی PID ثبت‌شده در فایل از /proc برود.
+func waitPIDGone(t *testing.T, pidFile, what string) {
+	t.Helper()
+	raw, rerr := os.ReadFile(pidFile)
+	if rerr != nil {
+		t.Fatalf("%s never wrote its pid: %v", what, rerr)
+	}
+	pid := strings.TrimSpace(string(raw))
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, lerr := os.Stat(filepath.Join("/proc", pid)); lerr != nil {
+			return // دیگر وجود ندارد — کشته شده
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("orphan %s process %s is still alive", what, pid)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 // initRepo پوشه را با یک کامیت اولیه به مخزن git تبدیل می‌کند (کمکی مشترک
