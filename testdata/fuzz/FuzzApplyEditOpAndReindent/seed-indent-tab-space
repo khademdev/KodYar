@@ -1,0 +1,4 @@
+go test fuzz v1
+string("func a() {\n\tif b {\n\t\treturn\n\t}\n}\n")
+string("\tif b {\n\t\treturn\n\t}")
+string("func a() {\n        if b {\n                return\n        }\n}\n")

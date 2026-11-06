@@ -179,6 +179,19 @@ func (a *App) runParallelSegment(ctx context.Context, convID string, tasks []too
 	wg.Wait()
 }
 
+// callToolGuarded اجرای ابزار را با مهار panic انجام می‌دهد. مسیر ترتیبی هم
+// مثل workerهای موازی باید زنده بماند: panic در ابزار فقط نتیجه‌ی خطای همان
+// ابزار می‌شود، جفت‌بندی tool_calls/tool سالم می‌ماند و برنامه نمی‌میرد.
+func callToolGuarded(a *App, ctx context.Context, name string, exec toolExecFn, args string) (result string, ok bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			recordPanic(a, "tool."+name, r)
+			result, ok = fmt.Sprintf(errInternalTool, name), false
+		}
+	}()
+	return exec(ctx, name, args)
+}
+
 // runToolCall یک فراخوانی را اجرا می‌کند: رویداد chat:tool درست پیش از
 // اجرا، بررسی لغو، اجرا (یا نتیجه‌ی ازپیش‌محاسبه‌شده)، لاگ خطا و رویداد
 // chat:tool_result — دقیقاً همان توالیِ حلقه‌ی ترتیبیِ قبلی. از چند worker
@@ -206,7 +219,7 @@ func (a *App) runToolCall(ctx context.Context, convID string, t toolBatchTask, t
 		if truncated {
 			toolCtx = withTruncationHint(toolCtx)
 		}
-		result, ok = exec(toolCtx, c.Function.Name, c.Function.Arguments)
+		result, ok = callToolGuarded(a, toolCtx, c.Function.Name, exec, c.Function.Arguments)
 	}
 	if result == "" {
 		result = "(empty)"

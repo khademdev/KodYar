@@ -39,13 +39,16 @@ import (
 )
 
 const (
-	checkpointTimeout     = 10 * time.Second // سقف ساخت نقطه‌ی بازگشت
 	checkpointRestoreTime = 60 * time.Second // سقف بازگردانی (فایل‌های زیاد)
 	checkpointMaxKeep     = 20               // نگه‌داری جدیدترین‌ها در هر پوشه
 	checkpointRefPrefix   = "refs/myai/checkpoints/"
 	checkpointTrashDays   = 14
 	checkpointTrashBytes  = 500 << 20 // ۵۰۰ مگابایت
 )
+
+// checkpointTimeout سقف هر فراخوانی git در ساخت نقطه‌ی بازگشت (var تا تستِ
+// تزریق خرابی Stage 5 بتواند مهلت کوتاه تزریق کند؛ در runtime تغییر نمی‌کند).
+var checkpointTimeout = 10 * time.Second
 
 // checkpointMaxFiles سقف فایل در snapshot و بازگردانی (var تا تست بتواند
 // کران را کوچک کند؛ در runtime تغییر نمی‌کند).

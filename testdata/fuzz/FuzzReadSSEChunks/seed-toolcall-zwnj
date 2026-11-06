@@ -1,0 +1,2 @@
+go test fuzz v1
+string("data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"c1\",\"function\":{\"name\":\"edit_file\",\"arguments\":\"{\\\"old\\\":\\\"\xe2\x80\x8c\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")

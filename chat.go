@@ -1663,12 +1663,10 @@ func (a *App) finishChat(myGen *genState, content string, aborted bool, promptTo
 		conv.Messages = append(conv.Messages, msg)
 	}
 	a.recordTokenUsageLocked(conv, promptTokens, completionTokens, exact)
+	saveFailed := false
 	if err := a.saveConversation(conv); err != nil {
 		logAppError("save", "finishChat: "+err.Error())
-		runtimeEmit(a, "chat:notice", map[string]interface{}{
-			"conversationId": convID,
-			"text":           "هشدار: ذخیره‌ی این گفتگو روی دیسک ناموفق بود (جزئیات در لاگ خطاها).",
-		})
+		saveFailed = true
 	}
 	if serr := a.saveSettings(); serr != nil {
 		logAppError("save", "finishChat settings: "+serr.Error())
@@ -1678,6 +1676,15 @@ func (a *App) finishChat(myGen *genState, content string, aborted bool, promptTo
 	// سمت کلاینت (که پیام‌های tool را نادیده می‌گرفت) همان مقدار را نشان دهد.
 	conv.ContextTokens = used
 	a.mu.Unlock()
+
+	// اعلان ذخیره‌ی ناموفق — بیرون از قفل: a.mu هرگز روی runtimeEmit نگه
+	// داشته نمی‌شود (ترتیب قفل در ARCHITECTURE.md؛ ممیزی Stage 5.4).
+	if saveFailed {
+		runtimeEmit(a, "chat:notice", map[string]interface{}{
+			"conversationId": convID,
+			"text":           "هشدار: ذخیره‌ی این گفتگو روی دیسک ناموفق بود (جزئیات در لاگ خطاها).",
+		})
+	}
 
 	runtimeEmit(a, "chat:done", map[string]interface{}{
 		"conversationId":     convID,

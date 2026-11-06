@@ -48,6 +48,20 @@ type scenarioStep struct {
 	ReqNote string // برچسب مرحله در پیام‌های خطا
 	Hold    <-chan struct{}
 	Reached chan<- struct{}
+	// Status (غیرصفر) پاسخ HTTP با همین کد را برمی‌گرداند (تزریق 429/5xx)؛
+	// Raw (غیرخالی) بدنه‌ی خام را به‌جای SSE سالم می‌نویسد (SSE خراب)؛
+	// Stall پس از نوشتن محتوای مرحله، اتصال را باز نگه می‌دارد و دیگر هیچ
+	// بایتی نمی‌فرستد (تزریق سکون وسط استریم — نگهبان Stage 2).
+	Status int
+	Raw    string
+	Stall  bool
+}
+
+// addSteps مراحل بیشتری به فیلم‌نامه اضافه می‌کند (soak و تزریق خرابی).
+func (m *scriptedModel) addSteps(steps ...scenarioStep) {
+	m.mu.Lock()
+	m.steps = append(m.steps, steps...)
+	m.mu.Unlock()
 }
 
 // scriptedModel سرور فیلم‌نامه‌ای سازگار با OpenAI (SSE).
@@ -117,12 +131,27 @@ func (m *scriptedModel) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	m.mu.Unlock()
 
+	if step != nil && step.Status != 0 {
+		w.Header().Set("Content-Type", "application/json")
+		if step.Status == http.StatusTooManyRequests {
+			w.Header().Set("Retry-After", "0")
+		}
+		w.WriteHeader(step.Status)
+		fmt.Fprintf(w, `{"error":{"message":"injected status %d"}}`, step.Status)
+		return
+	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
 	flush := func() {
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
+	}
+	if step != nil && step.Raw != "" {
+		flush()
+		fmt.Fprint(w, step.Raw)
+		flush()
+		return
 	}
 	if step == nil {
 		writeSSEChunk(w, map[string]interface{}{
@@ -159,6 +188,13 @@ func (m *scriptedModel) handle(w http.ResponseWriter, r *http.Request) {
 		writeSSEChunk(w, map[string]interface{}{
 			"choices": []map[string]interface{}{{"delta": map[string]string{"content": step.Text}}},
 		})
+	}
+	if step.Stall {
+		// سکون: بدون [DONE] و بدون بستن اتصال — تا لغو سمت کلاینت (نگهبان
+		// بیکاری Stage 2 یا Stop کاربر). هیچ بایت دیگری نمی‌آید.
+		flush()
+		<-r.Context().Done()
+		return
 	}
 	if len(step.Calls) == 0 {
 		writeSSEChunk(w, map[string]interface{}{
