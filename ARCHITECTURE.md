@@ -240,18 +240,121 @@ a.checkpointMu, a.readStore.mu, a.factsCache.mu  (leaf locks — Mission 3)
 - **Project checkpoints** (`checkpoint.go`): before the FIRST mutating
   action of a turn (after user approval, outside every lock) — from a
   file-changing tool or a non-allow-listed command — a checkpoint commit is
-  created with a temporary index (`GIT_INDEX_FILE` → `add -A` →
-  `write-tree` → `commit-tree` with env-only identity, parent = HEAD) and
-  referenced as `refs/myai/checkpoints/<convID>-<turnID>`; ≤20 refs per
+  created from a temporary index that is filled **filter-free** (Mission 4
+  pipeline — see the next section) and referenced as
+  `refs/myai/checkpoints/<convID>-<turnID>`; ≤20 refs per
   workspace are kept, 10 s budget, any failure skips with one Persian
   notice (turn never blocks; non-git workspaces silently rely on the
   file-tool revert only). `PreviewCheckpointRestore(convID, turnID)` lists
-  rewrite/trash/unchanged/skipped; `RestoreCheckpoint` materializes the
-  snapshot and applies it byte-exact — it **never deletes**: current
-  versions of rewritten/removed files go to
+  rewrite/trash/unchanged/skipped; `RestoreCheckpoint` applies the snapshot
+  per file, streaming and byte-exact (next section) — it **never deletes**:
+  current versions of rewritten/removed files go to
   `<configDir>/trash/<workspace-hash>/<timestamp>/` (swept at startup,
   >14 days or >500 MB), ignored files are untouched, path escapes are
-  rejected (`safeCheckpointRel`), symlinks are skipped.
+  rejected (`safeCheckpointRel` + real-path parent resolution), symlinks
+  are skipped or refused.
+
+## Stability and defect elimination (Mission 4, 1.8.1)
+
+Stability-only mission (no new features; every defect has
+failing-before/passing-after tests):
+
+- **Crash isolation** (`safego.go`): an unrecovered panic in any goroutine
+  kills the whole process, so every non-test goroutine start runs through
+  `safeGo(a, where, fn)` (goroutine with `defer recoverPanic`); synchronous
+  sections use `callGuarded`. Recover logs the panic value and a bounded
+  (8 KB) stack to `errors.log` (never secrets) and restores state: the
+  `streamChat` goroutine emits the Persian internal-error notice, persists
+  the partial answer like the abort path, releases the generation
+  locks/flags and finishes the chat (UI never stays stuck "generating"); a
+  panicking parallel tool worker returns
+  `ERROR: internal error in tool <name> (see the error log).` as its tool
+  result so the `tool_calls` ↔ `tool` pairing stays valid while other
+  workers continue; a sub-agent panic becomes an error report to the
+  parent; MCP read/stderr/manager loops mark that server dead (existing
+  backoff) and fail pending calls fast; shell/checkpoint/web_fetch helpers
+  return errors. Every exported `*App` method that does non-trivial work
+  opens with `defer a.recoverBound("<Method>")` / `recoverBoundErr`
+  (signatures unchanged; trivial getters are an explicit allow-list — the
+  AST check `TestExportedAppMethodsHavePanicGuard` fails any unguarded
+  method). Locks keep the Lock→`defer` Unlock pairing so a panic cannot
+  leak one.
+- **Stream stall watchdog** (`streamwatch.go`): every model stream (main
+  chat and sub-agent) wraps its response body in `streamIdleGuard`, which
+  timestamps the last successful read (any bytes — SSE keep-alive comments
+  count) while one watchdog goroutine per stream cancels the request only
+  after `streamIdleTimeoutSec` seconds of silence (hidden settings field,
+  default 120, clamp 30–900; package vars injectable in tests; timer and
+  goroutine always stopped). A stall **before any output** is a retryable
+  transient failure under the existing retry policy (Persian retry
+  notice); **after** deltas/tool-call deltas were streamed it never
+  auto-retries (duplicated side effects) — the partial answer is saved
+  exactly like an abort (`Aborted: true`) with the Persian notice
+  «دریافت پاسخ متوقف شد (بدون داده برای n ثانیه). می‌توانید «ادامه» را بزنید.»
+  and resume stays available. User Stop is never reported as a stall.
+- **Atomic writes and corruption recovery** (`crypto.go` `atomicWriteFile`,
+  `atomicwrite_windows.go`, `recovery.go`): temp files are unique in the
+  target directory (`os.CreateTemp`-style; the startup sweep recognizes
+  both name styles); on Windows the final rename retries transient
+  `ACCESS_DENIED`/`SHARING_VIOLATION`/`LOCK_VIOLATION` (`renameWithRetry`,
+  6 attempts, 25 ms → 400 ms) and then fails naming the file. Conversations
+  and `changes.json` go through `atomicWriteFileWithBackup` — a
+  one-generation `.bak` (rename-based, crash-safe ordering) before every
+  replacement; on load failure the loader tries `.bak`, then **salvages**
+  (`salvageConversation` stream-decodes the messages array and keeps every
+  complete message), renames the damaged original to
+  `<name>.corrupt-<timestamp>` (≤5 kept, `pruneCorruptFiles`) and shows
+  the Persian notice «گفتگو آسیب دیده بود؛ n پیام بازیابی شد.».
+  Disk-full/write failures surface a clear Persian notice and never drop
+  the in-memory state or truncate the existing file.
+  `validatePathForWrite` rejects Windows reserved names / long-path
+  hazards with a clear tool error.
+- **Honest read-before-write** (Stage 4.1): read records carry
+  `Full bool` (`fileread.go`) — only a read that covered the whole file
+  and was not truncated authorizes `write_file` on an existing file;
+  `edit_file` keeps working with partial records (exact `old_string`
+  matching is its guard) and the stale-hash check applies to both.
+- **Filter-free checkpoints** (Stage 4.2): snapshot content never passes
+  `git add` — blobs are created with `git hash-object -w --no-filters
+  --stdin-paths` and the temporary index is filled with
+  `git update-index --index-info` (deletions included, modes preserved);
+  every checkpoint git call runs with `-c core.autocrlf=false -c
+  core.safecrlf=false -c core.fsmonitor=false -c core.hooksPath=os.DevNull`
+  and `GIT_CONFIG_NOSYSTEM=1`/`GIT_ATTR_NOSYSTEM=1`, so the user's global
+  `core.autocrlf`, in-tree `.gitattributes` and clean/smudge filters (LFS)
+  cannot alter bytes. Restore reads blobs raw via `git cat-file` — never
+  `checkout-index`, which would smudge again. Symlinks stay skipped;
+  binaries are raw. `TestCheckpointNoFilterByteFaithful` proves
+  byte-identical trees under `core.autocrlf=true` + `.gitattributes` +
+  a fake LFS filter + Persian/ZWNJ names and CRLF/LF/binary mixes.
+- **Restore safety** (Stage 4.3): before any write/move,
+  `resolveRestorePath` resolves the real path of the nearest existing
+  parent (`filepath.EvalSymlinks` + Windows reparse checks) and requires
+  it to stay inside the real workspace root — a directory that became a
+  symlink/junction after the snapshot is refused and reported, never
+  followed; an existing target that is itself a symlink is refused
+  (`os.Lstat`). Nothing is materialized in bulk: per file, size is
+  compared first, then content in 64 KiB chunks (`checkpointBlobChunk`,
+  `bytes.Equal`), and restored bytes go through `atomicWriteStream`
+  (unique temp file + fsync + atomic rename) — no file is ever buffered
+  whole, so memory stays flat regardless of file size. Work is bounded by
+  `checkpointMaxFiles` (5000) and `checkpointRestoreTime` (60 s); hitting
+  a limit stops **before** modifying anything (preview first, no partial
+  restore). Git children run through the same process-tree kill as shell
+  commands (`startGitProcess` + `watchGitTree`; on timeout/cancel
+  SIGTERM→SIGKILL to the whole group/Job, `blobBatch.Close` cancels
+  before `Wait`) — no orphaned grandchildren holding pipes open.
+- **Proof (Stage 5)**: 9 fuzz targets (`fuzz_test.go`; seed corpora
+  committed under `testdata/fuzz/`), a bounded soak loop with
+  goroutine/heap/fd/config-dir growth assertions
+  (`TestSoakAgentLoop`), 9 fault-injection end-state scenarios
+  (`TestFaultInjectionEndStates`: 429/5xx burst, malformed SSE, tool
+  panic, disk-full, mid-stream stall, MCP crash/hang, git missing/hang
+  with orphan check), the AST lock-order audit
+  `TestLockAuditNoRuntimeEmitUnderAppLocks` (found and fixed a real
+  `a.mu`-held-across-emit in `finishChat`'s save-failure path) and the
+  `runWithDeadline` deadlock watchdog (full goroutine dump past the
+  deadline) on every stream-driven scenario.
 
 ## Events (backend → frontend, Wails runtime)
 
@@ -270,11 +373,11 @@ a.checkpointMu, a.readStore.mu, a.factsCache.mu  (leaf locks — Mission 3)
 | `chat:todos` | conversationId, todos | live agent checklist after every successful `todo_write` (empty array = cleared); frontend ignores non-active conversations |
 | `chat:turn_summary` | summary (TurnSummary: files/commands/verification/tokens/tokenCap) | end of every turn that changed files or ran commands; card UI + revert/checkpoint actions (`GetTurnChanges`, `RevertTurnChanges`, `PreviewCheckpointRestore`, `RestoreCheckpoint`) |
 | `agent:change_applied` / `agent:change_rejected` / `agent:change_reverted` | change / changeId, path / changeId | changes store |
+| `conv:size_warn` | conversationId, kb, capKb | saveConversation (≥75% of cap, once per conv) |
 
 `task` (Step 6) emits no extra events: the delegation shows up as a normal
 `chat:tool`/`chat:tool_result` pair (icon `map`, args summary = description)
 and the sub-agent itself is fully silent.
-| `conv:size_warn` | conversationId, kb, capKb | saveConversation (≥75% of cap, once per conv) |
 
 ## Data on disk
 

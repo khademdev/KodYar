@@ -1411,7 +1411,7 @@ GATE: GREEN
 === go build ./... ===
 [OK] go build ./...
 === go test -race -count=1 ./... ===
-ok  	myai	155.322s
+ok      myai    155.322s
 [OK] go test -race -count=1 ./...
 === env GOOS=windows GOARCH=amd64 go vet ./... ===
 [OK] env GOOS=windows GOARCH=amd64 go vet ./...
@@ -1738,3 +1738,103 @@ GATE: GREEN
 متد صادرشده؛ `grep TODO/FIXME/XXX` خالی.
 
 **Stage 5 complete. Waiting for your instruction to continue.**
+
+## Mission 4 — Stage 6: مستندات، انتشار 1.8.1 و ممیزی نهایی — DONE (2026-11-06)
+
+**۱) ARCHITECTURE.md:**
+- بخش تازه‌ی «Stability and defect elimination (Mission 4, 1.8.1)» — جداسازی
+  خرابی (`safego.go`، نگهبان متدهای بایند‌شده، بازگرداندن وضعیت هر گوروتین)،
+  نگهبان سکون استریم (`streamIdleGuard`، پیش‌فرض ۱۲۰ / کران ۳۰–۹۰۰، رفتار
+  دوگانه‌ی پیش/پس از خروجی)، نوشتن اتمیک + بازیابی (تمپ یکتا، retry
+  ویندوزی ۶×۲۵→۴۰۰ms، `.bak`/نجات/`.corrupt-*`، دیسک پر)، رکورد `Full`
+  خواندن‌پیش‌از‌نوشتن، پایپ‌لاین چک‌پوینت بدون فیلتر (`hash-object
+  --no-filters` + `update-index --index-info` + پرچم‌های `-c` +
+  `GIT_ATTR_NOSYSTEM=1`، خواندن خام `cat-file`)، ایمنی بازگردانی
+  (`resolveRestorePath` با EvalSymlinks/reparse، مقایسه/نوشتن جریانی
+  ۶۴KiB، کران‌ها، کشتن درخت فرایند git) و اثبات Stage 5.
+- توضیح قدیمی چک‌پوینت Mission 3 که دیگر با کد نمی‌خواند
+  (`GIT_INDEX_FILE → add -A → write-tree` و «materializes the snapshot»)
+  اصلاح شد تا پایپ‌لاین بدون فیلتر و بازگردانی جریانی را نشان دهد.
+- ایراد قالبی قدیمی جدول رویدادها: ردیف `conv:size_warn` بعد از پاراگراف
+  `task` بیرون جدول افتاده بود — به جدول برگشت (بدون تغییر محتوا).
+
+**۲) CHANGELOG.md:** ورودی کامل «1.8.1 — پایداری و حذف نقص؛ بدون قابلیت
+تازه (۲۰۲۶-۱۱-۰۶)» بالای ورودی 1.8.0 (تاریخچه دست‌نخورده).
+
+**۳) README.md:** بخش «تازه‌های نسخه‌ی 1.8.1» (شش بند کاربرپسند) + دو بند
+«پایداری (1.8.1)» در مدل امنیتی فارسی و انگلیسی که صراحتاً می‌گویند این
+تضمین‌ها جایگزین سندباکس نیستند و بند «دستورها گیت‌دار هستند اما sandbox
+نیستند» / «auto-allowed test/build commands execute code the agent may
+have just written» عیناً به قوت خود باقی است (متن بند ۸.۰ تغییری نکرد).
+
+**۴) ارتقای نسخه به 1.8.1 در همه‌ی مکان‌های نسخه‌ی جاری:** `main.go`
+(`var version`)، `wails.json` (`productVersion`)، `build.sh` (پیش‌فرض
+VERSION)، `.github/workflows/ci.yml` (ldflags `main.version`) و پیام
+تست `turnreview_test.go` («must be false in 1.8.1»). ارجاع‌های 1.8.0
+باقی‌مانده همگی تاریخی‌اند و عمداً دست‌نخورده‌اند: ورودی 1.8.0
+CHANGELOG، بخش «تازه‌های 1.8.0» README، تگ «Mission 3, 1.8.0» در
+ARCHITECTURE.md، لاگ‌های PROGRESS/FINAL_REPORT و کامنت سرآیند
+`mock.js` («Stage 2 mock hooks» — یادداشت تاریخیِ زمان افزودن، نه نسخه‌ی
+جاری؛ دست‌زدن به آن نقض «حداقل‌ترین تغییر در dist» است).
+
+**۵) خودبازبینی نهایی (بند ۸ سند):**
+- گیت کامل سبز با `-race` واقعی (gcc 14.2) — خروجی واقعی پایین.
+- `rg 'TODO|FIXME|XXX' -g '*.go'` → بدون نتیجه (بدهی صفر).
+- «a.mu هرگز روی I/O/runtimeEmit» → `TestLockAuditNoRuntimeEmitUnderAppLocks`
+  (AST، allowlist خالی) در همین گیت سبز است؛ نقض واقعیِ یافته‌شده در
+  Stage 5 (`finishChat`) قبلاً رفع شد.
+- «هر متد صادرشده‌ی App نگهبان دارد یا در allowlist است» →
+  `TestExportedAppMethodsHavePanicGuard` در همین گیت سبز است.
+- سازگاری داده‌ی قدیمی: `TestMCPOldSettingsWithoutField`،
+  `TestTodoWriteOldConversationWithoutField`، `TestOldChangesWithoutTurnID`،
+  `TestConversationBackupRotationAndRecovery`،
+  `TestChangesJSONRecoversFromBackup`، `TestEditModeMigration`،
+  `TestWebFetchGlobalAllowMigration`، `TestCryptoLegacyMigration`،
+  `TestMultiEditSingleFormBackwardCompatible` — همه در همین گیت سبز.
+- کل مجموعه‌ی تست‌های مراحل قبل (۵۲۹ تابع Test/Fuzz در ۶۵ فایل + ۹ هدف
+  fuzz با کورپوس) در همین گیت سبز است.
+
+**گیت واقعی نهایی (اجرای `scripts/gate.sh`):**
+
+```
+=== gofmt -l . ===                [OK] (خالی)
+=== go vet ./... ===              [OK]
+=== go build ./... ===            [OK]
+=== go test -race -count=1 ./... === ok  myai  35.033s  [OK]
+=== env GOOS=windows GOARCH=amd64 go vet ./... === [OK]
+=== env GOOS=linux   GOARCH=amd64 go vet ./... === [OK]
+GATE: GREEN
+```
+
+(میان‌اجرای مرحله یک بار RED شد: گردش ویرایش فایل، تب‌های `main.go` و
+`turnreview_test.go` را به فاصله تبدیل کرده بود؛ با `gofmt -w` کانونی و
+گیت دوباره سبز شد — هیچ assertionی دست نخورد.)
+
+**فایل‌های تغییر:** `ARCHITECTURE.md` (+۱۱۹/−۱۳ خط)، `CHANGELOG.md`
+(+۵۱)، `README.md` (+۱۳)، `main.go`/`wails.json`/`build.sh`/
+`.github/workflows/ci.yml`/`turnreview_test.go` (هر کدام فقط خط
+نسخه). بدون کد محصولی تازه، بدون وابستگی تازه، بدون تغییر امضای متد
+صادرشده.
+
+**فرض‌ها/انحراف‌ها:**
+- «docs» در فهرست ارتقای نسخه به معنای مستندات نسخه‌ی جاری است؛ لاگ‌های
+  تاریخی PROGRESS.md/FINAL_REPORT.md و ورودی‌های نسخه‌های قبلی
+  CHANGELOG/README بازنویسی نمی‌شوند (تاریخچه).
+- کامنت `mock.js` (فایل minified تزریق‌شده) عمداً تغییر نکرد — حداقل
+  diff در dist بر بند ۱.۳ اولویت دارد و متن آن تاریخی است.
+- FINAL_REPORT.md طبق بند ۱۰ فقط پس از درخواست انسان بعد از همین مرحله
+  کامل می‌شود.
+
+**محدودیت‌ها / راستی‌آزمایی‌نشده:** رفتار واقعی ویندوز (junction،
+آنتی‌ویروس، Task Manager، مسیرهای >260 کاراکتر در NTFS) فقط با vet
+متقاطع + تست‌های مستقل از سکو + چک‌لیست دستی پوشش دارد؛ GitHub Actions
+و WebView واقعی در sandbox اجرا نشده‌اند؛ حالت کشف پیوسته‌ی fuzz
+(`go test -fuzz`) برای توسعه‌دهنده باقی مانده است.
+
+**چک‌لیست دستی این مرحله برای انسان (UI فارسی):** همان چک‌لیست ۹بندی
+بند ۱۰.۶ سند در FINAL_REPORT.md؛ برای این مرحله فقط: (الف) در تنظیمات ←
+درباره/لاگ خطاها نسخه‌ی نمایش‌داده‌شده 1.8.1 باشد؛ (ب) بعد از نصب این
+نسخه، گفتگو و تنظیمات و `changes.json` قدیمی همان‌طور که بودند باز
+شوند (بدون اعلان خرابی).
+
+**Stage 6 complete. Waiting for your instruction to continue.**

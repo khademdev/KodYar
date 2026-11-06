@@ -5,6 +5,17 @@ MyAI یک اپلیکیشن دسکتاپ **کاملاً native** برای گفت�
 و با مصرف حداقلی منابع. رابط کاربری **۱۰۰٪ فارسی و راست‌به‌چپ** است و ظاهر آن مطابق mockupهای طراحی
 (تم تاریک مدرن با اکسنت بنفش) پیاده‌سازی شده است.
 
+## تازه‌های نسخه‌ی 1.8.1 — پایداری: نه کرش، نه هنگ، نه خراب‌شدن داده
+
+**این نسخه هیچ قابلیت تازه‌ای ندارد — فقط نقص‌های پایداری حذف شده و هر کدام با تست اثبات شده است:**
+
+- **برنامه از panic نمی‌میرد** — هر خطای داخلی در هر گوروتینی (استریم، ابزارهای موازی، MCP، اجرای دستور، چک‌پوینت) مهار و در «لاگ خطاها» ثبت می‌شود؛ گفتگو با اعلان فارسی تمام می‌شود و UI هرگز در «در حال تولید» گیر نمی‌کند؛ جفت‌بندی ابزارها سالم می‌ماند
+- **پایان «در حال فکر کردن» بی‌نهایت** — اگر سرویس‌دهنده/پروکسی وسط پاسخ، داده نفرستد و اتصال را هم نبندد، نگهبان سکون (۱۲۰ ثانیه، تنظیم پنهان) آن را تمام می‌کند: پاسخ نیمه‌کاره ذخیره می‌شود، علت با پیام فارسی گفته می‌شود و «ادامه» کار می‌کند؛ تلاش مجدد خودکار فقط پیش از اولین خروجی است تا اثر جانبی دوبله رخ ندهد
+- **گفتگوی خراب، نجات پیدا می‌کند** — فایل گفتگو/`changes.json` پیش از هر نوشتن یک نسخه‌ی `.bak` دارد؛ در خرابی، پیام‌های سالم تا نقطه‌ی خراب نجات داده می‌شوند و اعلان «گفتگو آسیب دیده بود؛ n پیام بازیابی شد.» می‌آید (نسخه‌ی آسیب‌دیده با نام `.corrupt-…` نگه‌داری می‌شود؛ هیچ‌چیز خودکار حذف نمی‌شود)
+- **نوشتن روی فایلِ بازِ برنامه‌ی دیگر** — روی ویندوز (آنتی‌ویروس/ایندکسر/ویرایشگر) تا ۶ تلاش با backoff تکرار می‌شود و در شکست، خطای روشن با نام فایل می‌آید
+- **بازگردانی چک‌پوینت واقعاً بایت‌به‌بایت** — `core.autocrlf` سراسری، `.gitattributes` و فیلترهای LFS دیگر خط پایان/محتوای فایل‌ها را در snapshot و بازگردانی تغییر نمی‌دهند؛ پوشه‌ای که به symlink/junction تبدیل شده باشد رد و گزارش می‌شود؛ مقایسه/نوشتن جریانی است و حافظه با فایل بزرگ تورم نمی‌کند؛ فرایند gitِ هنگ‌کرده با کل درختش کشته می‌شود
+- **اثبات بار** — ۹ هدف fuzz با کورپوس ثابت، حلقه‌ی soak با سنجش نشت گوروتین/حافظه/هندل، ۹ سناریوی تزریق خرابی (۴۲۹/۵۰۳، SSE خراب، panic ابزار، دیسک پر، سکون استریم، کرش/هنگ MCP، غایب/هنگ بودن git) و ممیزی خودکار ترتیب قفل‌ها
+
 ## تازه‌های نسخه‌ی 1.8.0 — ایجنت دقیق‌تر، بازگشت‌پذیری کامل، اثبات
 
 **دقت ایجنت، بازگشت‌پذیری کامل (حتی برای دستورها)، سخت‌سازی امنیتی و سناریوهای اثبات سرتاسری:**
@@ -265,6 +276,7 @@ MyAI یک اپلیکیشن دسکتاپ **کاملاً native** برای گفت�
 - **اعتماد به محتوای بیرونی** — خروجی `web_fetch` و ابزارهای MCP در پوشش `untrusted` به مدل می‌رسد (فقط داده، نه دستور)؛ گارد SSRF اتصال را در هر پرش بازرسی می‌کند؛ اجازه‌ی web_fetch فقط برای هر دامنه ذخیره می‌شود (هرگز برای کل ابزار). سرورهای MCP فرایند قابل‌اعتمادِ شما هستند اما با محیط حداقلی بالا می‌آیند (بدون کلیدهای API برنامه) و هر فراخوانی ابزارشان مودال اجازه دارد.
 - **داده‌ها روی دستگاه شما** — کلید API با AES-GCM و کلید میزبان در Keyring سیستم‌عامل رمز می‌شود؛ محیطی متغیرهای MCP رمزنگاری‌شده ذخیره و در UI فقط ماسک می‌شوند؛ هیچ چیزی جز آدرس Provider به بیرون رفت نمی‌کند (و آن هم فقط به سرویس‌دهنده‌ی خودتان).
 - **گردش‌کار پیشنهادی** — روی یک شاخه‌ی git کار کنید، حالت ویرایش را آگاهانه انتخاب کنید، در پایان هر نوبت کارت خلاصه را بخوانید و در صورت شک، اول «برگرداندن نوبت» و بعد «بازگردانی کل پروژه» را امتحان کنید.
+- **پایداری (1.8.1)** — خطای داخلی برنامه را نمی‌کشد (مهار panic در همه‌ی گوروتین‌ها و متدهای بایند‌شده)، سکون سرویس‌دهنده با نگهبان ۱۲۰ ثانیه‌ای تمام می‌شود، فایل گفتگو/`changes.json` با `.bak` و نجات پیام‌های سالم بازیابی می‌شوند و بازگردانی چک‌پوینت با `EvalSymlinks`/رد reparse از نوشتن بیرونِ پروژه جلوگیری می‌کند. این‌ها جایگزین سندباکس **نیستند** — بند دوم بالا همچنان برقرار است.
 
 **English — stated honestly, without overstatement:**
 
@@ -276,6 +288,7 @@ MyAI یک اپلیکیشن دسکتاپ **کاملاً native** برای گفت�
 - **Untrusted content** — `web_fetch` and MCP results reach the model inside an `untrusted` envelope (data, never instructions); the SSRF guard re-checks every redirect hop; web_fetch permissions are stored **per host** only — never tool-wide. MCP servers are your trusted local processes but run with a minimal environment (never the app's API keys) and every tool call asks.
 - **Your data stays on your machine** — API keys are AES-GCM encrypted with an OS-keyring master key; MCP env vars are encrypted and masked in the UI; nothing leaves the device except your own provider requests.
 - **Recommended workflow** — work on a git branch, choose the edit mode deliberately, read the turn summary card after every turn, and when in doubt try "revert this turn" first, then "restore the whole project".
+- **Stability (1.8.1)** — an internal error no longer kills the app (panic recovery in every goroutine and bound method), a silently stalled provider stream ends after a 120 s idle watchdog, conversation/`changes.json` files get `.bak` + salvage recovery with a Persian notice, and checkpoint restore refuses symlinked/junction parents (real-path resolution) and streams file comparisons so memory stays flat. These are resilience guarantees, **not** a sandbox — the "not sandboxed" bullet above still applies verbatim.
 
 
 ## ساختار پروژه

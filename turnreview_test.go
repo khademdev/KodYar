@@ -62,7 +62,7 @@ func TestDefaultEditModeAuto(t *testing.T) {
 		t.Fatalf("default EditMode = %q, want auto", s.EditMode)
 	}
 	if s.ConfirmFileWrites {
-		t.Fatal("default ConfirmFileWrites must be false in 1.8.0")
+		t.Fatal("default ConfirmFileWrites must be false in 1.8.1")
 	}
 	if s.MaxTurnTokens != defaultMaxTurnTokens {
 		t.Fatalf("default MaxTurnTokens = %d, want %d", s.MaxTurnTokens, defaultMaxTurnTokens)
