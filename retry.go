@@ -189,7 +189,7 @@ func humanizeNetError(err error) string {
 	switch {
 	case strings.Contains(s, "proxyconnect"), strings.Contains(s, "proxyconnect tcp"):
 		// پروکسی محیط یا سفارشی در دسترس نیست (مثلاً 127.0.0.1:8080 خاموش)
-		return "پروکسی در دسترس نیست (اتصال به پروکسی رد شد). در تنظیمات → اتصال، پروکسی را «خاموش» کنید یا آدرس پروکسی درست را وارد کنید"
+		return "پروکسی تنظیم‌شده در دسترس نیست. حالت «هوشمند» خودکار تشخیص می‌دهد و اگر پروکسی کار نکند مستقیم وصل می‌شود؛ یا آدرس درست را «سفارشی» وارد کنید"
 	case strings.Contains(s, "connection refused"), strings.Contains(s, "actively refused"):
 		if strings.Contains(s, "proxy") || strings.Contains(s, "127.0.0.1") || strings.Contains(s, "localhost") {
 			return "اتصال به پروکسی رد شد؛ مطمئن شوید نرم‌افزار پروکسی روشن است یا در تنظیمات پروکسی را خاموش کنید"

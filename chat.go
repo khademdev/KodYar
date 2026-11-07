@@ -47,14 +47,15 @@ func parseProxyURL(raw string) (*url.URL, error) {
 }
 
 // resolveAppProxy پروکسی را از تنظیمات فعلی (appForLogs) می‌خواند.
-// off → بدون پروکسی؛ custom → ProxyURL؛ env/خالی → ProxyFromEnvironment.
+// off → بدون پروکسی؛ custom → ProxyURL؛ auto/خالی → هوشمند (پروکسی سیستم
+// ویندوز → متغییر محیطی → مستقیم، با fail-open).
 func resolveAppProxy(req *http.Request) (*url.URL, error) {
 	a := appForLogs
 	if a == nil {
-		return http.ProxyFromEnvironment(req)
+		return smartProxy(req)
 	}
 	a.mu.Lock()
-	mode := "env"
+	mode := "auto"
 	proxyURL := ""
 	if a.settings != nil {
 		mode = normalizeProxyMode(a.settings.ProxyMode)
@@ -71,8 +72,69 @@ func resolveAppProxy(req *http.Request) (*url.URL, error) {
 		}
 		return parseProxyURL(proxyURL)
 	default:
-		return http.ProxyFromEnvironment(req)
+		return smartProxy(req)
 	}
+}
+
+// proxyModeIsAuto فقط حالت هوشمند؟ برای تصمیم fail-open.
+func proxyModeIsAuto() bool {
+	a := appForLogs
+	if a == nil {
+		return true
+	}
+	a.mu.Lock()
+	mode := "auto"
+	if a.settings != nil {
+		mode = normalizeProxyMode(a.settings.ProxyMode)
+	}
+	a.mu.Unlock()
+	return mode == "auto"
+}
+
+// directTransport هم‌پوشه‌ی chatTransport بدون پروکسی برای مسیر نجات fail-open.
+var directTransport = func() *http.Transport {
+	t := chatTransport.Clone()
+	t.Proxy = nil
+	return t
+}()
+
+// failOpenTransport حالت هوشمند را نجات می‌دهد: اگر اتصال به پروکسی خودش شکست
+// بخورد (proxyconnect/socks_connect)، همان درخواست مستقیم ادامه می‌یابد و
+// پروکسی تا ۵ دقیقه کنار گذاشته می‌شود — کاربر دیگر هرگز proxyconnect نمی‌بیند
+// و نیازی به انتخاب دستی «خاموش» نیست.
+type failOpenTransport struct {
+	base http.RoundTripper
+}
+
+func (f failOpenTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := f.base.RoundTrip(req)
+	if err == nil || !isProxyDialError(err) || !proxyModeIsAuto() {
+		return resp, err
+	}
+	alreadyCooling := proxyCoolingDown()
+	markProxyDead()
+	retry := req.Clone(req.Context())
+	if req.GetBody != nil && req.Body != nil {
+		if b, berr := req.GetBody(); berr == nil {
+			retry.Body = b
+		}
+	}
+	r2, err2 := directTransport.RoundTrip(retry)
+	if err2 != nil {
+		// هر دو مسیر شکست خوردند — خطای اصلیِ پروکسی گزارش می‌شود
+		return resp, err
+	}
+	if !alreadyCooling {
+		logAppError("proxy", "پروکسی هوشمند پاسخ نداد؛ درخواست مستقیم ادامه یافت و تا ۵ دقیقه از پروکسی استفاده نمی‌شود")
+	}
+	return r2, nil
+}
+
+// isProxyDialError خطای «اتصال به خود پروکسی» را از خطای مقصد جدا می‌کند؛
+// فقط در این حالت fail-open مجاز است (خطای خود مقصد نباید ماسک شود).
+func isProxyDialError(err error) bool {
+	s := err.Error()
+	return strings.Contains(s, "proxyconnect") || strings.Contains(s, "socks_connect")
 }
 
 // chatTransport با resolveAppProxy — تغییر تنظیمات پروکسی فوری اعمال می‌شود.
@@ -84,8 +146,10 @@ var chatTransport = &http.Transport{
 	IdleConnTimeout:       90 * time.Second,
 }
 
+// chatHTTPClient با پوشش fail-open — حالت هوشمند هرگز proxyconnect به کاربر
+// نشان نمی‌دهد.
 var chatHTTPClient = &http.Client{
-	Transport: chatTransport,
+	Transport: failOpenTransport{base: chatTransport},
 }
 
 // apiToolCall فرمت tool_calls در API سازگار با OpenAI.

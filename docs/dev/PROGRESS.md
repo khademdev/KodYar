@@ -2075,3 +2075,52 @@ OpenAI فهرست عمومی مدل ندارد (ورود دستی)؛ endpointه�
 (فیلد پنجره به-تفکیک-مدل در مدل داده‌ی Provider وجود ندارد).
 
 **Mission 9 complete. Waiting for your instruction to continue.**
+
+## Mission 10 — بازگشت «پروکسی هوشمند» (۲۰۲۶-۱۱-۰۷)
+
+گزارش کاربر: «پروکسی هوشمند بود، الان هوشمند نیست! خودکار تنظیم می‌کرد و نیاز
+به تنظیم دستی نبود.» (اسکرین‌شات تنظیمات → اتصال با سگمنت سه‌حالته دستی روی
+«خاموش»)
+
+### ریشه‌یابی (قبل از هر اصلاح)
+
+- UI از baseline سه حالت دستی داشت: off/env/custom؛ `resolveAppProxy` هم از
+  baseline همین بود — پس رگرسیون از ترمیم‌های ما نبود، از *طرح* قدیمی بود:
+  «سیستم» فقط HTTP(S)_PROXY محیط را می‌بیند که روی ویندوز معمولاً خالی است؛
+  پروکسی واقعی کاربر در رجیستری WinINET است (ProxyEnable/ProxyServer) که
+  ProxyFromEnvironment گو آن را نمی‌بیند.
+- راهنمای UI برای خطای proxyconnect صراحتاً «خاموش» را پیشنهاد می‌داد و
+  conn-save هر بار حالت دستی seg را دوباره ذخیره می‌کرد → کاربر بی‌آنکه
+  پیکربندی واقعی داشته باشد، روی «خاموش» قفل شد.
+
+### اصلاح
+
+- فایل‌های تازه: `proxyauto.go` (تشخیص هوشمند + کش ۱۰ثانیه‌ای + cooldown
+  اتمیک + پارسر ProxyServer/ProxyOverride)، `proxyauto_windows.go`
+  (خواندن رجیستری با x/sys/windows/registry)، `proxyauto_other.go` (stub).
+- `chat.go`: حالت auto در resolveAppProxy (سیستم → محیط → مستقیم)،
+  `failOpenTransport` دور chatHTTPClient (خطای proxyconnect/socks_connect →
+  تلاش مستقیم همان درخواست + markProxyDead ۵ دقیقه + لاگ یک‌بار) و
+  `proxyModeIsAuto`. خطای خودِ مقصد هرگز ماسک نمی‌شود.
+- `settings.go`: normalizeProxyMode پیش‌فرض → auto (off/custom صریح)، فیلد
+  `ProxySmartMigrated` + مهاجرت یک‌باره در loadSettings (فقط off بدون URL
+  سفارشی → auto، با ذخیره‌ی فایل).
+- فرانت (پچ عددی با لنگر یکتا + node --check): سگمنت
+  هوشمند/خاموش/سفارشی، راهنمای تازه، سه پیش‌فرض `||"env"` → `||"auto"` در
+  modals.js. `retry.go`: پیام فارسی proxyconnect به‌روز شد.
+- اثبات تصویری: سگمنت «هوشمند» فعال به‌صورت پیش‌فرض، فیلد URL فقط در
+  «سفارشی»، اسکرین‌شات `MyAI_1.0_smart_proxy.png`.
+
+### Gate و اثبات
+
+- GATE: GREEN — gofmt خالی، vet، build، `go test -race -count=1 ./...`
+  → ok myai 30.998s؛ cross-vet windows/linux سبز.
+- تست‌های تازه (proxyauto_test.go، ۶ تابع): TestNormalizeProxyMode،
+  TestWindowsProxyForScheme، TestHostBypassesProxy،
+  TestSmartProxySystemFirst (اولویت + بای‌پس + cooldown)،
+  TestFailOpenDeadProxyServesDirect (سرتاسری با پورت بسته)،
+  TestProxyModeMigration (۴ سناریو).
+- درس ابزاری: کشِ یک‌باره‌ی ProxyFromEnvironment (sync.Once) وسط پروسس به
+  تغییر env حساس نیست → نقطه‌ی تزریق `envProxyFn` برای تست.
+
+**Mission 10 complete. Waiting for your instruction to continue.**

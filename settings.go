@@ -102,10 +102,17 @@ type Settings struct {
 	// رمزشده‌اند (crypto.go) و به UI فقط ماسک برمی‌گردد.
 	MCPServers []MCPServerConfig `json:"mcpServers,omitempty"`
 
-	// ProxyMode: off = بدون پروکسی، env = از HTTP(S)_PROXY محیط، custom = ProxyURL
-	// فایل‌های قدیمی بدون این فیلد → env (رفتار قبلی)
+	// ProxyMode: auto = هوشمند (پروکسی سیستم ویندوز → محیط → مستقیم با fail-open)،
+	// off = بدون پروکسی، custom = ProxyURL
+	// فایل‌های قدیمی بدون این فیلد → auto (رفتار هوشمند)
 	ProxyMode string `json:"proxyMode,omitempty"`
 	ProxyURL  string `json:"proxyURL,omitempty"` // مثلاً http://127.0.0.1:7890
+
+	// ProxySmartMigrated: مهاجرت یک‌باره به حالت «هوشمند» — نسخه‌های قبلی
+	// پیش‌فرض env داشتند و برای رفع proxyconnect انتخاب دستی «خاموش» لازم
+	// بود؛ یک‌بار حالت خاموشِ بدون پیکربندی سفارشی به auto برمی‌گردد تا
+	// تشخیص پروکسی دوباره خودکار شود. پس از آن انتخاب صریح کاربر محترم است.
+	ProxySmartMigrated bool `json:"proxySmartMigrated,omitempty"`
 
 	// Permissions سیستم دسترسی ابزارها/دستورات. مقادر صفر = پیش‌فرضهای امن؛
 	// سازگار با نسخه‌های قبلی (فیلد جدید optional)
@@ -317,6 +324,17 @@ func (a *App) loadSettings() error {
 	if !s.DefaultsRemoved {
 		s.DefaultsRemoved = true
 		if hadFile && s.stripBuiltinProviders() {
+			_ = a.saveSettings()
+		}
+	}
+	// مهاجرت یک‌باره به پروکسی هوشمند: «خاموش»ی که فقط برای دور زدن
+	// proxyconnect انتخاب شده بود، به auto برمی‌گردد تا پروکسی دوباره خودکار
+	// تشخیص داده شود (fail-open خودش جایش را می‌گیرد). انتخاب‌های بعدیِ
+	// خودِ کاربر (off/custom) پس از این مهاجرت دست‌نخورده می‌مانند.
+	if !s.ProxySmartMigrated {
+		s.ProxySmartMigrated = true
+		if hadFile && normalizeProxyMode(s.ProxyMode) == "off" {
+			s.ProxyMode = "auto"
 			_ = a.saveSettings()
 		}
 	}
@@ -932,8 +950,8 @@ func (a *App) SetAppearance(fontSize int, density string) error {
 	return a.saveSettings()
 }
 
-// normalizeProxyMode مقدار خالی/ناشناخته را به env برمی‌گرداند (سازگاری با
-// نسخه‌های قبلی که همیشه ProxyFromEnvironment داشتند).
+// normalizeProxyMode مقدار خالی/ناشناخته و env قدیمی را به auto برمی‌گرداند
+// (حالت هوشمند). off و custom انتخاب صریح کاربرند و دست‌نخورده می‌مانند.
 func normalizeProxyMode(mode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "off", "none", "direct":
@@ -941,12 +959,12 @@ func normalizeProxyMode(mode string) string {
 	case "custom":
 		return "custom"
 	default:
-		return "env"
+		return "auto"
 	}
 }
 
 // SetProxySettings حالت و آدرس پروکسی را برای درخواست‌های چت/تست ذخیره می‌کند.
-// mode: off | env | custom — برای custom مقدار url لازم است (مثلاً http://127.0.0.1:7890).
+// mode: auto | off | custom — برای custom مقدار url لازم است (مثلاً http://127.0.0.1:7890).
 func (a *App) SetProxySettings(mode, url string) error {
 	defer a.recoverBound("SetProxySettings")
 	mode = normalizeProxyMode(mode)
