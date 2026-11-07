@@ -900,10 +900,10 @@ func supportsTemperature(model string) bool {
 
 // savePartial متن نیمه‌کاره‌ی دریافت‌شده را ذخیره می‌کند و توکن‌های مصرف‌شده
 // تا این لحظه را در TokensUsed ثبت می‌کند.
-// recordTokenUsageLocked مصرف توکن را به گفتگو، Provider فعلی و مجموع کل
-// می‌افزاید. exact=true یعنی اعداد از usage رسمی API آمده‌اند.
+// recordTokenUsageLocked مصرف توکن را به گفتگو، مدل فعلی، Provider فعلی و
+// مجموع کل می‌افزاید. exact=true یعنی اعداد از usage رسمی API آمده‌اند.
 // باید با a.mu نگه داشته‌شده صدا زده شود.
-func (a *App) recordTokenUsageLocked(conv *Conversation, promptTokens, completionTokens int64, exact bool) {
+func (a *App) recordTokenUsageLocked(conv *Conversation, model string, promptTokens, completionTokens int64, exact bool) {
 	total := promptTokens + completionTokens
 	if total <= 0 {
 		return
@@ -924,6 +924,15 @@ func (a *App) recordTokenUsageLocked(conv *Conversation, promptTokens, completio
 	pid := strings.TrimSpace(a.settings.Provider)
 	if pid != "" {
 		a.settings.TokensByProvider[pid] += total
+	}
+	// حسابداری به تفکیک مدل — سطلِ هر مدل جدا از هر مدل دیگر؛ حتی وقتی چند
+	// مدل از یک Provider استفاده می‌کنند، توکن‌شان قاطی نمی‌شود.
+	model = strings.TrimSpace(model)
+	if model != "" {
+		if a.settings.TokensByModel == nil {
+			a.settings.TokensByModel = map[string]int64{}
+		}
+		a.settings.TokensByModel[model] += total
 	}
 	if completionTokens > 0 {
 		a.settings.RecentUsage = append(a.settings.RecentUsage, completionTokens)
@@ -954,18 +963,18 @@ func (a *App) usageSnapshotForUI(conv *Conversation) (used int64, limit int, pro
 	return used, limit, providerUsed, chatAPI, exact, recent
 }
 
-func (a *App) savePartial(convID, content string, promptTokens, completionTokens int64) {
+func (a *App) savePartial(convID, content string, promptTokens, completionTokens int64, model string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	vis, th := cleanAssistantContent(content)
 	conv, err := a.loadConversation(convID)
 	if err != nil {
 		// حتی بدون گفتگو، مصرف را ثبت کن تا از دست نرود
-		a.recordTokenUsageLocked(nil, promptTokens, completionTokens, promptTokens > 0 || completionTokens > 0)
+		a.recordTokenUsageLocked(nil, model, promptTokens, completionTokens, promptTokens > 0 || completionTokens > 0)
 		_ = a.saveSettings()
 		return
 	}
-	a.recordTokenUsageLocked(conv, promptTokens, completionTokens, promptTokens > 0 || completionTokens > 0)
+	a.recordTokenUsageLocked(conv, model, promptTokens, completionTokens, promptTokens > 0 || completionTokens > 0)
 	if strings.TrimSpace(vis) != "" || strings.TrimSpace(th) != "" {
 		conv.Messages = append(conv.Messages, Message{
 			ID:       newID(),
@@ -1097,9 +1106,9 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 
 	// finish پیام نهایی را با آمار نوبت + آمار زیرایجنت‌های همین نوبت ذخیره و
 	// منتشر می‌کند (تنها تفاوت با finishChat قبلی: جمعِ دو بخش مصرف).
-	finish := func(content string, isAborted bool) {
+	finalize := func(content string, isAborted bool) {
 		sp, sc := usageTally.snapshot()
-		a.finishChat(myGen, content, isAborted, promptTokens+sp, completionTokens+sc, estTotal)
+		a.finishChat(myGen, model, content, isAborted, promptTokens+sp, completionTokens+sc, estTotal)
 		a.emitTurnSummary(convID, turnID, turnRec, promptTokens+sp, completionTokens+sc)
 	}
 	// شمارش توکن تاریخچه با کش — هر پیام فقط یک‌بار تخمین زده می‌شود؛
@@ -1244,7 +1253,7 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 			idleGuard.Stop()
 			if ctx.Err() != nil {
 				aborted = true
-				finish(allContent.String()[persistedLen:], aborted)
+				finalize(allContent.String()[persistedLen:], aborted)
 				return
 			}
 			a.emitChatError(myGen, err.Error())
@@ -1425,7 +1434,7 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 					})
 					if werr := retrySleepFn(ctx, retryDelay(stallRetries-1, "", time.Now())); werr != nil {
 						aborted = true
-						finish(allContent.String()[persistedLen:], aborted)
+						finalize(allContent.String()[persistedLen:], aborted)
 						return
 					}
 					round-- // تلاش مجدد، دور را نمی‌سوزاند
@@ -1438,7 +1447,7 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 			// پاسخ نیمه‌کاره دقیقاً مثل مسیر abort ذخیره می‌شود و «ادامه» می‌ماند.
 			promptTokens += roundPrompt
 			completionTokens += roundCompletion
-			a.savePartial(convID, allContent.String()[persistedLen:]+roundContent.String(), promptTokens, completionTokens)
+			a.savePartial(convID, allContent.String()[persistedLen:]+roundContent.String(), promptTokens, completionTokens, model)
 			a.emitTurnSummary(convID, turnID, turnRec, promptTokens, completionTokens)
 			a.emitChatError(myGen, stallNotice)
 			return
@@ -1446,7 +1455,7 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		if roundModelErr != "" {
 			promptTokens += roundPrompt
 			completionTokens += roundCompletion
-			a.savePartial(convID, allContent.String()[persistedLen:]+roundContent.String(), promptTokens, completionTokens)
+			a.savePartial(convID, allContent.String()[persistedLen:]+roundContent.String(), promptTokens, completionTokens, model)
 			a.emitTurnSummary(convID, turnID, turnRec, promptTokens, completionTokens)
 			a.emitChatError(myGen, "خطای مدل: "+roundModelErr)
 			return
@@ -1454,7 +1463,7 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		if scanErr != nil && ctx.Err() == nil {
 			promptTokens += roundPrompt
 			completionTokens += roundCompletion
-			a.savePartial(convID, allContent.String()[persistedLen:]+roundContent.String(), promptTokens, completionTokens)
+			a.savePartial(convID, allContent.String()[persistedLen:]+roundContent.String(), promptTokens, completionTokens, model)
 			a.emitTurnSummary(convID, turnID, turnRec, promptTokens, completionTokens)
 			a.emitChatError(myGen, "جریان پاسخ قطع شد: "+scanErr.Error())
 			return
@@ -1501,7 +1510,7 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		}
 
 		if aborted {
-			finish(allContent.String()[persistedLen:], true)
+			finalize(allContent.String()[persistedLen:], true)
 			return
 		}
 
@@ -1526,14 +1535,43 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 				round-- // تذکر دورِ بودجه را مصرف نمی‌کند (مثل بازگشت‌های دیگر)
 				continue
 			}
-			finish(allContent.String()[persistedLen:], false)
+			// ---------- تشخیص «پاسخ خاموش» (باگ فکر-بدون-جواب) ----------
+			// اگر این دور هیچ متن قابل‌نمایشی نداشت، نوبت با chat:done تمام
+			// می‌شود و کاربر فقط بلوک فکر (یا هیچ‌چیز) می‌بیند. کاربر باید
+			// بداند چرا پاسخی نیامده — سه حالت:
+			// ۱) فقط استدلال (reasoning_content یا <think> بسته‌نشده)،
+			// ۲) برش به‌خاطر سقف توکن خروجی (finish_reason=length)،
+			// ۳) پاسخ کاملاً خالی (بدون فکر و بدون متن).
+			// اعلان فقط در پایان واقعی نوبت (نه بعد از ابزار که متن داشت) و
+			// فقط یک‌بار در هر دور صدا زده می‌شود؛ مسیرهای abort/خطا اعلان
+			// خودشان را دارند.
+			if strings.TrimSpace(visFinal) == "" && len(pend) == 0 {
+				switch {
+				case roundThinking.Len() > 0 && roundFinish == "length":
+					runtimeEmit(a, "chat:notice", map[string]interface{}{
+						"conversationId": convID,
+						"text":           "مدل وسط فکر‌کردن به «سقف توکن خروجی» خورد و پاسخ برش خورد. سقف خروجی را در تنظیمات («مدل و رفتار») بیشتر کنید یا دوباره بفرستید.",
+					})
+				case roundThinking.Len() > 0:
+					runtimeEmit(a, "chat:notice", map[string]interface{}{
+						"conversationId": convID,
+						"text":           "مدل فقط استدلال تولید کرد و پاسخ متنی نداد. دوباره بفرستید، درخواست را واضح‌تر بنویسید یا مدل دیگری انتخاب کنید.",
+					})
+				default:
+					runtimeEmit(a, "chat:notice", map[string]interface{}{
+						"conversationId": convID,
+						"text":           "مدل پاسخ خالی برگرداند (بدون متن و بدون فراخوانی ابزار). دوباره تلاش کنید؛ اگر تکرار شد، مدل دیگری انتخاب کنید.",
+					})
+				}
+			}
+			finalize(allContent.String()[persistedLen:], false)
 			return
 		}
 
 		if round >= maxRounds {
 			pc, _ := cleanAssistantContent(roundContent.String())
 			a.persistAgentRound(convID, pc, nil, nil)
-			finish("\n\n⚠️ حداکثر تعداد مراحل اجرای ابزار ("+faDigits(maxRounds)+" دور) پر شد؛ کار نیمه‌تمام ماند. برای ادامه، درخواست را تکرار کنید.", false)
+			finalize("\n\n⚠️ حداکثر تعداد مراحل اجرای ابزار ("+faDigits(maxRounds)+" دور) پر شد؛ کار نیمه‌تمام ماند. برای ادامه، درخواست را تکرار کنید.", false)
 			return
 		}
 
@@ -1594,20 +1632,21 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 			turnRec.noteTokenCap(turnTokenCap)
 		}
 		if tokenCapHit {
-			finish(tokenCapStopNotice(spent, turnTokenCap), false)
+			finalize(tokenCapStopNotice(spent, turnTokenCap), false)
 			return
 		}
 		// توقف نوبت توسط محافظ حلقه — همه‌ی فراخوانی‌های دسته نتیجه گرفت و
 		// روی دیسک ذخیره شدند؛ حالا پیام نهایی فارسی به کاربر.
 		if turnStopped {
-			finish(doomLoopStopNotice(stoppedTool, faDigits(toolRepeatStopRun)), false)
+			finalize(doomLoopStopNotice(stoppedTool, faDigits(toolRepeatStopRun)), false)
 			return
 		}
 	}
 }
 
 // finishChat پیام نهایی دستیار را ذخیره و رویداد پایان را می‌فرستد.
-func (a *App) finishChat(myGen *genState, content string, aborted bool, promptTokens, completionTokens, estPrompt int64) {
+// model مدلِ همین نوبت است — مصرف به تفکیک مدل ثبت و به UI گزارش می‌شود.
+func (a *App) finishChat(myGen *genState, model, content string, aborted bool, promptTokens, completionTokens, estPrompt int64) {
 	convID := myGen.convID
 
 	// آزادسازی gen قبل از هر emit (فقط اگر همان gen خودمان باشد)
@@ -1662,7 +1701,7 @@ func (a *App) finishChat(myGen *genState, content string, aborted bool, promptTo
 	if vis != "" || th != "" || aborted {
 		conv.Messages = append(conv.Messages, msg)
 	}
-	a.recordTokenUsageLocked(conv, promptTokens, completionTokens, exact)
+	a.recordTokenUsageLocked(conv, model, promptTokens, completionTokens, exact)
 	saveFailed := false
 	if err := a.saveConversation(conv); err != nil {
 		logAppError("save", "finishChat: "+err.Error())
@@ -1672,6 +1711,13 @@ func (a *App) finishChat(myGen *genState, content string, aborted bool, promptTo
 		logAppError("save", "finishChat settings: "+serr.Error())
 	}
 	used, limit, providerUsed, chatAPI, tokensExact, recent := a.usageSnapshotForUI(conv)
+	// مصرف تجمعی همین مدل نوبت — از سطلِ مدل (نه Provider) تا مصرف مدل‌های
+	// مختلف یک Provider با هم قاطی نشود. بعد از recordTokenUsageLocked خوانده
+	// می‌شود، پس مصرف همین نوبت هم داخلش هست (هم‌راستا با providerUsed).
+	modelUsed := int64(0)
+	if m := strings.TrimSpace(model); m != "" && a.settings.TokensByModel != nil {
+		modelUsed = a.settings.TokensByModel[m]
+	}
 	// عدد کانتکست همراه خود گفتگو هم فرستاده می‌شود تا UI بدون بازمحاسبه
 	// سمت کلاینت (که پیام‌های tool را نادیده می‌گرفت) همان مقدار را نشان دهد.
 	conv.ContextTokens = used
@@ -1696,6 +1742,7 @@ func (a *App) finishChat(myGen *genState, content string, aborted bool, promptTo
 		"tokensUsed":         used,
 		"tokenLimit":         limit,
 		"providerTokensUsed": providerUsed,
+		"modelTokensUsed":    modelUsed,
 		"chatTokensUsed":     chatAPI,
 		"recentUsage":        recent,
 	})

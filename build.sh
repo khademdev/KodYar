@@ -10,7 +10,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-VERSION="${1:-1.10.0}"
+VERSION="${1:-1.0}"
 
 echo "==> MyAI ${VERSION}: building windows/amd64 (skipbindings) ..."
 wails build -platform windows/amd64 -skipbindings \

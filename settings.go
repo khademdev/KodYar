@@ -58,7 +58,11 @@ type Settings struct {
 	// TokensByProvider مصرف تجمعی هر Provider (کلید = شناسه Provider).
 	// با تعویض API، عدد Provider دیگر قاطی نمی‌شود.
 	TokensByProvider map[string]int64 `json:"tokensByProvider,omitempty"`
-	RecentUsage      []int64          `json:"recentUsage"`
+	// TokensByModel مصرف تجمعی به تفکیک مدل (کلید = نام مدل ارسالی به API).
+	// توکن‌های مدل‌های مختلف هرگز با هم قاطی نمی‌شوند — حتی وقتی هر دو مدل
+	// از یک Provider هستند و کاربر بین‌شان جابه‌جا می‌شود.
+	TokensByModel map[string]int64 `json:"tokensByModel,omitempty"`
+	RecentUsage   []int64          `json:"recentUsage"`
 
 	// ---- امکانات جدید ----
 	ConfirmFileWrites bool `json:"confirmFileWrites"` // همگام با EditMode (review_each = true)
@@ -141,6 +145,7 @@ func defaultSettings() *Settings {
 		MaxHistory:        30,
 		TokenLimit:        200000,
 		TokensByProvider:  map[string]int64{},
+		TokensByModel:     map[string]int64{},
 		RecentUsage:       []int64{},
 		ConfirmFileWrites: false, // همگام با EditMode=auto (پیش‌فرض ۱.۸.۰)
 		EditMode:          "auto",
@@ -331,6 +336,9 @@ func (a *App) loadSettings() error {
 	}
 	if s.TokensByProvider == nil {
 		s.TokensByProvider = map[string]int64{}
+	}
+	if s.TokensByModel == nil {
+		s.TokensByModel = map[string]int64{}
 	}
 	if s.MaxHistory <= 0 {
 		s.MaxHistory = 30
@@ -665,6 +673,8 @@ func (a *App) SettingsView() map[string]interface{} {
 		"tokenLimit":            limit,
 		"providerTokensUsed":    s.TokensByProvider[s.Provider],
 		"tokensByProvider":      copyInt64Map(s.TokensByProvider),
+		"tokensByModel":         copyInt64Map(s.TokensByModel),
+		"modelTokensUsed":       s.TokensByModel[s.Model],
 		"recentUsage":           copyInt64s(s.RecentUsage),
 		"temperature":           s.Temperature,
 		"systemPrompt":          s.SystemPrompt,
