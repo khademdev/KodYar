@@ -96,6 +96,12 @@ func (a *App) DiscoverModels(baseURL, apiKey, providerID string) ([]ModelInfo, e
 		return nil, errors.New("Base URL باید با http:// یا https:// شروع شود")
 	}
 
+	return discoverProviderModels(baseURL, apiKey)
+}
+
+// discoverProviderModels کشف مدل‌ها بدون قفل و بدون خواندن تنظیمات —
+// نقطه‌ی مشترک DiscoverModels و SaveProvider (پس از تشخیص آدرس پایه).
+func discoverProviderModels(baseURL, apiKey string) ([]ModelInfo, error) {
 	var list []ModelInfo
 	var err error
 	switch classifyEndpoint(baseURL) {

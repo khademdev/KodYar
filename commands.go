@@ -52,7 +52,7 @@ func (a *App) RunCommand(command string) (string, error) {
 	ctx, cancel := context.WithTimeout(base, commandTimeout)
 	defer cancel()
 
-	out, _, err := runShell(ctx, dir, command, commandTimeout, nil)
+	out, _, err := runShellWithPolicy(ctx, dir, command, commandTimeout, nil, a.sandboxPolicyForCommand(dir, command))
 	result := strings.TrimRight(out, "\n")
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {

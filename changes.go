@@ -508,7 +508,7 @@ func (a *App) writeFileWithConfirm(ctx context.Context, rel, afterContent string
 	rec.BackupFile = backupName
 	rec.ContentSHA256 = sha256Hex([]byte(afterContent))
 	a.recordAppliedChange(rec)
-	turnRecorderFrom(ctx).recordFileChange()
+	turnRecorderFrom(ctx).recordFileChange(rel)
 	// فایلِ نوشته‌شده از این پس «خوانده‌شده» است (نوشتن دوباره/bi‌نیاز از
 	// خواندن دوباره، چون ایجنت دقیقاً همین محتوا را گذاشته).
 	if post, serr := os.Stat(p); serr == nil {
@@ -519,8 +519,26 @@ func (a *App) writeFileWithConfirm(ctx context.Context, rel, afterContent string
 			Full:   true, // کل محتوا را همین ابزار نوشته است
 		})
 	}
-	return fmt.Sprintf("OK: %s '%s' (+%d/-%d lines) — %s; revertible from the «file changes» panel.%s",
-		map[string]string{ChangeCreate: "created", ChangeModify: "updated"}[kind], rel, added, removed, changeApprovalNote(a.changeNeedsConfirm(&rec)), guard.Note), true
+	// گیت نحوی بعد از نوشتن (writeguard.go): پیش از این یک ویرایش خراب تا
+	// رسیدن به build/test در پایان نوبت کشف نمی‌شد. تغییر اعمال‌شده می‌ماند
+	// (با بکاپ و امکان برگشت)، ولی نتیجه ok=false و متن دقیق به مدل می‌رود.
+	//
+	// فقط «رگرسیون» خطاست: فایلی که پیش از این ویرایش هم پارس نمی‌شد
+	// (قطعه‌کد، قالب، فایل نیمه‌کاره) مانع ادامه نمی‌شود و فقط در پیام موفقیت
+	// یادآوری می‌شود — وگرنه ایجنت روی فایل‌های غیربرنامه‌ای گیر می‌کرد.
+	parseNote := ""
+	if vmsg := validateWrittenFile(p); vmsg != "" {
+		// فایل تازه باید از ابتدا سالم باشد؛ فقط برای فایل موجود، «از قبل
+		// هم خراب بود» عذر پذیرفته می‌شود (قطعه‌کد/قالب).
+		beforeInvalid := existed && validateContent(p, before) != ""
+		if !beforeInvalid {
+			return "ERROR: file written but it no longer parses: " + rel + ": " + vmsg + ". Fix it with edit_file before continuing.", false
+		}
+		parseNote = " (note: this file did not parse before this edit either — " + vmsg + ")"
+	}
+
+	return fmt.Sprintf("OK: %s '%s' (+%d/-%d lines) — %s; revertible from the «file changes» panel.%s%s",
+		map[string]string{ChangeCreate: "created", ChangeModify: "updated"}[kind], rel, added, removed, changeApprovalNote(a.changeNeedsConfirm(&rec)), guard.Note, parseNote), true
 }
 
 // movePathWithConfirm جابه‌جایی/تغییرنام با تأیید و بکاپ.
@@ -590,7 +608,8 @@ func (a *App) movePathWithConfirm(ctx context.Context, from, to string) (string,
 		a.noteFileRead(ctx, convIDRead, dst, fileReadRecord{Size: int64(len(data)), ModNS: modNS, SHA256: rec.ContentSHA256, Full: true})
 	}
 	a.recordAppliedChange(rec)
-	turnRecorderFrom(ctx).recordFileChange()
+	turnRecorderFrom(ctx).recordFileChange(from)
+	turnRecorderFrom(ctx).recordFileChange(to)
 	return fmt.Sprintf("OK: moved '%s' to '%s' — %s; revertible from the «file changes» panel.", from, to, changeApprovalNote(a.changeNeedsConfirm(&rec))), true
 }
 
@@ -654,7 +673,7 @@ func (a *App) deletePathWithConfirm(ctx context.Context, rel string) (string, bo
 	rec := preview
 	rec.BackupFile = backupName
 	a.recordAppliedChange(rec)
-	turnRecorderFrom(ctx).recordFileChange()
+	turnRecorderFrom(ctx).recordFileChange(rel)
 	// فایلِ حذف‌شده دیگر رکورد خواندن ندارد (ساخت دوباره‌اش آزاد است).
 	a.readStore.forget(a.convIDForTools(ctx), p)
 	return fmt.Sprintf("OK: deleted '%s' — %s; revertible from the «file changes» panel.", rel, changeApprovalNote(a.changeNeedsConfirm(&rec))), true

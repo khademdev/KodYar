@@ -24,6 +24,9 @@
 
   var AGENT = { id: "gen-agentrounds", view: "maxAgentRounds", set: "SetMaxAgentRounds", def: 25, min: 5, max: 200, ic: "gen-rounds-ic", hint: "gen-rounds-hint-ic", label: "حداکثر مراحل ایجنت" };
   var SUB = { id: "gen-subagentrounds", view: "maxSubagentRounds", set: "SetMaxSubagentRounds", def: 8, min: 3, max: 50, ic: "gen-subrounds-ic", hint: "gen-subrounds-hint-ic", label: "حداکثر مراحل زیرایجنت" };
+  // مهلت سکون استریم — پیش‌تر «تنظیم پنهان» بود و بیشترین قطع‌های وسط کار
+  // (سرویس‌دهنده‌ی واسط/مدل reasoning با سکوت >۲ دقیقه) از همین می‌آمد.
+  var IDLE = { id: "gen-streamidle", view: "streamIdleTimeoutSec", set: "SetStreamIdleTimeout", def: 180, min: 30, max: 900, label: "مهلت سکون پاسخ (ثانیه)" };
 
   function backend() {
     return (window.go && window.go.main && window.go.main.App) || null;
@@ -82,7 +85,190 @@
       });
   }
 
+  // فیلد مهلت سکون در index.html نیست (فایل مینیفای است)؛ همین‌جا با همان
+  // ساختار .field ساخته می‌شود — همان الگوی editmode.js.
+  function buildIdleField() {
+    if (document.getElementById(IDLE.id)) return;
+    var host = document.querySelector("#model-panel .form-card");
+    if (!host) return;
+    var field = document.createElement("div");
+    field.className = "field";
+    var label = document.createElement("label");
+    label.className = "field-label";
+    label.textContent = IDLE.label;
+    var opt = document.createElement("span");
+    opt.className = "optional";
+    opt.textContent = " (۳۰ تا ۹۰۰ — پیش‌فرض ۱۸۰)";
+    label.appendChild(opt);
+    var wrap = document.createElement("div");
+    wrap.className = "input-wrap";
+    var ic = document.createElement("span");
+    ic.id = "gen-streamidle-ic";
+    var el = document.createElement("input");
+    el.id = IDLE.id;
+    el.type = "number";
+    el.min = String(IDLE.min);
+    el.max = String(IDLE.max);
+    el.step = "30";
+    el.value = String(IDLE.def);
+    el.style.direction = "ltr";
+    el.style.textAlign = "left";
+    wrap.appendChild(ic);
+    wrap.appendChild(el);
+    var hint = document.createElement("div");
+    hint.className = "hint-row";
+    var hic = document.createElement("span");
+    hic.id = "gen-streamidle-hint-ic";
+    var ht = document.createElement("span");
+    ht.textContent = "اگر سرویس‌دهنده در این مدت هیچ بایتی نفرستد، درخواست لغو و تا چهار بار دوباره تلاش می‌شود. واسط‌های واسط (aggregator) و مدل‌های reasoning گاهی بیش از دو دقیقه سکوت می‌کنند.";
+    hint.appendChild(hic);
+    hint.appendChild(ht);
+    field.appendChild(label);
+    field.appendChild(wrap);
+    field.appendChild(hint);
+    host.appendChild(field);
+    if (window.Icons) ic.innerHTML = Icons.get("timer", 15);
+    if (window.Icons && hic) hic.innerHTML = Icons.get("info", 14);
+  }
+
+  // سوییچ کش پرامپت (۱.۹) — پیش‌فرض روشن است. ردیف در تب «مدل و رفتار»
+  // با همان ساختار .switch-row/.switch ساخته می‌شود (index.html مینیفای است).
+  function buildCacheRow() {
+    if (document.getElementById("gen-promptcache-row")) return;
+    var host = document.querySelector("#model-panel .form-card");
+    if (!host) return;
+    var row = document.createElement("div");
+    row.className = "switch-row";
+    row.id = "gen-promptcache-row";
+    row.title = "علامت‌گذاری بخش ثابت پرامپت برای کش سرویس‌دهنده";
+    var title = document.createElement("span");
+    title.className = "switch-title";
+    title.textContent = "کَش پرامپت (سریع‌تر و کم‌هزینه‌تر)";
+    var sw = document.createElement("div");
+    sw.className = "switch";
+    sw.id = "gen-promptcache-switch";
+    row.appendChild(title);
+    row.appendChild(sw);
+
+    var hint = document.createElement("div");
+    hint.className = "hint-row";
+    hint.id = "gen-promptcache-hint";
+    hint.textContent = "بخش ثابت پرامپت (system + تعریف ابزارها) برای سرویس‌دهنده نشانه می‌شود تا در دورهای بعدی از کش خوانده شود؛ زمان تا اولین پاسخ و هزینهٔ ورودی کم می‌شود. سرویس‌دهنده‌ای که پشتیبانی نکند یک‌بار خطا می‌دهد و خودکار خاموش می‌شود.";
+
+    var anchor = document.getElementById(IDLE.hint);
+    var field = anchor && anchor.parentElement; // فیلد مهلت سکون
+    if (field && field.parentElement === host) {
+      host.insertBefore(row, field.nextSibling);
+      host.insertBefore(hint, row.nextSibling);
+    } else {
+      host.appendChild(row);
+      host.appendChild(hint);
+    }
+
+    row.addEventListener("click", function () {
+      var view = (window.MyAIState && window.MyAIState.view) || {};
+      var next = view.promptCache === false;
+      var be = backend();
+      if (!be || typeof be.SetPromptCache !== "function") {
+        if (window.toast) window.toast("در حالت پیش‌نمایش مرورگر، کش پرامپت ذخیره نمی‌شود", "info");
+        return;
+      }
+      be.SetPromptCache(next)
+        .then(function () {
+          view.promptCache = next;
+          syncCacheSwitch(next);
+          if (window.toast) {
+            window.toast(
+              next ? "کش پرامپت روشن شد — دورهای بعدی از کش سرویس‌دهنده استفاده می‌کنند" : "کش پرامپت خاموش شد",
+              next ? "ok" : "info"
+            );
+          }
+        })
+        .catch(function (err) {
+          if (window.toast) {
+            window.toast("ذخیرهٔ تنظیم کش پرامپت ناموفق بود: " + (err && err.message ? err.message : err), "err");
+          }
+        });
+    });
+  }
+
+  function syncCacheSwitch(on) {
+    var sw = document.getElementById("gen-promptcache-switch");
+    if (sw) sw.classList.toggle("on", on !== false);
+  }
+
+  // سوییچ «راستی‌آزمایی خودکار» (گام ۵) — پیش‌فرض روشن؛ بعد از هر تغییر فایل
+  // یک build/typecheck ثابت اجرا می‌شود و فقط خطاها به مدل داده می‌شوند.
+  function buildAutoVerifyRow() {
+    if (document.getElementById("gen-autoverify-row")) return;
+    var host = document.querySelector("#model-panel .form-card");
+    if (!host) return;
+    var row = document.createElement("div");
+    row.className = "switch-row";
+    row.id = "gen-autoverify-row";
+    row.title = "اجرای خودکار build/typecheck پس از تغییر فایل";
+    var title = document.createElement("span");
+    title.className = "switch-title";
+    title.textContent = "راستی‌آزمایی خودکار پس از تغییر فایل";
+    var sw = document.createElement("div");
+    sw.className = "switch";
+    sw.id = "gen-autoverify-switch";
+    row.appendChild(title);
+    row.appendChild(sw);
+
+    var hint = document.createElement("div");
+    hint.className = "hint-row";
+    hint.id = "gen-autoverify-hint";
+    hint.textContent =
+      "بعد از هر دور که فایلی تغییر کند، یک دستور ساخت/تایپ‌چک ثابت (go build / go vet، tsc --noEmit یا py_compile) اجرا می‌شود؛ فقط اگر خطا باشد نتیجه به مدل داده می‌شود تا همان‌جا رفع کند. دستورها از پیش تعیین‌شده‌اند و ورودی مدل اجرا نمی‌شود.";
+
+    var cacheHint = document.getElementById("gen-promptcache-hint");
+    if (cacheHint && cacheHint.parentElement === host) {
+      host.insertBefore(row, cacheHint.nextSibling);
+      host.insertBefore(hint, row.nextSibling);
+    } else {
+      host.appendChild(row);
+      host.appendChild(hint);
+    }
+
+    row.addEventListener("click", function () {
+      var view = (window.MyAIState && window.MyAIState.view) || {};
+      var next = view.autoVerify === false;
+      var be = backend();
+      if (!be || typeof be.SetAutoVerify !== "function") {
+        if (window.toast) window.toast("در حالت پیش‌نمایش مرورگر، راستی‌آزمایی خودکار ذخیره نمی‌شود", "info");
+        return;
+      }
+      be.SetAutoVerify(next)
+        .then(function () {
+          view.autoVerify = next;
+          syncAutoVerifySwitch(next);
+          if (window.toast) {
+            window.toast(
+              next ? "راستی‌آزمایی خودکار روشن شد — بعد از هر تغییر فایل build/typecheck اجرا می‌شود" : "راستی‌آزمایی خودکار خاموش شد",
+              next ? "ok" : "info"
+            );
+          }
+        })
+        .catch(function (err) {
+          if (window.toast) {
+            window.toast("ذخیرهٔ تنظیم راستی‌آزمایی ناموفق بود: " + (err && err.message ? err.message : err), "err");
+          }
+        });
+    });
+  }
+
+  function syncAutoVerifySwitch(on) {
+    var sw = document.getElementById("gen-autoverify-switch");
+    if (sw) sw.classList.toggle("on", on !== false);
+  }
+
   function init() {
+    buildIdleField();
+    buildCacheRow();
+    syncCacheSwitch((window.MyAIState && window.MyAIState.view || {}).promptCache);
+    buildAutoVerifyRow();
+    syncAutoVerifySwitch((window.MyAIState && window.MyAIState.view || {}).autoVerify);
     // آیکون فیلدها — slots.js (minified) از IDهای شناخته‌شده آیکون می‌گذارد؛
     // فیلدهای جدید مال ما هستند، پس آیکونشان را همین‌جا می‌گذاریم (الگوی
     // permsettings.js). زیرایجنت آیکون «map» دارد (همان آیکون کارت ابزار task).
@@ -99,15 +285,20 @@
       tab.addEventListener("click", function () {
         populate(AGENT);
         populate(SUB);
+        populate(IDLE);
+        syncCacheSwitch((window.MyAIState && window.MyAIState.view || {}).promptCache);
+        syncAutoVerifySwitch((window.MyAIState && window.MyAIState.view || {}).autoVerify);
       });
     populate(AGENT);
     populate(SUB);
+    populate(IDLE);
 
     var saveBtn = document.getElementById("gen-save");
     if (saveBtn)
       saveBtn.addEventListener("click", function () {
         save(AGENT);
         save(SUB);
+        save(IDLE);
       });
   }
 

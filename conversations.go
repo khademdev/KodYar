@@ -713,18 +713,28 @@ func conversationContextTokens(c *Conversation) int64 {
 	if c == nil {
 		return 0
 	}
-	var n int64
-	for _, m := range c.Messages {
-		if m.Tokens > 0 {
-			n += m.Tokens
-			continue
+	// فقط چیزی که واقعاً به مدل فرستاده می‌شود حساب می‌شود (نزدیک به prepareStream):
+	//   - thinking ارسال نمی‌شود → شمرده نمی‌شود؛
+	//   - Attached فقط برای آخرین پیام کاربر و پیام‌های سنجاق‌شده فرستاده می‌شود؛
+	//   - آرگومان‌های tool_calls پیام دستیار بخشی از درخواست بعدی‌اند → شمرده می‌شوند.
+	lastUser := -1
+	for i := len(c.Messages) - 1; i >= 0; i-- {
+		if c.Messages[i].Role == "user" {
+			lastUser = i
+			break
 		}
+	}
+	var n int64
+	for i, m := range c.Messages {
+		// همیشه از خودِ متن تخمین زده می‌شود: m.Tokens صورتحسابِ همان پاسخ
+		// (completion کل نوبت) است و برای نوبت‌های چنددوری ایجنت چند برابرِ
+		// حجم واقعیِ متن می‌شد → دایره باد می‌کرد.
 		n += estimateTokens(m.Content)
-		if m.Attached != "" {
+		if m.Attached != "" && (i == lastUser || m.Pinned) {
 			n += estimateTokens(m.Attached)
 		}
-		if m.Thinking != "" {
-			n += estimateTokens(m.Thinking)
+		for _, tc := range m.ToolCalls {
+			n += estimateTokens(tc.Name) + estimateTokens(tc.Args)
 		}
 	}
 	return n

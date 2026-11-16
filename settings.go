@@ -15,13 +15,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode"
 )
 
 // Provider یک سرویس‌دهنده‌ی سازگار با OpenAI را توصیف می‌کند.
 type Provider struct {
-	ID            string   `json:"id"`
-	Name          string   `json:"name"`
+	ID string `json:"id"`
+	// Name نام فنی سرویس است (آدرس پایه از روی آن حدس زده می‌شود).
+	Name string `json:"name"`
+	// DisplayName نام نمایشی اختیاری برای فهرست‌ها؛ خالی = Name نمایش داده
+	// می‌شود. عمداً از Name جدا است تا شناسایی سرویس به‌هم نخورد.
+	DisplayName   string   `json:"displayName,omitempty"`
 	BaseURL       string   `json:"baseUrl"`
 	Color         string   `json:"color"`
 	Models        []string `json:"models"`
@@ -42,19 +47,34 @@ type CustomTool struct {
 
 // Settings مدل ذخیره‌سازی تنظیمات روی دیسک است.
 type Settings struct {
-	Provider      string            `json:"provider"`
-	Model         string            `json:"model"`
-	Environment   string            `json:"environment"`
-	Providers     []Provider        `json:"providers"`
-	WorkspacePath string            `json:"workspacePath"`
-	AllowCommands bool              `json:"allowCommands"`
-	AgentMode     bool              `json:"agentMode"`
-	APIKeys       map[string]string `json:"apiKeys"`
-	SystemPrompt  string            `json:"systemPrompt"`
-	Temperature   float64           `json:"temperature"`
-	MaxHistory    int               `json:"maxHistory"`
-	TokenLimit    int               `json:"tokenLimit"`
-	TokensUsed    int64             `json:"tokensUsed"` // مجموع کل (سازگاری با نسخه‌های قبل)
+	Provider      string     `json:"provider"`
+	Model         string     `json:"model"`
+	Environment   string     `json:"environment"`
+	Providers     []Provider `json:"providers"`
+	WorkspacePath string     `json:"workspacePath"`
+	AllowCommands bool       `json:"allowCommands"`
+	AgentMode     bool       `json:"agentMode"`
+	// PromptCache فعال‌سازی نشانه‌های کش پرامپت برای سرویس‌دهنده‌های
+	// سازگار با cache_control. **پیش‌فرض روشن است** (۱.۹) چون کش، TTFT و
+	// هزینهٔ هر دور را کم می‌کند؛ سرویس‌دهنده‌ای که فیلد را رد کند یک‌بار
+	// ۴۰۰ می‌دهد و برای همان Provider خودکار خاموش می‌شود (promptcache.go).
+	PromptCache bool `json:"promptCache,omitempty"`
+	// PromptCacheTouched یعنی کاربر خودش انتخاب کرده؛ «خاموشِ ذخیره‌شده»
+	// فقط وقتی معتبر است که این پرچم روشن باشد — وگرنه پیش‌فرض روشن اعمال
+	// می‌شود (تنظیمات قدیمی که این فیلد را ندارند هم خودکار روشن می‌شوند).
+	PromptCacheTouched bool `json:"promptCacheTouched,omitempty"`
+	// AutoVerifyOff خاموش‌کردن «راستی‌آزمایی خودکار» پس از تغییر فایل
+	// (autoverify.go). صفر بودن یعنی روشن — تنظیمات قدیمی خودکار روشن‌اند.
+	AutoVerifyOff bool `json:"autoVerifyOff,omitempty"`
+	// ShowActivity نمایش نوار «گزارش زنده‌ی فعالیت ایجنت» بالای جعبه‌ی پیام
+	// (پیش‌فرض روشن). پنل «برنامهٔ کار» مستقل از این تنظیم است.
+	ShowActivity bool              `json:"showActivity"`
+	APIKeys      map[string]string `json:"apiKeys"`
+	SystemPrompt string            `json:"systemPrompt"`
+	Temperature  float64           `json:"temperature"`
+	MaxHistory   int               `json:"maxHistory"`
+	TokenLimit   int               `json:"tokenLimit"`
+	TokensUsed   int64             `json:"tokensUsed"` // مجموع کل (سازگاری با نسخه‌های قبل)
 	// TokensByProvider مصرف تجمعی هر Provider (کلید = شناسه Provider).
 	// با تعویض API، عدد Provider دیگر قاطی نمی‌شود.
 	TokensByProvider map[string]int64 `json:"tokensByProvider,omitempty"`
@@ -63,6 +83,23 @@ type Settings struct {
 	// از یک Provider هستند و کاربر بین‌شان جابه‌جا می‌شود.
 	TokensByModel map[string]int64 `json:"tokensByModel,omitempty"`
 	RecentUsage   []int64          `json:"recentUsage"`
+	// UsageSince زمان (Unix) آخرین صفر شدن شمارنده‌های مصرف؛ ۰ = هرگز.
+	// شمارنده‌ها با بستن برنامه/قطع اتصال صفر نمی‌شوند — فقط وقتی شارژ
+	// سرویس‌دهنده خودکار تشخیص داده شود (usageguard.go).
+	UsageSince int64 `json:"usageSince,omitempty"`
+
+	// ---- پایش خودکار شارژ سرویس‌دهنده (usageguard.go) ----
+
+	// ProviderBalances آخرین موجودی شناخته‌شدهٔ هر Provider؛ افزایشِ موجودی
+	// نسبت به این مبنا یعنی «شارژ شد» → شمارنده‌های مصرف خودکار صفر می‌شوند.
+	ProviderBalances map[string]ProviderBalance `json:"providerBalances,omitempty"`
+	// AutoUsageReset پایش خودکار شارژ (پیش‌فرض روشن). صفر شدن شمارنده
+	// دیگر دست کاربر نیست؛ فقط با تشخیص خودکار شارژ انجام می‌شود.
+	AutoUsageReset bool `json:"autoUsageReset"`
+	// LastAutoReset* آخرین صفر شدن خودکار — برای نمایش در پاپ‌اور مصرف.
+	LastAutoResetAt       int64  `json:"lastAutoResetAt,omitempty"`
+	LastAutoResetProvider string `json:"lastAutoResetProvider,omitempty"`
+	LastAutoResetReason   string `json:"lastAutoResetReason,omitempty"` // balance_up | recovered_after_quota
 
 	// ---- امکانات جدید ----
 	ConfirmFileWrites bool `json:"confirmFileWrites"` // همگام با EditMode (review_each = true)
@@ -81,7 +118,7 @@ type Settings struct {
 
 	// StreamIdleTimeoutSec مهلت بیکاری استریم مدل (ثانیه؛ ۰ = پیش‌فرض ۱۲۰،
 	// بازه‌ی مجاز ۳۰..۹۰۰). پنهان است و UI ندارد — فقط برای پایداری/دیباگ.
-	StreamIdleTimeoutSec int `json:"streamIdleTimeoutSec,omitempty"`
+	StreamIdleTimeoutSec int `json:"streamIdleTimeoutSec"`
 
 	PlanMode          bool         `json:"planMode"`          // حالت برنامه‌ریزی قبل از اجرا
 	ContextFiles      int          `json:"contextFiles"`      // سقف فایل‌های خودکار افزوده به کانتکست @
@@ -117,6 +154,14 @@ type Settings struct {
 	// Permissions سیستم دسترسی ابزارها/دستورات. مقادر صفر = پیش‌فرضهای امن؛
 	// سازگار با نسخه‌های قبلی (فیلد جدید optional)
 	Permissions PermissionSettings `json:"permissions"`
+
+	// SandboxMode حالت ایزوله‌سازی اجرای دستور (sandbox_windows.go):
+	// "" یا "on" = سندباکس AppContainer روشن (پیش‌فرض امن، حتی برای
+	// settings.json قدیمی که این فیلد را ندارد)، "off" = اجرای معمولی.
+	SandboxMode string `json:"sandboxMode,omitempty"`
+	// SandboxNoNetwork اگر true باشد، دستور داخل سندباکس هیچ دسترسی
+	// شبکه‌ای ندارد (قابلیت internetClient به توکن AppContainer داده نمی‌شود).
+	SandboxNoNetwork bool `json:"sandboxNoNetwork,omitempty"`
 
 	// DefaultsRemoved: مهاجرت یک‌باره — Providerهای پیش‌فرض نسخه‌های قدیمی
 	// (OpenAI، Groq و…) فقط یک‌بار حذف می‌شوند؛ Providerهایی که کاربر بعداً
@@ -154,15 +199,19 @@ func defaultSettings() *Settings {
 		TokensByProvider:  map[string]int64{},
 		TokensByModel:     map[string]int64{},
 		RecentUsage:       []int64{},
+		ProviderBalances:  map[string]ProviderBalance{},
+		AutoUsageReset:    true,  // صفر شدن شمارنده فقط خودکار، با تشخیص شارژ
 		ConfirmFileWrites: false, // همگام با EditMode=auto (پیش‌فرض ۱.۸.۰)
 		EditMode:          "auto",
 		ProtectedGlobs:    defaultProtectedGlobs,
 		MaxTurnTokens:     defaultMaxTurnTokens,
 		PlanMode:          false,
+		ShowActivity:      true,
 		ContextFiles:      4,
 		RulesEnabled:      true,
 		ToolResultKeep:    6,
 		MaxConvKB:         2048,
+		PromptCache:       true,
 		MaxAgentRounds:    defaultMaxAgentRounds,
 		MaxSubagentRounds: defaultMaxSubagentRounds,
 		Theme:             "dark",
@@ -294,12 +343,14 @@ func (a *App) loadSettings() error {
 	// انجام می‌شود؛ نبودِ کلید را فقط با probe می‌شود از مقدار پیش‌فرض
 	// تشخیص داد — مهاجرتِ ۴۱ به همین وابسته است؛ فایل خراب =مانند فایل قدیمی.)
 	hadEditMode := false
+	hadAutoUsageReset := false
 	raw, err := os.ReadFile(path)
 	if err == nil {
 		hadFile = true
 		var probe map[string]json.RawMessage
 		if json.Unmarshal(raw, &probe) == nil {
 			_, hadEditMode = probe["editMode"]
+			_, hadAutoUsageReset = probe["autoUsageReset"]
 		}
 		if jerr := json.Unmarshal(raw, s); jerr != nil {
 			// فایل خراب را کنار می‌گذاریم تا کلیدهای API از بین نروند
@@ -345,9 +396,7 @@ func (a *App) loadSettings() error {
 		s.SystemPrompt = promptForEnvironment(s.Environment)
 	}
 	if s.WorkspacePath == "" {
-		if home, herr := os.UserHomeDir(); herr == nil {
-			s.WorkspacePath = filepath.Join(home, "Projects", "MyWorkspace")
-		}
+		s.WorkspacePath = defaultWorkspacePath()
 	}
 	if s.TokenLimit <= 0 {
 		s.TokenLimit = 200000
@@ -357,6 +406,14 @@ func (a *App) loadSettings() error {
 	}
 	if s.TokensByModel == nil {
 		s.TokensByModel = map[string]int64{}
+	}
+	if s.ProviderBalances == nil {
+		s.ProviderBalances = map[string]ProviderBalance{}
+	}
+	// مهاجرت پیش‌فرض روشن: فایل‌های قدیمی کلید autoUsageReset را ندارند
+	// (unmarshal روی صفر false می‌ماند) — پایش خودکار شارژ باید فعال باشد.
+	if !hadAutoUsageReset {
+		s.AutoUsageReset = true
 	}
 	if s.MaxHistory <= 0 {
 		s.MaxHistory = 30
@@ -436,6 +493,10 @@ func (a *App) loadSettings() error {
 	if normalizePermissionDecision(s.Permissions.Tools[webFetchToolName]) == "allow" {
 		delete(s.Permissions.Tools, webFetchToolName)
 		logAppErrorFor(a, "perm", "migration: removed tool-wide web_fetch allow (now per-host)")
+	}
+	if normalizePermissionDecision(s.Permissions.Tools[webSearchToolName]) == "allow" {
+		delete(s.Permissions.Tools, webSearchToolName)
+		logAppErrorFor(a, "perm", "migration: removed tool-wide web_search allow (now per-host)")
 	}
 	if s.Permissions.WebHosts == nil {
 		s.Permissions.WebHosts = []PermissionRule{}
@@ -524,7 +585,26 @@ func (a *App) GetSettings() Settings {
 	s.APIKeys = nil
 	s.Providers = copyProviders(a.settings.Providers)
 	s.RecentUsage = copyInt64s(a.settings.RecentUsage)
+	s.ProviderBalances = copyProviderBalanceMap(a.settings.ProviderBalances)
 	return s
+}
+
+// copyProviderBalanceMap کپی امن map موجودی‌ها (بدون اشتراک حافظه با state).
+func copyProviderBalanceMap(m map[string]ProviderBalance) map[string]ProviderBalance {
+	out := make(map[string]ProviderBalance, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
+// copyProviderBalance کپی امن یک نمونهٔ موجودی برای SettingsView.
+func copyProviderBalance(b ProviderBalance) map[string]interface{} {
+	return map[string]interface{}{
+		"total":     b.Total,
+		"currency":  b.Currency,
+		"updatedAt": b.UpdatedAt,
+	}
 }
 
 // SetAllowCommands سوییچ «اجازه اجرای دستور» را ذخیره می‌کند.
@@ -543,6 +623,84 @@ func (a *App) SetAgentMode(on bool) error {
 	defer a.mu.Unlock()
 	a.settings.AgentMode = on
 	return a.saveSettings()
+}
+
+// ResetUsage صفر کردن دستی شمارنده‌های تجمعی — فقط برای سازگاری با نسخه‌های
+// قبل و تست‌ها به‌جا مانده است. مسیر عرفی از ۱.۱۱ دیگر هیچ دکمهٔ دستی ندارد:
+// صفر شدن فقط وقتی رخ می‌دهد که شارژ سرویس‌دهنده خودکار تشخیص داده شود
+// (autoResetUsage در usageguard.go). مصرف هر گفتگو (conv.TokensUsed) دست نمی‌خورد.
+func (a *App) ResetUsage() error {
+	defer a.recoverBound("ResetUsage")
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.settings.TokensUsed = 0
+	a.settings.TokensByProvider = map[string]int64{}
+	a.settings.TokensByModel = map[string]int64{}
+	a.settings.RecentUsage = []int64{}
+	a.settings.UsageSince = time.Now().Unix()
+	return a.saveSettings()
+}
+
+// SetStreamIdleTimeout مهلت سکون استریم (ثانیه) را ذخیره می‌کند؛ مقدار به
+// بازهٔ مجاز ۳۰..۹۰۰ clamp می‌شود (۰ = پیش‌فرض ۱۸۰).
+func (a *App) SetStreamIdleTimeout(sec int) error {
+	defer a.recoverBound("SetStreamIdleTimeout")
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.settings.StreamIdleTimeoutSec = clampStreamIdleSeconds(sec)
+	return a.saveSettings()
+}
+
+// SetShowActivity نمایش/پنهان‌کردن نوار «گزارش زنده» را ذخیره می‌کند.
+// پنل «برنامهٔ کار» تحت تأثیر آن نیست: آن فقط با وجود چک‌لیست ظاهر می‌شود.
+func (a *App) SetShowActivity(on bool) error {
+	defer a.recoverBound("SetShowActivity")
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.settings.ShowActivity = on
+	return a.saveSettings()
+}
+
+// SetPromptCache کش پرامپت را روشن/خاموش می‌کند و انتخاب کاربر را ماندگار
+// می‌کند (پیش‌فرض نصب تازه: روشن).
+func (a *App) SetPromptCache(on bool) error {
+	defer a.recoverBound("SetPromptCache")
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.settings.PromptCache = on
+	a.settings.PromptCacheTouched = true
+	return a.saveSettings()
+}
+
+// promptCacheEnabled آیا تنظیم کش پرامپت روشن است؟ (بدون I/O)
+// پیش‌فرض (و تنظیمات قدیمی بدون فیلد) → روشن.
+func (a *App) promptCacheEnabled() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.settings == nil {
+		return true
+	}
+	if !a.settings.PromptCacheTouched {
+		return true
+	}
+	return a.settings.PromptCache
+}
+
+// SetAutoVerify «راستی‌آزمایی خودکار پس از تغییر فایل» را روشن/خاموش می‌کند
+// (پیش‌فرض روشن).
+func (a *App) SetAutoVerify(on bool) error {
+	defer a.recoverBound("SetAutoVerify")
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.settings.AutoVerifyOff = !on
+	return a.saveSettings()
+}
+
+// autoVerifyEnabled آیا راستی‌آزمایی خودکار روشن است؟ (بدون I/O)
+func (a *App) autoVerifyEnabled() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.settings != nil && !a.settings.AutoVerifyOff
 }
 
 // SetPlanMode سوییچ «حالت برنامه‌ریزی» را ذخیره می‌کند. وقتی روشن باشد،
@@ -637,6 +795,40 @@ func (a *App) SetMaxTurnTokens(v int64) error {
 	return a.saveSettings()
 }
 
+// defaultWorkspacePath مسیر پیش‌فرض پوشه‌ی کاری است:
+// %USERPROFILE%\Projects\MyWorkspace (رشته‌ی خالی یعنی مسیر خانه خوانده نشد).
+func defaultWorkspacePath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, "Projects", "MyWorkspace")
+}
+
+// ensureDefaultWorkspaceAt فقط پوشه‌ی کاریِ «پیش‌فرضِ خود برنامه» را می‌سازد.
+// پیش از این، loadSettings این مسیر را فقط در حافظه ست می‌کرد و هیچ‌وقت روی
+// دیسک ساخته نمی‌شد؛ نتیجه: اولین اجرا با مسیر ناموجود کار می‌کرد و
+// فهرست‌کردن/اجرای دستور/git خطا می‌دادند. مسیر دستیِ کاربر دست‌نخورده
+// می‌ماند تا پوشه‌ای را که خودش پاک کرده دوباره نسازیم.
+// جدا شده تا تست بدون دست‌زدن به پوشه‌ی خانه‌ی واقعی اجرا شود.
+func ensureDefaultWorkspaceAt(def, ws string) error {
+	if def == "" || strings.TrimSpace(ws) != def {
+		return nil
+	}
+	if st, err := os.Stat(def); err == nil && st.IsDir() {
+		return nil
+	}
+	return os.MkdirAll(def, 0o755)
+}
+
+// ensureDefaultWorkspace پوشه‌ی کاری پیش‌فرض را در راه‌اندازی می‌سازد.
+func (a *App) ensureDefaultWorkspace() error {
+	a.mu.Lock()
+	ws := strings.TrimSpace(a.settings.WorkspacePath)
+	a.mu.Unlock()
+	return ensureDefaultWorkspaceAt(defaultWorkspacePath(), ws)
+}
+
 // SaveWorkspace مسیر پوشه‌ی کاری (پروژه) را ذخیره می‌کند.
 func (a *App) SaveWorkspace(path string) error {
 	defer a.recoverBound("SaveWorkspace")
@@ -680,20 +872,27 @@ func (a *App) SettingsView() map[string]interface{} {
 		limit = p.ContextWindow
 	}
 	return map[string]interface{}{
-		"provider":              s.Provider,
-		"model":                 s.Model,
-		"environment":           s.Environment,
-		"providers":             copyProviders(s.Providers),
-		"workspace":             s.WorkspacePath,
-		"allowCommands":         s.AllowCommands,
-		"agentMode":             s.AgentMode,
-		"tokensUsed":            s.TokensUsed,
-		"tokenLimit":            limit,
-		"providerTokensUsed":    s.TokensByProvider[s.Provider],
-		"tokensByProvider":      copyInt64Map(s.TokensByProvider),
-		"tokensByModel":         copyInt64Map(s.TokensByModel),
-		"modelTokensUsed":       s.TokensByModel[s.Model],
-		"recentUsage":           copyInt64s(s.RecentUsage),
+		"provider":           s.Provider,
+		"model":              s.Model,
+		"environment":        s.Environment,
+		"providers":          copyProviders(s.Providers),
+		"workspace":          s.WorkspacePath,
+		"allowCommands":      s.AllowCommands,
+		"agentMode":          s.AgentMode,
+		"tokensUsed":         s.TokensUsed,
+		"tokenLimit":         limit,
+		"providerTokensUsed": s.TokensByProvider[s.Provider],
+		"tokensByProvider":   copyInt64Map(s.TokensByProvider),
+		"tokensByModel":      copyInt64Map(s.TokensByModel),
+		"modelTokensUsed":    s.TokensByModel[s.Model],
+		"recentUsage":        copyInt64s(s.RecentUsage),
+		"usageSince":         s.UsageSince,
+		// پایش خودکار شارژ — پاپ‌اور مصرف وضعیت را از این‌جا می‌خواند.
+		"autoUsageReset":        s.AutoUsageReset,
+		"providerBalance":       copyProviderBalance(s.ProviderBalances[s.Provider]),
+		"lastAutoResetAt":       s.LastAutoResetAt,
+		"lastAutoResetProvider": s.LastAutoResetProvider,
+		"lastAutoResetReason":   s.LastAutoResetReason,
 		"temperature":           s.Temperature,
 		"systemPrompt":          s.SystemPrompt,
 		"hasKeys":               a.hasKeysMap(),
@@ -704,23 +903,31 @@ func (a *App) SettingsView() map[string]interface{} {
 		"defaultProtectedGlobs": defaultProtectedGlobs,
 		"maxTurnTokens":         clampMaxTurnTokens(s.MaxTurnTokens),
 		"planMode":              s.PlanMode,
-		"contextFiles":          s.ContextFiles,
-		"projectRules":          s.ProjectRules,
-		"rulesEnabled":          s.RulesEnabled,
-		"maxTokens":             s.MaxTokens,
-		"toolResultKeep":        s.ToolResultKeep,
-		"maxConvKb":             s.MaxConvKB,
-		"maxAgentRounds":        clampMaxAgentRounds(s.MaxAgentRounds),
-		"maxSubagentRounds":     clampMaxSubagentRounds(s.MaxSubagentRounds),
-		"maxHistory":            s.MaxHistory,
-		"theme":                 s.Theme,
-		"fontSize":              s.FontSize,
-		"density":               s.Density,
-		"customTools":           copyCustomTools(s.CustomTools),
-		"mcpServers":            maskedMCPServers(s.MCPServers),
-		"pendingChanges":        pending,
-		"proxyMode":             normalizeProxyMode(s.ProxyMode),
-		"proxyURL":              s.ProxyURL,
+		"promptCache":           s.PromptCache || !s.PromptCacheTouched,
+		"autoVerify":            !s.AutoVerifyOff,
+		"showActivity":          s.ShowActivity,
+		// مقدار مؤثر (پیش‌فرض ۱۸۰) — UI عدد قابل‌نمایش می‌خواهد، نه صفر.
+		"streamIdleTimeoutSec": clampStreamIdleSeconds(s.StreamIdleTimeoutSec),
+		"contextFiles":         s.ContextFiles,
+		"projectRules":         s.ProjectRules,
+		"rulesEnabled":         s.RulesEnabled,
+		"maxTokens":            s.MaxTokens,
+		"toolResultKeep":       s.ToolResultKeep,
+		"maxConvKb":            s.MaxConvKB,
+		"maxAgentRounds":       clampMaxAgentRounds(s.MaxAgentRounds),
+		"maxSubagentRounds":    clampMaxSubagentRounds(s.MaxSubagentRounds),
+		"maxHistory":           s.MaxHistory,
+		"theme":                s.Theme,
+		"fontSize":             s.FontSize,
+		"density":              s.Density,
+		"customTools":          copyCustomTools(s.CustomTools),
+		"mcpServers":           maskedMCPServers(s.MCPServers),
+		"pendingChanges":       pending,
+		"proxyMode":            normalizeProxyMode(s.ProxyMode),
+		"proxyURL":             s.ProxyURL,
+		"sandbox":              sandboxEnabledLocked(s),
+		"sandboxNetwork":       !s.SandboxNoNetwork,
+		"sandboxAvailable":     sandboxSupported(),
 	}
 }
 
@@ -808,7 +1015,10 @@ func (a *App) SaveConnection(provider, model, environment, apiKey string) error 
 	}
 	a.settings.Provider = provider
 	a.settings.Model = model
-	if environment != "" {
+	// پرامپت پیش‌فرض محیط فقط با «تغییر واقعی محیط» نصب می‌شود. انتخاب
+	// مدل از چت‌باکس همان environment ذخیره‌شده را می‌فرستد و نباید متنِ
+	// دست‌نویس «دستور سیستمی» کاربر را بی‌صدا بازنویسی کند.
+	if environment != "" && environment != a.settings.Environment {
 		a.settings.Environment = environment
 		a.settings.SystemPrompt = promptForEnvironment(environment)
 	}
@@ -830,7 +1040,6 @@ func (a *App) GetEnvironmentPresets() []map[string]string {
 	return []map[string]string{
 		{"id": "general", "title": "عمومی", "desc": "پاسخ‌های متعادل و دوستانه"},
 		{"id": "developer", "title": "توسعه‌دهنده", "desc": "تمرکز روی کد و دیباگ"},
-		{"id": "teacher", "title": "آموزش", "desc": "توضیح گام‌به‌گام مفاهیم"},
 	}
 }
 
@@ -839,8 +1048,6 @@ func promptForEnvironment(env string) string {
 	switch env {
 	case "developer":
 		return "You are MyAI, an expert senior software engineer. Answer in Persian (Farsi). Be concise and practical. Always format code in fenced code blocks with the language tag."
-	case "teacher":
-		return "You are MyAI, a patient teacher. Answer in Persian (Farsi). Explain step by step with simple examples and analogies. Use Markdown."
 	default:
 		return "You are MyAI, a concise and helpful AI assistant for coding and questions. Answer in Persian (Farsi). Use Markdown for formatting."
 	}

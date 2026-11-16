@@ -118,8 +118,11 @@ a.checkpointMu, a.readStore.mu, a.factsCache.mu  (leaf locks — Mission 3)
    Tool inventory (agent.go): the built-in tools (`list_dir`, `read_file`,
    `write_file`, `edit_file` with the atomic multi-edit `edits[]` form,
    `move_path`, `delete_path`, `create_dir`, `search_files`, `glob`
-   (mtime-desc ordering), `run_command`, `git_status/git_diff/git_log/
-   git_show`, `task`, `todo_write`, `web_fetch`) plus custom user tools
+   (mtime-desc ordering), `run_command` (foreground; `background:true`
+   returns a process id), `process_output/process_stop/process_list`
+   (incremental log tail, tree kill, status — `processes.go`),
+   `git_status/git_diff/git_log/git_show`, `task`, `todo_write`,
+   `web_fetch`) plus custom user tools
    and `mcp_<server>_<tool>` tools from enabled MCP servers
    (`mcpmanager.go`; lazy parallel start with a 15 s budget, backoff
    1s/2s/4s, give-up after 3 consecutive failures until settings are
@@ -283,7 +286,12 @@ failing-before/passing-after tests):
   chat and sub-agent) wraps its response body in `streamIdleGuard`, which
   timestamps the last successful read (any bytes — SSE keep-alive comments
   count) while one watchdog goroutine per stream cancels the request only
-  after `streamIdleTimeoutSec` seconds of silence (hidden settings field,
+  after `streamIdleTimeoutSec` seconds of silence (`Settings.StreamIdleTimeoutSec`,
+  default 180, clamp 30–900, editable in the «مدل و رفتار» tab; counting starts
+  only after `Arm()` — i.e. once the response headers arrived, so a slow/queued
+  provider is never mistaken for a stalled stream, and a watchdog cancel during
+  connection setup goes through the pre-output retry policy instead of surfacing
+  a raw `context canceled`
   default 120, clamp 30–900; package vars injectable in tests; timer and
   goroutine always stopped). A stall **before any output** is a retryable
   transient failure under the existing retry policy (Persian retry
@@ -362,6 +370,7 @@ failing-before/passing-after tests):
 |---|---|---|
 | `chat:start` | conversation, userMessage | entry points (Send/Regenerate/ApprovePlan/Resume) |
 | `chat:delta` | conversationId, delta, elapsed | stream loop |
+| `chat:usage` | conversationId, contextTokens, tokenLimit, roundPrompt, roundCompletion, turnTokens, exact | after each streamed round in `streamChat` — feeds the live token ring (real prompt tokens of that request, or that round's estimate) |
 | `chat:notice` | conversationId, text (Persian) | tools-unsupported, save warnings, auto-compaction, token-cap 80%/stop, checkpoint skipped |
 | `chat:tool` | conversationId, callId, name, args | before each tool exec (parallel read-only calls may interleave; keyed by callId) |
 | `chat:tool_result` | conversationId, callId, name, ok, result, ms | after each tool exec |
@@ -371,7 +380,7 @@ failing-before/passing-after tests):
 | `agent:permission_ask` | ask (permissionAsk: kind `command`/`sensitive_read`/`tool`/`web_host`; `url` for web_fetch, `command` carries name+args for MCP tools) | permission modal; answered by `RespondPermissionConfirm(askId, allow\|session\|always\|reject)`; `web_host` offers per-host rules only — a tool-wide web_fetch allow no longer exists (C.1), existing ones migrate back to ask |
 | `chat:tool_output` | conversationId, callId, chunk | incremental run_command output (≤10/s, frontend may ignore) |
 | `chat:todos` | conversationId, todos | live agent checklist after every successful `todo_write` (empty array = cleared); frontend ignores non-active conversations |
-| `chat:turn_summary` | summary (TurnSummary: files/commands/verification/tokens/tokenCap) | end of every turn that changed files or ran commands; card UI + revert/checkpoint actions (`GetTurnChanges`, `RevertTurnChanges`, `PreviewCheckpointRestore`, `RestoreCheckpoint`) |
+| `chat:turn_summary` | summary (TurnSummary: files/commands/verification/tokens/tokenCap) | end of every turn that changed files or ran commands; informational card UI (`turnsummary.js`: files, commands, verification, tokens, token cap) — the revert/checkpoint actions were removed from the UI |
 | `agent:change_applied` / `agent:change_rejected` / `agent:change_reverted` | change / changeId, path / changeId | changes store |
 | `conv:size_warn` | conversationId, kb, capKb | saveConversation (≥75% of cap, once per conv) |
 
@@ -455,12 +464,11 @@ exposes them via `SettingsView` as `maxAgentRounds`/`maxSubagentRounds`.
 
 The turn-summary card (`turnsummary.js`, class `ts-card`) renders
 `chat:turn_summary` — file rows with ± counts and a protected chip,
-command/verification rows, token totals, the token-cap chip, and three
-actions: per-file diff (opens the diff modal), «برگرداندن همه‌ی تغییرات
-این نوبت» (`RevertTurnChanges` with the conflict rule — user-modified
-files win and are listed as conflicts), and «بازگردانی کل پروژه به قبل از
-این نوبت» → the `checkpoint-overlay` preview modal →
-`RestoreCheckpoint`. The card is one of the four surfaces covered by the
-UI contract test (`uicontract_test.go` — overlay ids, visibility CSS,
-bindings sync, checkpoint/web_host wiring) and the optional Playwright
-smoke test (`frontend/tests/`, Mock mode, see its README).
+command/verification rows, token totals and the token-cap chip. It is
+purely informational: the revert panel (`changes.js` list, badge row) and
+all revert/restore actions (per-file, per-turn, project checkpoint modal)
+were removed from the product; `changes.js` now only owns the Diff confirm
+modal (`#diff-overlay`) and `renderDiff`. The card and the diff modal are
+covered by the UI contract test (`uicontract_test.go` — overlay ids,
+visibility CSS, bindings sync) and the optional Playwright smoke test
+(`frontend/tests/`, Mock mode, see its README).

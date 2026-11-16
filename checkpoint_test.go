@@ -264,10 +264,14 @@ func TestCheckpointPreservesCRLFAndBOMOnRestore(t *testing.T) {
 // TestCheckpointPrunesOldRefs: حداکثر ۲۰ نقطه در هر پوشه.
 func TestCheckpointPrunesOldRefs(t *testing.T) {
 	a, ws := newCheckpointApp(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*checkpointTimeout)
-	defer cancel()
+	// مهلت باید برای هر نقطه جدا باشد: یک ctx مشترک روی ۲۵ فراخوانی git
+	// (هرکدام تا checkpointTimeout) در ماشین کند منقضی می‌شد و تست را
+	// به‌صورت کاذب شکست می‌داد، نه منطق prune را.
 	for i := 1; i <= checkpointMaxKeep+5; i++ {
-		if _, err := a.createCheckpoint(ctx, ws, "conv-p", int64(i)); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), checkpointTimeout)
+		_, err := a.createCheckpoint(ctx, ws, "conv-p", int64(i))
+		cancel()
+		if err != nil {
 			t.Fatalf("checkpoint %d: %v", i, err)
 		}
 	}

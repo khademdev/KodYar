@@ -186,9 +186,16 @@ func TestStreamStallMidStreamSavesPartialNoRetry(t *testing.T) {
 	if len(msgs) == 0 {
 		t.Fatal("partial answer must be persisted")
 	}
-	last := msgs[len(msgs)-1]
-	if !strings.Contains(last.Content, "پاسخ نیمه") || !last.Aborted {
-		t.Fatalf("partial answer must be saved as aborted: %+v", last)
+	// پیام خطای ماندگار بعد از پاسخ نیمه‌کاره ذخیره می‌شود؛ خودِ پاسخ
+	// نیمه‌کاره باید همچنان با Aborted باقی بماند (نه لزوماً آخرین پیام).
+	var partial *Message
+	for i := range msgs {
+		if strings.Contains(msgs[i].Content, "پاسخ نیمه") && msgs[i].Aborted {
+			partial = &msgs[i]
+		}
+	}
+	if partial == nil {
+		t.Fatalf("partial answer must be saved as aborted; messages=%+v", msgs)
 	}
 	waitErrorLogContains(t, logPath, "دریافت پاسخ متوقف شد (بدون داده برای ۱ ثانیه). می‌توانید «ادامه» را بزنید.")
 }
@@ -274,15 +281,49 @@ func TestSubagentStallReturnsErrorReport(t *testing.T) {
 	}
 }
 
-// TestStreamIdleClampAndDefault — پیش‌فرض ۱۲۰ و بازه‌ی مجاز ۳۰..۹۰۰.
+// TestStreamIdleClampAndDefault — پیش‌فرض ۱۸۰ و بازه‌ی مجاز ۳۰..۹۰۰.
 func TestStreamIdleClampAndDefault(t *testing.T) {
 	cases := []struct{ in, want int }{
-		{0, 120}, {-5, 120}, {5, 30}, {30, 30}, {120, 120}, {901, 900}, {100000, 900},
+		{0, 180}, {-5, 180}, {5, 30}, {30, 30}, {120, 120}, {180, 180}, {901, 900}, {100000, 900},
 	}
 	for _, c := range cases {
 		if got := clampStreamIdleSeconds(c.in); got != c.want {
 			t.Fatalf("clamp(%d) = %d, want %d", c.in, got, c.want)
 		}
+	}
+}
+
+// TestStreamIdleGuardOnlyCountsAfterResponse — پیش از Arm هیچ سکونی شمرده
+// نمی‌شود (باگ «قطع بی‌دلیل»: صف سرویس‌دهنده با سکون اشتباه می‌شد).
+func TestStreamIdleGuardOnlyCountsAfterResponse(t *testing.T) {
+	withFastStreamIdle(t, 1)
+	g, _ := newStreamIdleGuard(context.Background(), time.Second)
+	defer g.Stop()
+	// بیش از مهلت، ولی هنوز پاسخی نرسیده (Arm نشده) → نباید لغو شود.
+	time.Sleep(1300 * time.Millisecond)
+	if g.Stalled() {
+		t.Fatal("انتظار قبل از رسیدن پاسخ نباید «سکون استریم» حساب شود")
+	}
+	// پس از Arm و نبود داده، سکون باید شلیک کند.
+	g.Arm()
+	deadline := time.Now().Add(3 * time.Second)
+	for !g.Stalled() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !g.Stalled() {
+		t.Fatal("پس از Arm و نبود داده باید سکون شود")
+	}
+}
+
+// TestFriendlyStreamErrorPersian — خطای خام context باید فارسی و راهنما شود.
+func TestFriendlyStreamErrorPersian(t *testing.T) {
+	canceled := friendlyStreamError(fmt.Errorf(`Post "https://x/v1/chat/completions": %w`, context.Canceled))
+	if strings.Contains(canceled, "context canceled") || !strings.Contains(canceled, "مهلت سکون") {
+		t.Fatalf("canceled error must be explained in Persian: %q", canceled)
+	}
+	deadline := friendlyStreamError(context.DeadlineExceeded)
+	if strings.Contains(deadline, "context deadline exceeded") || !strings.Contains(deadline, "زمان انتظار") {
+		t.Fatalf("deadline error must be explained in Persian: %q", deadline)
 	}
 }
 

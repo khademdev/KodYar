@@ -120,6 +120,15 @@ func TestParallelAndSubagentListsAreReadOnly(t *testing.T) {
 			t.Errorf("sub-agent allow-list references unknown tool %q", name)
 			continue
 		}
+		// run_command تنها استثنای مستند است: نه پیش‌فرض-allow است و نه در
+		// دستهٔ موازی می‌نشیند. داخل زیرایجنت فقط دستورهای راستی‌آزمایی را
+		// می‌پذیرد و از همان دروازه/سندباکس می‌گذرد (subagentRunCommand).
+		if name == "run_command" {
+			if d := toolDefaultDecision(name, true); d == permAllow {
+				t.Errorf("sub-agent run_command must keep needing the gate, got allow")
+			}
+			continue
+		}
 		if d := toolDefaultDecision(name, true); d != permAllow {
 			t.Errorf("sub-agent tool %q must be read-only (default allow), got %v", name, d)
 		}

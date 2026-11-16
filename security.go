@@ -219,9 +219,10 @@ func (a *App) execCustomTool(ctx context.Context, name string, args map[string]i
 
 	// استریم تدریجی خروجی به UI (chat:tool_output)
 	emit, flush := a.shellOutputEmitter(ctx)
-	out, _, err := runShell(cctx, ws, command, time.Duration(timeout)*time.Second, emit)
+	out, _, err := runShellWithPolicy(cctx, ws, command, time.Duration(timeout)*time.Second, emit, a.sandboxPolicyForCommand(ws, command))
 	flush()
-	result := truncateToolOutput(strings.TrimRight(out, "\n"))
+	// مثل run_command: انتهای خروجی (خطای واقعی) هم نگه داشته می‌شود.
+	result := truncateToolOutputKeepTail(strings.TrimRight(out, "\n"))
 	if err != nil {
 		if cctx.Err() == context.DeadlineExceeded {
 			return result + fmt.Sprintf("\nERROR: command timed out after %d second(s).", timeout), false

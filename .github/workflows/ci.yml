@@ -72,7 +72,8 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libglib2.0-dev \
             pkg-config \
-            build-essential
+            build-essential \
+            bubblewrap
 
       - name: Setup Go (from go.mod)
         uses: actions/setup-go@v5
@@ -85,6 +86,11 @@ jobs:
 
       - name: go test
         run: go test -count=1 ./...
+
+      # bwrap واقعی: اجرای سندباکس با bubblewrap نصب‌شده (نه فقط cross-compile).
+      # اگر runner امکان namespace ندهد تست با پیام روشن skip می‌شود.
+      - name: Linux sandbox exec test (real bwrap)
+        run: go test -count=1 -v -run 'TestLinuxSandbox' .
 
       # کامپایل واقعی فرانت‌اند دسکتاپ (GTK/WebKit با cgo) — تگ production
       # است که فرانت‌اند دسکتاپ را وارد کامپایل می‌کند و webkit2_41 پکیج

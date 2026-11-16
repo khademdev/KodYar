@@ -189,7 +189,8 @@ func TestExecuteToolCallsReadOnlyOverlap(t *testing.T) {
 
 func TestExecuteToolCallsWorkerLimit(t *testing.T) {
 	a := newTestApp(t)
-	const n = 8 // دو برابر سقف — موج دوم باید صف شود
+	limit := parallelToolLimit()
+	n := 2 * limit // دو برابر سقف — موج دوم باید صف شود
 	var active, maxActive int32
 	var once sync.Once
 	reached4 := make(chan struct{})
@@ -202,7 +203,7 @@ func TestExecuteToolCallsWorkerLimit(t *testing.T) {
 				break
 			}
 		}
-		if cur == parallelToolWorkers {
+		if cur == int32(limit) {
 			once.Do(func() { close(reached4) }) // چهار task هم‌زمان داخل اجرا
 		}
 		<-release
@@ -218,13 +219,13 @@ func TestExecuteToolCallsWorkerLimit(t *testing.T) {
 	select {
 	case <-reached4: // هم‌زمانی اثبات شد (دقیقاً ۴ داخل اجرا)
 	case <-time.After(5 * time.Second):
-		t.Fatal("4 concurrent workers never started — tools ran with a lower limit or sequentially")
+		t.Fatal("concurrent workers never started — tools ran with a lower limit or sequentially")
 	}
 	close(release)
 	outcomes := <-done
 	// سقف اثبات شد: هیچ‌گاه بیش از ۴ task هم‌زمان داخل executor نبوده
-	if got := atomic.LoadInt32(&maxActive); got != parallelToolWorkers {
-		t.Fatalf("max concurrent workers = %d, want exactly %d", got, parallelToolWorkers)
+	if got := atomic.LoadInt32(&maxActive); got != int32(limit) {
+		t.Fatalf("max concurrent workers = %d, want exactly %d", got, limit)
 	}
 	if len(outcomes) != n {
 		t.Fatalf("want %d outcomes, got %d", n, len(outcomes))
@@ -316,7 +317,9 @@ func TestExecuteToolCallsCancelMidFlight(t *testing.T) {
 	a := newTestApp(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	const n = 6 // سقف ۴ → دو task در صف می‌مانند
+	// سقف پویاست؛ دو task بیش از سقف می‌گیریم تا صف داشته باشیم.
+	limit := parallelToolLimit()
+	n := limit + 2
 	var mu sync.Mutex
 	started := map[string]bool{}
 	exec := func(ctx context.Context, name, argsJSON string) (string, bool) {
@@ -342,7 +345,7 @@ func TestExecuteToolCallsCancelMidFlight(t *testing.T) {
 		mu.Lock()
 		s := len(started)
 		mu.Unlock()
-		if s == parallelToolWorkers {
+		if s == limit {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
@@ -361,14 +364,14 @@ func TestExecuteToolCallsCancelMidFlight(t *testing.T) {
 			cancelledBefore++
 		}
 	}
-	if cancelledBefore != n-parallelToolWorkers {
-		t.Fatalf("queued tasks must be cancelled before running, want %d got %d", n-parallelToolWorkers, cancelledBefore)
+	if cancelledBefore != n-limit {
+		t.Fatalf("queued tasks must be cancelled before running, want %d got %d", n-limit, cancelledBefore)
 	}
 	// برای taskهای صف‌شده executor هرگز صدا نشده است
 	mu.Lock()
 	s := len(started)
 	mu.Unlock()
-	if s != parallelToolWorkers {
+	if s != limit {
 		t.Fatalf("executor must not run for queued tasks, got %d exec calls", s)
 	}
 }

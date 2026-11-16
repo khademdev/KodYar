@@ -19,10 +19,14 @@ import (
 	"time"
 )
 
-// پیش‌فرض و مرزهای مهلت بیکاری (ثانیه). تنظیم پنهان: Settings.StreamIdleTimeoutSec
+// پیش‌فرض و مرزهای مهلت بیکاری (ثانیه). تنظیم: Settings.StreamIdleTimeoutSec
 // (۰ = پیش‌فرض). clamp: ۳۰..۹۰۰ ثانیه.
+//
+// ۱۲۰ → ۱۸۰ (رفع باگ «قطع بی‌دلیل»): واسط‌های واسط (aggregator) و مدل‌های
+// reasoning گاهی بیش از دو دقیقه تا اولین بایت ساکت‌اند و کاربر فقط خطای خام
+// «context canceled» می‌دید.
 var (
-	streamIdleDefaultSec = 120
+	streamIdleDefaultSec = 180
 	streamIdleMinSec     = 30
 	streamIdleMaxSec     = 900
 	// streamIdlePollEvery فاصله‌ی بررسی نگهبان — در تست‌ها کوچک می‌شود.
@@ -49,7 +53,12 @@ type streamIdleGuard struct {
 	idle     time.Duration
 	lastRead atomic.Int64 // UnixNano آخرین خواندن موفق (هر بایت، حتی کامنت)
 	stalled  atomic.Bool  // لغو توسط نگهبان (نه کاربر)
-	cancel   context.CancelFunc
+	// armed — تا پاسخ نرسیده، زمان انتظار «سکون» شمرده نمی‌شود. پیش از این،
+	// صفِ سرویس‌دهنده/تأخیر هدرها با مهلت سکون اشتباه می‌شد و درخواست سالم
+	// پیش از رسیدن پاسخ کشته می‌شد؛ انتظار هدر با مهلت خود کلاینت HTTP
+	// (ResponseHeaderTimeout) کران‌دار است، پس این کران از دست نمی‌رود.
+	armed  atomic.Bool
+	cancel context.CancelFunc
 
 	stopOnce sync.Once
 	stopCh   chan struct{}
@@ -81,6 +90,9 @@ func (g *streamIdleGuard) watch() {
 		case <-g.stopCh:
 			return
 		case <-t.C:
+			if !g.armed.Load() {
+				continue // هنوز پاسخی نرسیده — این انتظار «سکون استریم» نیست
+			}
 			last := time.Unix(0, g.lastRead.Load())
 			if time.Since(last) >= g.idle {
 				g.stalled.Store(true)
@@ -89,6 +101,16 @@ func (g *streamIdleGuard) watch() {
 			}
 		}
 	}
+}
+
+// Arm شمارش سکون را از همین لحظه آغاز می‌کند — دقیقاً پس از رسیدن پاسخ
+// (هدرها)، نه از لحظه‌ی ساخت درخواست.
+func (g *streamIdleGuard) Arm() {
+	if g == nil {
+		return
+	}
+	g.lastRead.Store(time.Now().UnixNano())
+	g.armed.Store(true)
 }
 
 // Body بدنه‌ی پاسخ را می‌پیچد تا هر خواندن موفق، فعالیت حساب شود.

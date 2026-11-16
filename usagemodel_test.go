@@ -85,23 +85,91 @@ func TestSettingsViewPerModelTokens(t *testing.T) {
 	}
 }
 
-// TestAgentThinkOnlyTurnNotice حالت ۱: مدل فقط reasoning می‌فرستد و تمام —
-// اعلان «فقط استدلال» باید صادر شود و thinking بدون متنِ قابل‌نمایش ذخیره شود.
-func TestAgentThinkOnlyTurnNotice(t *testing.T) {
+// TestAgentThinkOnlyAutoRecovers حالت ۱: مدل فقط reasoning می‌فرستد و تمام —
+// یک‌بار خودکار ادامه خواسته می‌شود و پاسخ نهایی ذخیره می‌شود.
+func TestAgentThinkOnlyAutoRecovers(t *testing.T) {
 	raw := "data: " + `{"choices":[{"delta":{"reasoning_content":"Analyzing the request..."},"finish_reason":null}]}` + "\n\n" +
 		"data: " + `{"choices":[{"delta":{},"finish_reason":"stop"}]}` + "\n\n" +
 		"data: [DONE]" + "\n\n"
 	env := newE2E(t, scenarioStep{Raw: raw})
 	conv := env.send("سلام")
 
+	if n := env.model.count(); n != 2 {
+		t.Fatalf("expected exactly one automatic recovery request (2 total), got %d", n)
+	}
+	reqs := env.model.requests()
+	if !strings.Contains(requestMessages(reqs[1]), "no visible answer") {
+		t.Fatalf("recovery directive missing from second request:\n%s", requestMessages(reqs[1]))
+	}
+	if got := lastAssistant(conv); got != "تمام شد." {
+		t.Fatalf("final answer after recovery = %q, want fallback answer", got)
+	}
 	found := false
 	for _, n := range env.noticesText() {
-		if strings.Contains(n, "فقط استدلال") {
+		if strings.Contains(n, "پاسخ متنی") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("think-only notice missing; notices=%v", env.noticesText())
+		t.Fatalf("recovery notice missing; notices=%v", env.noticesText())
+	}
+}
+
+// TestAgentLengthCutAutoRecovers حالت ۲: استدلال با finish_reason=length
+// برش می‌خورد — یک‌بار خودکار ادامه خواسته می‌شود و پاسخ نهایی می‌آید.
+func TestAgentLengthCutAutoRecovers(t *testing.T) {
+	raw := "data: " + `{"choices":[{"delta":{"reasoning_content":"Deep reasoning that got cut"},"finish_reason":"length"}]}` + "\n\n" +
+		"data: [DONE]" + "\n\n"
+	env := newE2E(t, scenarioStep{Raw: raw})
+	conv := env.send("سلام")
+
+	if n := env.model.count(); n != 2 {
+		t.Fatalf("expected exactly one automatic recovery request (2 total), got %d", n)
+	}
+	reqs := env.model.requests()
+	if !strings.Contains(requestMessages(reqs[1]), "output token limit") {
+		t.Fatalf("length-aware recovery directive missing:\n%s", requestMessages(reqs[1]))
+	}
+	if got := lastAssistant(conv); got != "تمام شد." {
+		t.Fatalf("final answer after recovery = %q, want fallback answer", got)
+	}
+	found := false
+	for _, n := range env.noticesText() {
+		if strings.Contains(n, "سقف توکن خروجی") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("length-cut recovery notice missing; notices=%v", env.noticesText())
+	}
+}
+
+// TestAgentEmptyAnswerAutoRecovers حالت ۳: پاسخ کاملاً خالی (بدون متن، بدون
+// فکر، بدون ابزار) — یک‌بار خودکار ادامه خواسته می‌شود.
+func TestAgentEmptyAnswerAutoRecovers(t *testing.T) {
+	env := newE2E(t, scenarioStep{})
+	conv := env.send("سلام")
+
+	if n := env.model.count(); n != 2 {
+		t.Fatalf("expected exactly one automatic recovery request (2 total), got %d", n)
+	}
+	if got := lastAssistant(conv); got != "تمام شد." {
+		t.Fatalf("final answer after recovery = %q, want fallback answer", got)
+	}
+}
+
+// TestAgentSilentTurnPersistsNoticeAfterFailedRecovery: اگر بازیابی خودکار هم
+// پاسخی نگیرد، نوبت نباید خاموش تمام شود؛ یک پیام ماندگار با دلیل و راه‌حل
+// ذخیره می‌شود و thinking دورِ اول حفظ می‌ماند.
+func TestAgentSilentTurnPersistsNoticeAfterFailedRecovery(t *testing.T) {
+	raw := "data: " + `{"choices":[{"delta":{"reasoning_content":"Analyzing the request..."},"finish_reason":null}]}` + "\n\n" +
+		"data: " + `{"choices":[{"delta":{},"finish_reason":"stop"}]}` + "\n\n" +
+		"data: [DONE]" + "\n\n"
+	env := newE2E(t, scenarioStep{Raw: raw}, scenarioStep{Raw: raw})
+	conv := env.send("سلام")
+
+	if n := env.model.count(); n != 2 {
+		t.Fatalf("recovery must be attempted exactly once (2 requests), got %d", n)
 	}
 	var last *Message
 	for i := range conv.Messages {
@@ -110,66 +178,69 @@ func TestAgentThinkOnlyTurnNotice(t *testing.T) {
 		}
 	}
 	if last == nil {
-		t.Fatal("assistant message (thinking-only) was not saved")
+		t.Fatal("a persistent notice message must be saved instead of a silent turn")
 	}
-	if strings.TrimSpace(last.Content) != "" {
-		t.Fatalf("visible content must be empty, got %q", last.Content)
+	if !strings.Contains(last.Content, "⚠️") || !strings.Contains(last.Content, "فقط استدلال") {
+		t.Fatalf("persistent notice text missing: %q", last.Content)
 	}
-	if last.Thinking == "" {
-		t.Fatal("thinking must be saved on the assistant message")
+	if !strings.Contains(last.Thinking, "Analyzing the request") {
+		t.Fatalf("thinking of the silent round must be preserved, got %q", last.Thinking)
 	}
 }
 
-// TestAgentLengthCutThinkingNotice حالت ۲: استدلال با finish_reason=length
-// برش می‌خورد — اعلان «سقف توکن خروجی» باید صادر شود.
-func TestAgentLengthCutThinkingNotice(t *testing.T) {
-	raw := "data: " + `{"choices":[{"delta":{"reasoning_content":"Deep reasoning that got cut"},"finish_reason":"length"}]}` + "\n\n" +
+// TestAgentUnnamedToolCallAutoRecovers: tool_call بدون name (pend غیرخالی ولی
+// فراخوانی قابل‌اجرا صفر) قبلاً هیچ اعلانی هم صادر نمی‌کرد؛ حالا باید بازیابی
+// شود، نه سکوت.
+func TestAgentUnnamedToolCallAutoRecovers(t *testing.T) {
+	raw := "data: " + `{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"arguments":"{}"}}]},"finish_reason":null}]}` + "\n\n" +
+		"data: " + `{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}` + "\n\n" +
 		"data: [DONE]" + "\n\n"
 	env := newE2E(t, scenarioStep{Raw: raw})
-	_ = env.send("سلام")
-
-	found := false
-	for _, n := range env.noticesText() {
-		if strings.Contains(n, "سقف توکن خروجی") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("length-cut notice missing; notices=%v", env.noticesText())
-	}
-}
-
-// TestAgentEmptyAnswerNotice حالت ۳: پاسخ کاملاً خالی (بدون متن، بدون فکر،
-// بدون ابزار) — اعلان «پاسخ خالی» باید صادر شود و پیام دستیار خالی ذخیره
-// نشود (رفتار قبلی حفظ می‌شود).
-func TestAgentEmptyAnswerNotice(t *testing.T) {
-	env := newE2E(t, scenarioStep{})
 	conv := env.send("سلام")
 
-	found := false
-	for _, n := range env.noticesText() {
-		if strings.Contains(n, "پاسخ خالی") {
-			found = true
-		}
+	if n := env.model.count(); n != 2 {
+		t.Fatalf("unnamed tool call must trigger one recovery request (2 total), got %d", n)
 	}
-	if !found {
-		t.Fatalf("empty-answer notice missing; notices=%v", env.noticesText())
-	}
-	for i := range conv.Messages {
-		if conv.Messages[i].Role == "assistant" {
-			t.Fatal("empty answer must not append an assistant message")
-		}
+	if got := lastAssistant(conv); got != "تمام شد." {
+		t.Fatalf("final answer after recovery = %q, want fallback answer", got)
 	}
 }
 
-// TestAgentNormalAnswerHasNoSilentNotice در پاسخ سالم هیچ اعلان «خاموش»
-// نباید صادر شود — گاردِ ضد-هشدار-کاذب.
+// TestAgentProviderErrorIsPersisted: خطای پایان نوبت (مثل ۴۲۹) فقط توست
+// گذرا نباشد؛ باید به‌صورت پیام ماندگار در گفتگو بماند.
+func TestAgentProviderErrorIsPersisted(t *testing.T) {
+	withInstantRetry(t)
+	env := newE2E(t,
+		scenarioStep{Status: 429}, scenarioStep{Status: 429},
+		scenarioStep{Status: 429}, scenarioStep{Status: 429},
+	)
+	conv := env.send("سلام")
+
+	var last *Message
+	for i := range conv.Messages {
+		if conv.Messages[i].Role == "assistant" {
+			last = &conv.Messages[i]
+		}
+	}
+	if last == nil {
+		t.Fatal("provider error must be persisted as a visible message")
+	}
+	if !strings.Contains(last.Content, "⚠️") || !strings.Contains(last.Content, "429") {
+		t.Fatalf("persisted error message missing reason: %q", last.Content)
+	}
+}
+
+// TestAgentNormalAnswerHasNoSilentNotice در پاسخ سالم هیچ بازیابی/اعلان
+// «خاموش» نباید رخ دهد — گاردِ ضد-هشدار-کاذب.
 func TestAgentNormalAnswerHasNoSilentNotice(t *testing.T) {
 	env := newE2E(t, scenarioStep{Text: "پاسخ سالم مدل."})
 	conv := env.send("سلام")
 
+	if n := env.model.count(); n != 1 {
+		t.Fatalf("healthy answer must be a single request, got %d", n)
+	}
 	for _, n := range env.noticesText() {
-		if strings.Contains(n, "پاسخ خالی") || strings.Contains(n, "فقط استدلال") || strings.Contains(n, "سقف توکن خروجی") {
+		if strings.Contains(n, "پاسخ متنی") || strings.Contains(n, "سقف توکن خروجی") {
 			t.Fatalf("false-positive silent-answer notice on a healthy turn: %q", n)
 		}
 	}

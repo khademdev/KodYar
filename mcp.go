@@ -172,6 +172,7 @@ type rpcResult struct {
 type mcpClient struct {
 	name   string
 	cmd    *exec.Cmd
+	sbx    *sandboxMCPProcess // غیر nil = سرور داخل AppContainer
 	tree   *procTree
 	stdin  io.WriteCloser
 	stdout io.ReadCloser
@@ -308,29 +309,51 @@ func startMCPClient(ctx context.Context, app *App, cfg MCPServerConfig, onListCh
 		return nil, fmt.Errorf("MCP server '%s': command %q not found in PATH", cfg.Name, cfg.Command)
 	}
 
-	cmd := exec.Command(lp, cfg.Args...)
-	hideConsoleWindow(cmd) // سرور MCP هم نباید پنجره‌ی کنسول فلش کند
-	cmd.Env = env
-	tree, terr := prepareProcessTree(cmd)
-	if terr != nil {
-		return nil, fmt.Errorf("MCP server '%s': process tree setup: %w", cfg.Name, terr)
+	var (
+		cmd        *exec.Cmd
+		tree       *procTree
+		stdin      io.WriteCloser
+		stdout     io.ReadCloser
+		stderrPipe io.ReadCloser
+		sbx        *sandboxMCPProcess
+	)
+	pol, ws, sandboxed := app.mcpSandboxPolicy()
+	if sandboxed {
+		var serr error
+		sbx, serr = startSandboxedMCPProcess(lp, cfg.Args, ws, env, pol.AllowNetwork)
+		if serr != nil {
+			return nil, fmt.Errorf("MCP server '%s': %v", cfg.Name, serr)
+		}
+		stdin, stdout, stderrPipe = sbx.stdin, sbx.stdout, sbx.stderr
+	} else {
+		cmd = exec.Command(lp, cfg.Args...)
+		hideConsoleWindow(cmd) // سرور MCP هم نباید پنجره‌ی کنسول فلش کند
+		cmd.Env = env
+		var terr error
+		tree, terr = prepareProcessTree(cmd)
+		if terr != nil {
+			return nil, fmt.Errorf("MCP server '%s': process tree setup: %w", cfg.Name, terr)
+		}
+		stdin, err = cmd.StdinPipe()
+		if err != nil {
+			return nil, fmt.Errorf("MCP server '%s': stdin pipe: %w", cfg.Name, err)
+		}
+		stdout, err = cmd.StdoutPipe()
+		if err != nil {
+			return nil, fmt.Errorf("MCP server '%s': stdout pipe: %w", cfg.Name, err)
+		}
+		stderrPipe, err = cmd.StderrPipe()
+		if err != nil {
+			return nil, fmt.Errorf("MCP server '%s': stderr pipe: %w", cfg.Name, err)
+		}
+		if err := cmd.Start(); err != nil {
+			return nil, fmt.Errorf("MCP server '%s': cannot start %q: %w", cfg.Name, cfg.Command, err)
+		}
 	}
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, fmt.Errorf("MCP server '%s': stdin pipe: %w", cfg.Name, err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("MCP server '%s': stdout pipe: %w", cfg.Name, err)
-	}
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, fmt.Errorf("MCP server '%s': stderr pipe: %w", cfg.Name, err)
-	}
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("MCP server '%s': cannot start %q: %w", cfg.Name, cfg.Command, err)
-	}
-	if err := tree.attach(cmd); err != nil {
+	if sandboxed {
+		// سرور داخل AppContainer درختِ procTree ندارد؛ Job Object خودش
+		// کل درخت را با KILL_ON_JOB_CLOSE می‌کشد.
+	} else if err := tree.attach(cmd); err != nil {
 		_ = cmd.Process.Kill()
 		_, _ = cmd.Process.Wait()
 		tree.close()
@@ -345,6 +368,7 @@ func startMCPClient(ctx context.Context, app *App, cfg MCPServerConfig, onListCh
 	c := &mcpClient{
 		name:        cfg.Name,
 		cmd:         cmd,
+		sbx:         sbx,
 		tree:        tree,
 		stdin:       stdin,
 		stdout:      stdout,
@@ -714,7 +738,7 @@ func (c *mcpClient) waitExit() {
 			c.exitOnce.Do(func() {
 				c.failPending(errors.New("internal error while waiting for server process"))
 				c.markClosed()
-				c.tree.close()
+				c.closeTree()
 				if cb := c.onExit; cb != nil && !c.deliberate.Load() {
 					cb()
 				}
@@ -725,7 +749,12 @@ func (c *mcpClient) waitExit() {
 	case <-c.readDone:
 	case <-time.After(mcpReadJoinTimeout):
 	}
-	werr := c.cmd.Wait()
+	var werr error
+	if c.sbx != nil {
+		werr = c.sbx.wait()
+	} else {
+		werr = c.cmd.Wait()
+	}
 	c.exitOnce.Do(func() {
 		c.failPending(fmt.Errorf("server process exited: %v", werr))
 		c.markClosed()
@@ -735,7 +764,7 @@ func (c *mcpClient) waitExit() {
 		// بستن stdin باعث EOF خواننده‌ها می‌شود؛ درخت هم دفاعاً بسته می‌شود
 		// (KILL_ON_JOB_CLOSE ویندوز / گروه فرایند یونیکس قبلاً سیگنال خورده‌اند).
 		_ = c.stdin.Close()
-		c.tree.close()
+		c.closeTree()
 		// خروج غیرمنتظره → خبر به manager (حذف از نقشه + شمارش backoff).
 		// توقف عامدانه (stop/kill از سمت ما) علامت خورده و callback نمی‌خورد.
 		if cb := c.onExit; cb != nil && !c.deliberate.Load() {
@@ -778,9 +807,21 @@ func (c *mcpClient) drainStderr(r io.ReadCloser) {
 	}
 }
 
+// closeTree بستن درخت را nil-safe می‌کند (سرور سندباکس‌شده tree ندارد).
+func (c *mcpClient) closeTree() {
+	if c.tree != nil {
+		c.tree.close()
+	}
+}
+
 // kill درخت فرایند را SIGTERM و بعد از مهلت کوتاه SIGKILL می‌کند؛ دیدنِ
 // خروج و آزادسازی pendingها کار goroutine waitExit است (از start).
 func (c *mcpClient) kill() {
+	if c.sbx != nil {
+		c.sbx.terminate()
+		time.AfterFunc(shellGracePeriod, func() { safeGo(c.app, "mcp.kill", c.sbx.close) })
+		return
+	}
 	c.tree.terminate()
 	time.AfterFunc(shellGracePeriod, func() { safeGo(c.app, "mcp.kill", c.tree.kill) })
 }
@@ -790,6 +831,11 @@ func (c *mcpClient) stop() {
 	c.deliberate.Store(true) // توقف از سمت ما — onExit/backoff بی‌معناست
 	c.markClosed()
 	_ = c.stdin.Close()
+	if c.sbx != nil {
+		c.sbx.terminate()
+		time.AfterFunc(shellGracePeriod, func() { safeGo(c.app, "mcp.kill", c.sbx.close) })
+		return
+	}
 	c.tree.terminate()
 	time.AfterFunc(shellGracePeriod, func() { safeGo(c.app, "mcp.kill", c.tree.kill) })
 }

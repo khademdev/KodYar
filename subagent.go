@@ -4,8 +4,9 @@
 // طراحی:
 // - ابزار `task` فقط از حلقه‌ی اصلی ایجنت قابل فراخوانی است. زیرایجنتِ
 // ساخته‌شده در runSubagent ابزارهایش را از execSubagentTool می‌گیرد که
-// فقط ۸ ابزار فقط‌خواندنی را می‌پذیرد — یعنی تودرتویی (task داخل
-// task) و هرگونه تغییر فایل/اجرای دستور از ابتدا غیرممکن است.
+// ابزارهای فقط‌خواندنی و run_commandِ محدود به راستی‌آزمایی را می‌پذیرد —
+// یعنی تودرتویی (task داخل task) و هرگونه تغییر فایل از ابتدا غیرممکن است
+// و دستورِ غیر تست/بیلد هم توسط subagentRunCommand رد می‌شود.
 // - زیرایجنت کاملاً headless است: هیچ رویدادی به UI نمی‌فرستد، چیزی روی
 // دیسک ذخیره نمی‌کند و بودجه‌ی توکن/دور خودش را دارد. خروجی نهایی‌اش
 // (کران‌دار) به‌عنوان نتیجه‌ی ابزار به مدلِ والد برمی‌گردد.
@@ -144,18 +145,25 @@ func truncateHeadTail(s string, limit int) string {
 
 // ---------------------------------------------------------------- ابزارها
 
-// subagentAllowedTools تنها ابزارهایی که زیرایجنت می‌تواند اجرا کند —
-// فقط‌خواندنی و بدون نیاز به هیچ تأیید تعاملی. تغییردهنده‌ها، run_command
+// subagentAllowedTools ابزارهای زیرایجنت: فقط‌خواندنی‌ها + run_commandِ
+// **محدود به دستورهای راستی‌آزمایی** (build/test/vet/lint/typecheck). تغییردهنده‌ها
 // و خودِ task عمداً غایب‌اند (تودرتویی ممنوع، یک سطح عمق).
+//
+// run_command در subagentRunCommand از همان دروازه‌ی دسترسی و همان سندباکس
+// run_command می‌گذرد؛ چون داخل زیرایجنت هیچ مودالی باز نمی‌شود، دستوری که
+// «نیاز به تأیید» داشته باشد اجرا نمی‌شود (به والد گزارش می‌شود).
 var subagentAllowedTools = map[string]bool{
-	"list_dir":     true,
-	"read_file":    true,
-	"search_files": true,
-	"glob":         true,
-	"git_status":   true,
-	"git_diff":     true,
-	"git_log":      true,
-	"git_show":     true,
+	"list_dir":        true,
+	"read_file":       true,
+	"search_files":    true,
+	"glob":            true,
+	"find_symbol":     true,
+	"find_references": true,
+	"git_status":      true,
+	"git_diff":        true,
+	"git_log":         true,
+	"git_show":        true,
+	"run_command":     true,
 }
 
 // subagentToolDefs زیرمجموعه‌ی فقط‌خواندنی agentToolDefs برای معرفی به مدل
@@ -178,10 +186,11 @@ func subagentSystemPrompt(workspace string) string {
 	b.WriteString("You are MyAI's read-only sub-agent. You were spawned by the main agent to complete ONE self-contained exploration or analysis task, with a fresh context.\n\n")
 	b.WriteString("Workspace directory (read-only tools are relative to it and CANNOT access anything outside it):\n")
 	b.WriteString(workspace + "\n\n")
-	b.WriteString("Available tools (read-only only): list_dir, read_file, search_files, glob, git_status, git_diff, git_log, git_show.\n\n")
+	b.WriteString("Available tools: list_dir, read_file, search_files, glob, find_symbol, find_references, git_status, git_diff, git_log, git_show, run_command (verification only).\n\n")
 	b.WriteString("Rules:\n")
 	b.WriteString("1. Explore efficiently: use glob / search_files to locate candidates, then read_file only the relevant parts. You have a limited number of rounds — plan before you read.\n")
-	b.WriteString("2. You CANNOT create, edit or delete files, run commands, ask the user questions, or spawn further sub-agents. Sensitive files (e.g. .env, private keys) are not readable.\n")
+	b.WriteString("2. You CANNOT create, edit or delete files, ask the user questions, or spawn further sub-agents. Sensitive files (e.g. .env, private keys) are not readable.\n")
+	b.WriteString("2b. run_command is limited to verification commands (go build/vet/test, npm/cargo/pytest test, tsc, lint). There is no approval modal inside a sub-agent, so a command that needs approval is refused: report it instead of insisting. Never start long-running or background processes, never install packages, never run mutating commands.\n")
 	b.WriteString("3. Base every statement on real tool output; never invent file contents. If something cannot be found or read, say so plainly.\n")
 	b.WriteString("4. When done (or when you cannot proceed), STOP calling tools and write your final report.\n")
 	b.WriteString("Final report format (concise, structured Markdown, English is fine):\n")
@@ -227,7 +236,15 @@ func (a *App) execSubagentTool(ctx context.Context, name, argsJSON string) (stri
 		return a.toolReadFile(ctx, gs("path"), gi("start_line"), gi("end_line"))
 	case "search_files":
 		regex := gb("regex") || gb("is_regex")
-		return a.toolSearchFiles(gs("query"), gs("path"), regex, gi("max_results"))
+		return a.toolSearchFilesOpts(searchOptions{
+			Query:         gs("query"),
+			Path:          gs("path"),
+			Regex:         regex,
+			MaxResults:    gi("max_results"),
+			Include:       gs("include"),
+			CaseSensitive: gb("case_sensitive"),
+			Context:       gi("context"),
+		})
 	case "glob":
 		return a.toolGlob(ctx, gs("pattern"), gs("path"))
 	case "git_status":
@@ -238,8 +255,67 @@ func (a *App) execSubagentTool(ctx context.Context, name, argsJSON string) (stri
 		return a.toolGitLog(ctx, gs("path"), gi("limit"))
 	case "git_show":
 		return a.toolGitShow(ctx, gs("ref"))
+	case "run_command":
+		if gb("background") {
+			return "ERROR: background processes are not allowed in sub-agents.", false
+		}
+		return a.subagentRunCommand(ctx, gs("command"))
 	}
 	return "ERROR: tool '" + name + "' is not available to sub-agents.", false
+}
+
+// subagentCommandTimeout سقف زمان یک دستور راستی‌آزمایی در زیرایجنت
+// (تست‌ها می‌توانند طول بکشند، ولی نه بی‌نهایت).
+const subagentCommandTimeout = 180 * time.Second
+
+// subagentRunCommand اجرای دستور در زیرایجنت — فقط دستورهای راستی‌آزمایی
+// (همان پیشوندهای turnReviewer)، با همان دروازهٔ دسترسی و سندباکس.
+func (a *App) subagentRunCommand(ctx context.Context, command string) (string, bool) {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return "ERROR: empty command.", false
+	}
+	if !isVerificationCommand(command) {
+		return "ERROR: sub-agents may only run verification commands (build/test/vet/lint/type-check). '" +
+			command + "' is not one; report it so the main agent can run it with the user's approval.", false
+	}
+	a.mu.Lock()
+	allowed := a.settings != nil && a.settings.AllowCommands
+	dir := ""
+	if a.settings != nil {
+		dir = strings.TrimSpace(a.settings.WorkspacePath)
+	}
+	a.mu.Unlock()
+	if !allowed {
+		return "ERROR: command execution is disabled by the user; report that instead of retrying.", false
+	}
+	if dir == "" {
+		return "ERROR: workspace directory is not configured.", false
+	}
+	if autoVerifyRepoBinary(dir, command) {
+		return "ERROR: running executables from inside the repository is not allowed in sub-agents ('" + command + "').", false
+	}
+	switch e := a.evalCommandPermDetailed(command); e.decision {
+	case permDeny:
+		return "ERROR: " + e.reason, false
+	case permAllow:
+	default:
+		return "ERROR: '" + command + "' needs the user's approval and no approval modal exists inside a sub-agent. Report the command so the main agent can run it.", false
+	}
+	ctx, cancel := context.WithTimeout(ctx, subagentCommandTimeout)
+	defer cancel()
+	out, code, err := runShellWithPolicy(ctx, dir, command, subagentCommandTimeout, nil,
+		a.sandboxPolicyForCommand(dir, command))
+	body := truncateToolOutputKeepTail(strings.TrimRight(out, "\n"))
+	header := fmt.Sprintf("exit=%d", code)
+	if err != nil && body == "" {
+		body = err.Error()
+	}
+	result := header + "\n" + body
+	if err != nil {
+		return result, false
+	}
+	return result, true
 }
 
 // ---------------------------------------------------------------- حلقه‌ی زیرایجنت
@@ -310,7 +386,7 @@ func (a *App) runSubagent(ctx context.Context, task string) (report string, ok b
 	budget := contextBudget(cw, maxTokens)
 	tools := subagentToolDefs()
 	history := []chatMessage{
-		{Role: "system", Content: subagentSystemPrompt(workspace)},
+		{Role: "system", Content: subagentSystemPrompt(workspace) + a.repoMapSubagentBlock(workspace)},
 		{Role: "user", Content: task},
 	}
 	counter := &historyTokenCache{}
@@ -504,7 +580,10 @@ type subagentHTTPError struct {
 	reason string
 }
 
-func (e *subagentHTTPError) Error() string { return fmt.Sprintf("HTTP %d: %s", e.status, e.reason) }
+// خطا رو به مدل است (انگلیسی)، ولی بدنهٔ خام/HTML هم نباید به آن برسد.
+func (e *subagentHTTPError) Error() string {
+	return fmt.Sprintf("HTTP %d: %s", e.status, sanitizeErrorSnippet(e.reason, maxSnippetRunes))
+}
 
 // subagentModelError خطای داخل بدنه‌ی استریم (chunk.Error).
 type subagentModelError struct{ message string }
@@ -580,6 +659,8 @@ func (a *App) subagentRequest(ctx context.Context, s *subagentSession, history [
 		guard.Stop()
 		return out, &subagentDialError{err: err}
 	}
+	// فقط از این لحظه (رسیدن پاسخ) سکون شمرده می‌شود (باگ «قطع بی‌دلیل»).
+	guard.Arm()
 	if resp.StatusCode != http.StatusOK {
 		reason := readErrorBody(resp.Body)
 		resp.Body.Close()

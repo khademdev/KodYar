@@ -105,7 +105,7 @@ func TestParallelReadOnlyToolsExcludesTask(t *testing.T) {
 func TestExecSubagentToolAllowlist(t *testing.T) {
 	a := newTestApp(t)
 	ctx := withSubagentNoAsk(context.Background())
-	for _, name := range []string{"write_file", "edit_file", "move_path", "delete_path", "create_dir", "run_command", "task", "custom_thing", "unknown"} {
+	for _, name := range []string{"write_file", "edit_file", "move_path", "delete_path", "create_dir", "task", "custom_thing", "unknown"} {
 		out, ok := a.execSubagentTool(ctx, name, `{}`)
 		if ok {
 			t.Fatalf("%s must be rejected inside sub-agents", name)
@@ -113,6 +113,11 @@ func TestExecSubagentToolAllowlist(t *testing.T) {
 		if !strings.Contains(out, "not available to sub-agents") {
 			t.Fatalf("%s: unexpected message %q", name, out)
 		}
+	}
+	// run_command مجاز است ولی داخل زیرایجنت هرگز مودال نمی‌گیرد: با
+	// دستورِ خاموش/نیازمند تأیید، بی‌صدا اجرا نمی‌شود.
+	if out, ok := a.execSubagentTool(ctx, "run_command", `{"command":"go build ./..."}`); ok {
+		t.Fatalf("run_command must not run without permission inside a sub-agent, got %q", out)
 	}
 	// فقط‌خواندنی مجاز است (پوشه‌ی خالی)
 	out, ok := a.execSubagentTool(ctx, "list_dir", `{}`)

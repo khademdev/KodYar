@@ -23,6 +23,10 @@ type App struct {
 
 	startedAt int64
 
+	// آخرین زمان‌بندی نوبت (latency.go) — قفل برگ، برای GetLastTurnTiming.
+	timingMu   sync.Mutex
+	lastTiming TurnTiming
+
 	// مدیریت تغییرات فایل ایجنت (diff/تأیید/revert)
 	changes *changesStore
 
@@ -73,6 +77,11 @@ type App struct {
 	// گرفته‌شده‌ی a.mu حرف با سرور نمی‌زند؛ ترتیب کامل در ARCHITECTURE.md.
 	mcp *mcpManager
 
+	// bgMu/bgProcs فرایندهای پس‌زمینه‌ی نشست (processes.go). قفل برگ است؛
+	// هرگز زیر a.mu گرفته نمی‌شود و کار طولانی زیر آن انجام نمی‌شود.
+	bgMu    sync.Mutex
+	bgProcs map[string]*bgProcess
+
 	// sessionAllowWrites اگر true باشد، تأیید نوشتن فایل برای بقیه‌ی عمر
 	// برنامه (یا تا خاموش شدن صریح) رد می‌شود — از مودال Diff با
 	// «اجازه تا پایان نشست». جدا از ConfirmFileWrites در settings است.
@@ -104,6 +113,10 @@ type App struct {
 	// factsCache کش «واقعیت‌های پروژه» (projectfacts.go) بر اساس مسیر
 	// پوشه‌ی کاری و اثر انگشت فایل‌های تعریف ساخت. قفل داخلی — برگ.
 	factsCache projectFactsCache
+
+	// repoMapCache کش کوتاه‌عمرِ «نقشهٔ مخزن» (repomap.go) — یک‌بار در هر نوبت
+	// برای پرامپت اصلی و زیرایجنت ساخته می‌شود. قفل داخلی — برگ.
+	repoMapCache repoMapCache
 
 	// checkpointMu قفل برگِ وضعیت نقطه‌ی بازگشت (checkpoint.go): کدام
 	// (گفتگو، نوبت) قبلاً تلاش شده و کدام اعلان‌ها قبلاً دیده شده‌اند.
@@ -143,6 +156,33 @@ func (a *App) startup(ctx context.Context) {
 		a.settings = defaultSettings()
 	}
 
+	// پایش خودکار شارژ سرویس‌دهنده (usageguard.go): هر ۱۵ دقیقه موجودی Provider
+	// فعال بررسی می‌شود؛ افزایش موجودی یا بازیابی پس از خطای سهمیه → شمارنده‌های
+	// مصرف خودکار صفر می‌شوند. کاربر دیگر دکمهٔ «صفر کردن» ندارد.
+	if a.settings != nil && a.settings.AutoUsageReset {
+		startUsageGuard(a)
+	}
+
+	// گرم‌کردن سرورهای MCP در پس‌زمینه — تا اسپاون/initialize/tools/list
+	// در نخستین نوبت و وسط TTFT انجام نشود (mcpWarmStart، بی‌صدا و best-effort).
+	safeGo(a, "mcp.warmStart", func() { a.mcpWarmStart(context.Background()) })
+
+	// سندباکس ویندوز: ACE دستگاه NUL با هر بوت بازنشانی می‌شود؛ اسکریپت را
+	// در Startup کاربر ثبت و همین حالا (بی‌صدا، best-effort) اجرا می‌کنیم.
+	if sandboxSupported() {
+		go func() {
+			if err := sandboxPlatformStartup(); err != nil {
+				runtime.LogWarningf(ctx, "sandbox nul grant: %v", err)
+			}
+		}()
+	}
+
+	// پوشه‌ی کاری پیش‌فرض (…\Projects\MyWorkspace) در اولین اجرا باید روی
+	// دیسک ساخته شود؛ loadSettings فقط رشته‌ی مسیر را ست می‌کند.
+	if err := a.ensureDefaultWorkspace(); err != nil {
+		runtime.LogWarningf(ctx, "default workspace: %v", err)
+	}
+
 	// جاروی فایل‌های.tmp جامانده از نوشتن‌های اتمیک نیم‌کاره (کرش بین
 	// نوشتن و rename). کل درخت config، بازگشتی، best-effort.
 	if cdir, cerr := a.configDir(); cerr == nil {
@@ -169,6 +209,8 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.mcp != nil {
 		a.mcp.stopAll()
 	}
+	// کشتن فرایندهای پس‌زمینه‌ی همین نشست (dev server/watch) — خروج تمیز.
+	a.stopAllBackgroundProcesses()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.settings != nil {

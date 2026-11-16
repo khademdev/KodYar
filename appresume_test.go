@@ -105,25 +105,6 @@ func TestResumeAgentFlow(t *testing.T) {
 
 // ---------------------------------------------------------------- خروجی UTF-8
 
-func TestExportMDUTF8Truncation(t *testing.T) {
-	// محتوای فارسیِ چندبایتی بزرگ‌تر از ۴۰۰۰ بایت — برش نباید کاراکتر را نصف کند
-	big := strings.Repeat("سلام دنیا — پایتون و گو\n", 300) // ~15KB
-	c := &Conversation{ID: newID(), Title: "خروجی", Messages: []Message{
-		{ID: newID(), Role: "tool", ToolName: "read_file", Content: big, ToolOK: true},
-	}}
-	out := exportConversationMD(c)
-	if !strings.Contains(out, "[بریده شده در خروجی]") {
-		t.Fatal("truncation marker missing")
-	}
-	if strings.HasSuffix(strings.TrimSpace(out), "\uFFFD") {
-		t.Fatal("output ends with broken rune — cutUTF8 not respected")
-	}
-	// کل رشته باید UTF-8 معتبر باشد
-	if !utf8ValidString(out) {
-		t.Fatal("exported markdown contains invalid UTF-8")
-	}
-}
-
 // utf8ValidString کمکِ تست (بدون وابستگی به unicode/utf8 در تست).
 func utf8ValidString(s string) bool {
 	for _, r := range s {

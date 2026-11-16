@@ -33,6 +33,9 @@ func newTestApp(t *testing.T) *App {
 	a.settings.Provider = "ollama"
 	a.settings.Model = "llama3.2"
 	a.settings.WorkspacePath = t.TempDir()
+	// تست‌های واحد/E2E منطق ایجنت را می‌سنجند، نه ایزوله‌سازی سیستم‌عامل؛
+	// سندباکس واقعی تست مستقل خودش را دارد (sandbox_windows_test.go).
+	a.settings.SandboxMode = "off"
 	a.settings.AllowCommands = true
 	// در تست‌ها UI وجود ندارد؛ تأیید تعاملی خاموش می‌شود (تست‌های اختصاصی
 	// چرخه‌ی تأیید در changes_test.go با کانال مصنوعی بررسی می‌شوند).

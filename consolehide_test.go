@@ -19,7 +19,12 @@ import (
 
 // consoleHideAllowList: "file.go:var" → دلیل. فقط برای سایتی که پوشش کنسول
 // بی‌معناست (مثلاً شاخه‌ی POSIX) — هر ورودی تازه باید توجیه شود.
-var consoleHideAllowList = map[string]string{}
+var consoleHideAllowList = map[string]string{
+	// backend لینوکس فقط روی لینوکس کامپایل می‌شود؛ پوشش پنجره‌ی کنسول
+	// مفهوم ویندوزی است و SysProcAttr ویندوزی آن‌جا وجود ندارد.
+	"sandbox_linux.go:cmd":     "Linux bwrap backend (no Windows console)",
+	"sandbox_mcp_linux.go:cmd": "Linux bwrap MCP backend (no Windows console)",
+}
 
 func TestEveryExecCommandHidesConsole(t *testing.T) {
 	files, err := filepath.Glob("*.go")

@@ -24,6 +24,16 @@ import (
 // webFetchToolName نام ابزار (برای قاعده‌های ویژه‌ی این ابزار).
 const webFetchToolName = "web_fetch"
 
+// webSearchToolName ابزار جست‌وجوی وب — همان دروازه‌ی دسترسی web_fetch.
+const webSearchToolName = "web_search"
+
+// webHostGatedTool آیا این ابزار ترافیک وب دارد و اجازه‌ی آن فقط per-host
+// (و هرگز سراسری) است؟ کوئری جست‌وجو هم می‌تواند راز کاربر را حمل کند، پس
+// web_search دقیقاً مثل web_fetch رفتار می‌کند.
+func webHostGatedTool(name string) bool {
+	return name == webFetchToolName || name == webSearchToolName
+}
+
 // normalizeWebHost نام میزبان را برای ذخیره/تطبیق یکدست می‌کند:
 // کوچک، بدون پورت، بدون نقطه‌ی انتهایی، بدون براکت IPv6.
 func normalizeWebHost(host string) string {

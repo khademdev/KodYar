@@ -1,76 +1,76 @@
-/* MyAI — کارت «خلاصه‌ی واقعی این نوبت» (turnsummary.js — Stage 2)
+/* MyAI — turnsummary.css
+ *
+ * کارت «خلاصه‌ی واقعی این نوبت» (turnsummary.js — Stage 2)
  *
  * منطق نمایش با کلاس‌های موجود (.modal-*، .btn، .hint-row، .dl*) هم‌خوان است؛
  * فقط استایل‌های اختصاصی کارت اینجا تعریف می‌شوند. همه‌ی اندازه‌ها با متغیرهای
  * موضوع (var(--…)) تا با تم روشن/تاریک و اندازه‌ی فونت UI مقیاس شوند.
  */
 
+/* ---------- کارت اصلی ---------- */
 .ts-card {
   margin: 10px 2px 4px;
   border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--bg2, rgba(255, 255, 255, 0.03));
-  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--card);
+  padding: 11px 13px;
+  box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-
 .ts-head {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-
 .ts-title {
   font-weight: 600;
-  font-size: calc(var(--ui-size, 14px) - 1px);
+  font-size: calc(var(--ui-size) - 1px);
   color: var(--text);
 }
-
 .ts-count {
-  font-size: calc(var(--ui-size, 14px) - 2px);
-  color: var(--text3, var(--text));
+  font-size: calc(var(--ui-size) - 2px);
+  color: var(--text3);
   opacity: 0.8;
 }
 
+/* ---------- چیپ‌های وضعیت ---------- */
 .ts-warn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   align-self: flex-start;
-  font-size: calc(var(--ui-size, 14px) - 2px);
-  color: var(--warn, #e6a700);
-  background: rgba(230, 167, 0, 0.12);
-  border: 1px solid rgba(230, 167, 0, 0.35);
+  font-size: calc(var(--ui-size) - 2px);
+  color: var(--warn);
+  background: var(--warn-soft);
+  border: 1px solid rgba(224, 162, 74, 0.35);
   border-radius: 999px;
   padding: 2px 10px;
 }
-
 .ts-ok {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   align-self: flex-start;
-  font-size: calc(var(--ui-size, 14px) - 2px);
-  color: var(--ok, #2ea043);
-  background: rgba(46, 160, 67, 0.1);
-  border: 1px solid rgba(46, 160, 67, 0.3);
+  font-size: calc(var(--ui-size) - 2px);
+  color: var(--ok);
+  background: var(--ok-soft);
+  border: 1px solid rgba(63, 185, 132, 0.3);
   border-radius: 999px;
   padding: 2px 10px;
 }
-
 .ts-ok-cmd {
   font-family: var(--font-code);
   unicode-bidi: isolate;
 }
 
+/* ---------- فهرست فایل‌ها ---------- */
 .ts-files {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
-
 .ts-file {
   display: flex;
   align-items: center;
@@ -79,32 +79,36 @@
   text-align: start;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 4px 6px;
   cursor: pointer;
   color: var(--text);
   font: inherit;
 }
-
 .ts-file:hover {
   border-color: var(--border);
-  background: var(--bg3, rgba(255, 255, 255, 0.04));
+  background: var(--bg-soft);
 }
-
 .ts-op {
   flex: none;
-  font-size: calc(var(--ui-size, 14px) - 3px);
-  border-radius: 6px;
+  font-size: calc(var(--ui-size) - 3px);
+  border-radius: var(--radius-xs);
   padding: 1px 7px;
-  background: var(--bg3, rgba(127, 127, 127, 0.15));
-  color: var(--text2, var(--text));
+  background: var(--bg-soft);
+  color: var(--text2);
 }
-
-.ts-op-create { color: var(--ok, #2ea043); }
-.ts-op-modify { color: var(--text2, var(--text)); }
-.ts-op-delete { color: var(--danger, #f85149); }
-.ts-op-move { color: var(--accent, #58a6ff); }
-
+.ts-op-create {
+  color: var(--ok);
+}
+.ts-op-modify {
+  color: var(--text2);
+}
+.ts-op-delete {
+  color: var(--danger);
+}
+.ts-op-move {
+  color: var(--accent-h);
+}
 .ts-path {
   flex: 1;
   min-width: 0;
@@ -112,61 +116,55 @@
   unicode-bidi: isolate;
   text-align: left;
   font-family: var(--font-code);
-  font-size: calc(var(--ui-size, 14px) - 2px);
+  font-size: calc(var(--ui-size) - 2px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 .ts-stat {
   flex: none;
   direction: ltr;
   unicode-bidi: isolate;
-  font-size: calc(var(--ui-size, 14px) - 3px);
-  color: var(--text3, var(--text));
+  font-size: calc(var(--ui-size) - 3px);
+  color: var(--text3);
   font-family: var(--font-code);
 }
-
 .ts-protected {
   flex: none;
-  font-size: calc(var(--ui-size, 14px) - 3px);
-  color: var(--warn, #e6a700);
-  border: 1px solid rgba(230, 167, 0, 0.4);
+  font-size: calc(var(--ui-size) - 3px);
+  color: var(--warn);
+  border: 1px solid rgba(224, 162, 74, 0.4);
   border-radius: 999px;
   padding: 0 7px;
 }
-
 .ts-revtag {
   flex: none;
-  font-size: calc(var(--ui-size, 14px) - 3px);
-  color: var(--text3, var(--text));
+  font-size: calc(var(--ui-size) - 3px);
+  color: var(--text3);
   opacity: 0.8;
 }
-
 .ts-file.ts-reverted .ts-path {
   text-decoration: line-through;
   opacity: 0.6;
 }
 
+/* ---------- فهرست دستورات ---------- */
 .ts-cmds-title {
-  font-size: calc(var(--ui-size, 14px) - 2px);
-  color: var(--text3, var(--text));
+  font-size: calc(var(--ui-size) - 2px);
+  color: var(--text3);
   margin-top: 2px;
 }
-
 .ts-cmds {
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
-
 .ts-cmd {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
-
 .ts-cmd-text {
   flex: 1;
   min-width: 0;
@@ -174,41 +172,48 @@
   unicode-bidi: isolate;
   text-align: left;
   font-family: var(--font-code);
-  font-size: calc(var(--ui-size, 14px) - 3px);
-  color: var(--text2, var(--text));
+  font-size: calc(var(--ui-size) - 3px);
+  color: var(--text2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 .ts-exit {
   flex: none;
-  font-size: calc(var(--ui-size, 14px) - 3px);
-  color: var(--danger, #f85149);
+  font-size: calc(var(--ui-size) - 3px);
+  color: var(--danger);
 }
-
 .ts-exit-ok {
-  color: var(--ok, #2ea043);
+  color: var(--ok);
 }
-
 .ts-verified {
   flex: none;
-  font-size: calc(var(--ui-size, 14px) - 3px);
-  color: var(--ok, #2ea043);
-  border: 1px solid rgba(46, 160, 67, 0.35);
+  font-size: calc(var(--ui-size) - 3px);
+  color: var(--ok);
+  border: 1px solid rgba(63, 185, 132, 0.35);
   border-radius: 999px;
   padding: 0 7px;
 }
-
 .ts-tokens {
-  font-size: calc(var(--ui-size, 14px) - 3px);
-  color: var(--text3, var(--text));
+  font-size: calc(var(--ui-size) - 3px);
+  color: var(--text3);
+}
+/* زمان‌بندی نوبت (latency.go → chat:timing): TTFT/دور/ابزار/کل */
+.ts-timing {
+  font-size: calc(var(--ui-size) - 3px);
+  color: var(--text3);
+  direction: rtl;
+  font-variant-numeric: tabular-nums;
+  border-top: 1px dashed var(--border);
+  padding-top: 5px;
 }
 
+/* ---------- فوتر کارت ---------- */
 .ts-foot {
   display: flex;
   justify-content: flex-start;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 /* یادداشت مسیر محافظت‌شده در مودال تأیید Diff (تزریق از turnsummary.js) */
@@ -217,109 +222,16 @@
   display: flex;
   align-items: flex-start;
   gap: 7px;
-  font-size: calc(var(--ui-size, 14px) - 2px);
+  font-size: calc(var(--ui-size) - 2px);
   line-height: 1.8;
-  color: var(--warn, #e6a700);
-  background: rgba(230, 167, 0, 0.1);
-  border: 1px solid rgba(230, 167, 0, 0.35);
-  border-radius: 8px;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border: 1px solid rgba(224, 162, 74, 0.35);
+  border-radius: var(--radius-sm);
   padding: 6px 10px;
 }
 
 /* ---------------- بازگردانی کل پروژه (مرحله B) ---------------- */
-
-.ts-foot {
-  flex-wrap: wrap;
-}
-
-.ts-cp-btn {
-  /* دکمه‌ی «بازگردانی کل پروژه» — هم‌رده با «برگرداندن همه‌ی تغییرات» */
-  border-style: dashed;
-}
-
 .ts-cap {
   align-self: flex-start;
-}
-
-/* مودال پیش‌نمایش: فقط استایل‌های اختصاصی؛ چیدمان پایه از .modal-* می‌آید. */
-.ts-cp-modal .modal-body {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  max-height: 56vh;
-}
-
-.ts-cp-note {
-  font-size: calc(var(--ui-size, 14px) - 2px);
-  line-height: 1.9;
-  color: var(--text2);
-  background: var(--bg-soft, rgba(255, 255, 255, 0.04));
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 7px 10px;
-}
-
-.ts-cp-error {
-  font-size: calc(var(--ui-size, 14px) - 2px);
-  line-height: 1.9;
-  color: var(--danger, #ef6a6a);
-  background: var(--danger-soft, rgba(239, 106, 106, 0.12));
-  border: 1px solid rgba(239, 106, 106, 0.35);
-  border-radius: 8px;
-  padding: 7px 10px;
-}
-
-.ts-cp-section {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.ts-cp-section-title {
-  font-size: calc(var(--ui-size, 14px) - 1.5px);
-  font-weight: 700;
-  color: var(--text);
-}
-
-.ts-cp-section-title.rw {
-  color: var(--warn, #e0a24a);
-}
-
-.ts-cp-section-title.tr {
-  color: var(--danger, #ef6a6a);
-}
-
-.ts-cp-section-title.un {
-  color: var(--text3, var(--text2));
-}
-
-.ts-cp-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 150px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 5px 8px;
-  background: var(--bg-soft, transparent);
-}
-
-.ts-cp-path {
-  font-family: var(--font-code, monospace);
-  font-size: calc(var(--ui-size, 14px) - 2.5px);
-  color: var(--text2);
-  direction: ltr;
-  unicode-bidi: isolate;
-  text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.ts-cp-none {
-  font-size: calc(var(--ui-size, 14px) - 2.5px);
-  color: var(--text3, var(--text2));
 }

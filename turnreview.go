@@ -75,6 +75,9 @@ type turnCommandRecord struct {
 // سقف دستورات ثبت‌شده در هر نوبت — حافظه‌ی کراندار.
 const maxTurnCommands = 200
 
+// maxTurnFiles سقف مسیرهای ثبت‌شده در هر نوبت (برای پوشش راستی‌آزمایی).
+const maxTurnFiles = 40
+
 // turnRecorder وضعیت نوبت جاری: دستورات + توالیِ «آخرین تغییر فایل» و
 // «آخرین راستی‌آزمایی موفق» (برای هشدار «بعد از آخرین تغییری تست اجرا نشد»).
 type turnRecorder struct {
@@ -83,10 +86,13 @@ type turnRecorder struct {
 	lastModSeq int64
 	lastVerSeq int64
 	lastVerCmd string
-	commands   []turnCommandRecord
-	todos      []TodoItem // آخرین فهرست کارهای همین نوبت (بند A.5)
-	capHit     bool       // نوبت به‌خاطر سقف توکن متوقف شد (بند A.4)
-	capLimit   int64      // مقدار آن سقف
+	// files مسیرهای نسبیِ تغییرکرده در این نوبت (فاز ۲) — پایه‌ی پوشش
+	// راستی‌آزمایی: «آیا تستی که اجرا شد همین پوشه‌ها را می‌پوشاند؟»
+	files    []string
+	commands []turnCommandRecord
+	todos    []TodoItem // آخرین فهرست کارهای همین نوبت (بند A.5)
+	capHit   bool       // نوبت به‌خاطر سقف توکن متوقف شد (بند A.4)
+	capLimit int64      // مقدار آن سقف
 }
 
 // noteTokenCap ثبت می‌کند که نوبت به‌خاطر سقف توکن (مقدار limit) متوقف شد.
@@ -110,14 +116,50 @@ func (r *turnRecorder) tokenCapState() (bool, int64) {
 }
 
 // recordFileChange یک تغییر فایلِ موفق را ثبت می‌کند (توالی جلو می‌رود).
-func (r *turnRecorder) recordFileChange() {
+// rel اختیاری است تا فراخوانی‌های قدیمی بدون مسیر هم بسازند؛ وقتی داده شود،
+// برای پوشش راستی‌آزمایی نگه داشته می‌شود (بدون تکرار، با سقف).
+func (r *turnRecorder) recordFileChange(rel ...string) {
 	if r == nil {
 		return
 	}
 	r.mu.Lock()
 	r.seq++
 	r.lastModSeq = r.seq
+	if len(rel) > 0 {
+		if p := normalizeChangedPath(rel[0]); p != "" && len(r.files) < maxTurnFiles {
+			dup := false
+			for _, f := range r.files {
+				if f == p {
+					dup = true
+					break
+				}
+			}
+			if !dup {
+				r.files = append(r.files, p)
+			}
+		}
+	}
 	r.mu.Unlock()
+}
+
+// changedFiles کپی مسیرهای تغییرکرده‌ی نوبت.
+func (r *turnRecorder) changedFiles() []string {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.files...)
+}
+
+// lastVerificationCommand آخرین دستور راستی‌آزماییِ موفق نوبت ("" یعنی هیچ).
+func (r *turnRecorder) lastVerificationCommand() string {
+	if r == nil {
+		return ""
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.lastVerCmd
 }
 
 // recordCommand یک دستور اجراشده را ثبت می‌کند؛ اگر الگوی راستی‌آزمایی
@@ -282,6 +324,54 @@ func isVerificationCommand(cmd string) bool {
 // به‌عنوان پیام «user» در حلقه تزریق می‌شود.
 const verificationNudgeText = "You changed files in this turn but have not run a successful build or test since the last change. " +
 	"If the project has a build or test command, run it now and fix any failures; otherwise state explicitly that you could not verify the change."
+
+// silentTurnRecoveryText دستور یک‌باره‌ی «ادامه» وقتی دور آخر هیچ پاسخ متنی
+// نداشت — انگلیسی و رو به مدل، مثل تذکر راستی‌آزمایی به‌عنوان پیام user تزریق
+// می‌شود. علت اصلی این حالت در مدل‌های reasoning: نوشتن کد/محتوای فایل داخل
+// استدلال و خوردن به سقف توکن خروجی؛ پس صریحاً از کد نوشتن در استدلال و از
+// فرستادن یک‌جای فایل منع می‌کند و می‌خواهد در قطعه‌های کوچک با ابزار بنویسد.
+func silentTurnRecoveryText(lengthCut, toolsDisabled bool) string {
+	var b strings.Builder
+	if lengthCut {
+		b.WriteString("Your previous response hit the output token limit while still in reasoning and produced no visible answer or tool call. ")
+	} else {
+		b.WriteString("Your previous response produced no visible answer and no executable tool call. ")
+	}
+	if toolsDisabled {
+		b.WriteString("Tools are not available in this mode, so answer in plain text. ")
+	} else {
+		b.WriteString("Do not write code, file contents, or long plans in your reasoning. ")
+		b.WriteString("If the task needs a file, call write_file or edit_file now with one small chunk ")
+		b.WriteString("(at most 80 lines); continue with more chunks in later tool calls. ")
+	}
+	b.WriteString("Reply with the final answer now. ")
+	b.WriteString("If your previous attempt was cut off, do not restart from scratch: ")
+	b.WriteString("inspect the current file and continue from the remaining part.")
+	return b.String()
+}
+
+// silentTurnRecoveryNotice اعلان گذرای شروع بازیابی (توست UI) — دلیل نبود
+// پاسخ را همان لحظه نشان می‌دهد؛ پیام ماندگار در صورت شکست بازیابی می‌آید.
+func silentTurnRecoveryNotice(lengthCut bool) string {
+	if lengthCut {
+		return "پاسخ قبلی به سقف توکن خروجی خورد و متنی تولید نشد؛ یک‌بار دیگر با دستور «کد را در استدلال ننویس و تکه‌تکه بده» درخواست شد."
+	}
+	return "دور قبل پاسخ متنی نداشت؛ یک‌بار دیگر با دستور «پاسخ نهایی / تکه‌نویسی» درخواست شد."
+}
+
+// silentTurnNotice پیام ماندگار پایان نوبتِ بی‌پاسخ. اگر بازیابی خودکار هم
+// نتواند پاسخ بگیرد، این متن به‌عنوان پیام دستیار در گفتگو ذخیره می‌شود تا
+// کاربر بداند چه شد و چه کاری انجام دهد (به‌جای پایان کاملاً خاموش).
+func silentTurnNotice(lengthCut, hadThinking bool) string {
+	switch {
+	case lengthCut && hadThinking:
+		return "⚠️ مدل به سقف توکن خروجی خورد و پاسخ نیمه‌کاره ماند؛ یک‌بار به‌صورت خودکار ادامه خواسته شد ولی باز هم پاسخ کاملی نرسید. سقف خروجی را در تنظیمات («مدل و رفتار») بیشتر کنید، کار را به قطعه‌های کوچک‌تر بشکنید یا مدل دیگری انتخاب کنید."
+	case hadThinking:
+		return "⚠️ مدل فقط استدلال تولید کرد و پاسخ متنی نداد؛ یک‌بار به‌صورت خودکار ادامه خواسته شد ولی باز هم پاسخی نرسید. درخواست را کوچک‌تر/واضح‌تر کنید یا مدل دیگری انتخاب کنید."
+	default:
+		return "⚠️ مدل پاسخ خالی برگرداند (بدون متن و بدون فراخوانی ابزار)؛ یک‌بار به‌صورت خودکار ادامه خواسته شد ولی باز هم پاسخی نرسید. دوباره تلاش کنید یا مدل دیگری انتخاب کنید."
+	}
+}
 
 // tokenCapWarnPercent آستانه‌ی اعلان فارسیِ نزدیک‌شدن به سقف توکن نوبت.
 const tokenCapWarnPercent = 80

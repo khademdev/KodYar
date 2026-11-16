@@ -7,8 +7,11 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -148,10 +151,136 @@ func TestDeleteLastProviderAllowed(t *testing.T) {
 	}
 }
 
-func TestSaveProviderRequiresModel(t *testing.T) {
+// Provider فقط با نام و کلید API ساخته می‌شود: آدرس پایه از نام تشخیص داده
+// می‌شود و فهرست مدل‌ها و پنجره‌ی کانتکست از خود سرویس‌دهنده خوانده می‌شود.
+func TestSaveProviderAutoConfiguresFromService(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"zeta-chat","context_window":64000},{"id":"text-embedding-3","context_window":8000}]}`))
+	}))
+	defer srv.Close()
+
 	a := newTestApp(t)
-	if _, err := a.SaveProvider(Provider{Name: "X", BaseURL: "https://x.example/v1"}, ""); err == nil {
-		t.Fatal("saving provider without any model must be rejected")
+	p, err := a.SaveProvider(Provider{Name: "Local Gateway", BaseURL: srv.URL + "/v1"}, "")
+	if err != nil {
+		t.Fatalf("auto-configured SaveProvider failed: %v", err)
+	}
+	if p.BaseURL != srv.URL+"/v1" {
+		t.Fatalf("base URL must be stored, got %q", p.BaseURL)
+	}
+	if len(p.Models) != 2 || p.Models[0] != "zeta-chat" {
+		t.Fatalf("models must come from the service (chat models first), got %v", p.Models)
+	}
+	if p.ContextWindow != 64000 {
+		t.Fatalf("context window must come from discovery, got %d", p.ContextWindow)
+	}
+	if !p.NoKey {
+		t.Fatal("a provider discovered without an API key must be marked NoKey")
+	}
+	if gotAuth != "" {
+		t.Fatalf("no Authorization header may be sent without a key, got %q", gotAuth)
+	}
+}
+
+// تشخیص آدرس پایه فقط از نام/کلید — بدون شبکه.
+func TestInferProviderBaseURL(t *testing.T) {
+	cases := []struct{ name, key, want string }{
+		{"OpenRouter", "", "https://openrouter.ai/api/v1"},
+		{"Groq", "", "https://api.groq.com/openai/v1"},
+		{"My Gateway", "AIzaSyTest", "https://generativelanguage.googleapis.com/v1beta"},
+		{"OpenRouter", "sk-or-v1-abc", "https://openrouter.ai/api/v1"},
+		{"api.example.com/v1", "", "https://api.example.com/v1"},
+		{"localhost:1234", "", "http://localhost:1234/v1"},
+		{"MyCorp", "", ""},
+		// نام نمایشی آزاد (تنها ورودی فرم جدید) هم باید تشخیص داده شود.
+		{"OpenRouter (حساب شخصی)", "", "https://openrouter.ai/api/v1"},
+		{"Groq — کلید دوم", "", "https://api.groq.com/openai/v1"},
+		{"سرور LM Studio من", "", "http://localhost:1234/v1"},
+		{"DeepSeek حساب شخصی", "", "https://api.deepseek.com/v1"},
+		{"کلید OpenRouter من", "sk-or-v1-abc", "https://openrouter.ai/api/v1"},
+		// دامنه‌ی داخل نام آزاد (سرویس سفارشی) — بدون فیلد آدرس.
+		{"سرور من — api.example.com/v1", "", "https://api.example.com/v1"},
+		{"موتور محلی localhost:1234", "", "http://localhost:1234/v1"},
+		{"سرور LAN 192.168.1.50:8080", "", "https://192.168.1.50:8080/v1"},
+		{"مثلاً نسخه ۱.۲", "", ""},
+	}
+	for _, c := range cases {
+		if got := inferProviderBaseURL(c.name, c.key); got != c.want {
+			t.Errorf("inferProviderBaseURL(%q,%q)=%q want %q", c.name, c.key, got, c.want)
+		}
+	}
+}
+
+// TestSaveProviderOnlyDisplayName — فرم جدید فقط «نام سرویس» و «کلید API»
+// دارد؛ Name فنی از همان نام ساخته می‌شود و شناسه/مدل‌ها خودکار درمی‌آیند.
+func TestSaveProviderOnlyDisplayName(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"chat-a","context_window":96000},{"id":"chat-b"}]}`))
+	}))
+	defer srv.Close()
+
+	a := newTestApp(t)
+	// نام آزاد بدون دامنه/نام سرویس شناخته‌شده → خطای راهنما (نه پیام «نام الزامی»).
+	if _, err := a.SaveProvider(Provider{DisplayName: "My Gateway"}, "sk-test-key"); err == nil || !strings.Contains(err.Error(), "شناسایی نشد") {
+		t.Fatalf("unknown display name must ask for the service name/API address, got %v", err)
+	}
+
+	p, err := a.SaveProvider(Provider{DisplayName: "My Gateway", BaseURL: srv.URL + "/v1"}, "sk-test-key")
+	if err != nil {
+		t.Fatalf("display-name-only SaveProvider failed: %v", err)
+	}
+	if p.Name != "My Gateway" {
+		t.Fatalf("technical name must be derived from the display name, got %q", p.Name)
+	}
+	if p.DisplayName != "My Gateway" {
+		t.Fatalf("display name must be preserved, got %q", p.DisplayName)
+	}
+	if p.ID != "my-gateway" {
+		t.Fatalf("provider id must be a slug of the name, got %q", p.ID)
+	}
+	if len(p.Models) != 2 || p.Models[0] != "chat-a" || p.ContextWindow != 96000 {
+		t.Fatalf("models/context must be discovered automatically: %+v", p)
+	}
+
+	// نام خالی (نه فنی، نه نمایشی) → خطای روشن، بدون تماس شبکه.
+	if _, err := a.SaveProvider(Provider{}, ""); err == nil || !strings.Contains(err.Error(), "نام سرویس‌دهنده") {
+		t.Fatalf("empty name must be rejected with a clear message, got %v", err)
+	}
+}
+
+// TestProviderFormOnlyNameAndKey — فرم افزودن Provider فقط «نام سرویس» و
+// «کلید API» دارد؛ هیچ فیلد دستی برای آدرس/مدل‌ها/کانتکست باقی نمانده است.
+func TestProviderFormOnlyNameAndKey(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("frontend", "dist", "index.html"))
+	if err != nil {
+		t.Fatalf("index.html: %v", err)
+	}
+	html := string(raw)
+	for _, want := range []string{`id="prov-name"`, `id="prov-key"`, "همین نام و کلید API کافی است"} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("provider form must keep %q", want)
+		}
+	}
+	for _, unwanted := range []string{`id="prov-displayname"`, `id="prov-baseurl"`, `id="prov-models"`, `id="prov-context"`} {
+		if strings.Contains(html, unwanted) {
+			t.Fatalf("provider form must not expose manual field %q", unwanted)
+		}
+	}
+	js, err := os.ReadFile(filepath.Join("frontend", "dist", "assets", "js", "modals.js"))
+	if err != nil {
+		t.Fatalf("modals.js: %v", err)
+	}
+	if !strings.Contains(string(js), `displayName:nm`) {
+		t.Fatal("the single name field must be sent as displayName (backend derives everything else)")
 	}
 }
 

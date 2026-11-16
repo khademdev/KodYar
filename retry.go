@@ -284,8 +284,9 @@ func (a *App) dialStream(ctx context.Context, mkReq func() (*http.Request, error
 				}
 				continue
 			}
-			return nil, fmt.Errorf("سرویس‌دهنده پس از %s تلاش خطا برگرداند (HTTP %s): %s",
-				faDigits(retryMaxAttempts), faDigits(resp.StatusCode), reason)
+			// پیام کوتاه و امن (بدنهٔ HTML/بلند پاک می‌شود) — httperror.go
+			return nil, fmt.Errorf("پس از %s تلاش: %s",
+				faDigits(retryMaxAttempts), humanizeProviderHTTPError(resp.StatusCode, reason))
 		}
 
 		// وضعیت‌های «غیر قابل تلاش مجدد» — همان مسیر قبلی caller.

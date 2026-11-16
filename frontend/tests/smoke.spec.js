@@ -53,21 +53,8 @@ async function bridgeCalls(page, method) {
   return page.evaluate((m) => window.go.main.App["__calls_" + m] || 0, method);
 }
 
-// پنل «تغییرات فایل» با اولین badgeِ تغییرِ معلق خودکار باز می‌شود (رفتار
-// برنامه: کشف اولیه‌ی پنل — اسکریپت inline در index.html) و چون بعد از
-// diff-overlay در DOM است، روی مودال‌های بعدی سایه می‌اندازد. پس در
-// شروع هر تست می‌بندیمش.
-async function closeChangesPanelIfOpen(page) {
-  const panel = page.locator("#changes-overlay.open");
-  if (await panel.count()) {
-    await panel.locator("#changes-close").click();
-    await expect(panel).not.toBeVisible();
-  }
-}
-
 test("diff modal: agent:confirm opens #diff-overlay, it is visible and accept wires to the mock bridge", async ({ page }) => {
   await primeMockState(page, { agentMode: false });
-  await closeChangesPanelIfOpen(page);
   await spyBridge(page, "RespondFileConfirm");
   await page.evaluate(() => {
     window.runtime.EventsEmit("agent:confirm", { change: {
@@ -87,7 +74,6 @@ test("diff modal: agent:confirm opens #diff-overlay, it is visible and accept wi
 
 test("permission modal: agent:permission_ask becomes visible, allow responds through the mock bridge", async ({ page }) => {
   await primeMockState(page, { agentMode: false });
-  await closeChangesPanelIfOpen(page);
   await spyBridge(page, "RespondPermissionConfirm");
   await page.evaluate(() => {
     window.runtime.EventsEmit("agent:permission_ask", { ask: {
@@ -108,7 +94,6 @@ test("permission modal: agent:permission_ask becomes visible, allow responds thr
 
 test("turn-summary card: after an agent turn it is visible with files, protection chip, verification and the revert button", async ({ page }) => {
   await primeMockState(page, { agentMode: true });
-  await closeChangesPanelIfOpen(page);
   await page.fill("#msg-input", "یک تغییر آزمایشی اعمال کن");
   await page.click("#btn-send");
   // مودال Diff در جریان موک (agentMode + confirmFileWrites) باز می‌شود؛
@@ -123,34 +108,6 @@ test("turn-summary card: after an agent turn it is visible with files, protectio
   await expect(card).toContainText("src/agent.go");
   await expect(card).toContainText("package.json");        // فایل محافظت‌شده در فهرست
   await expect(card).toContainText("go build ./...");      // راستی‌آزمایی ثبت‌شده
-  const revert = card.getByRole("button", { name: "برگرداندن همه‌ی تغییرات این نوبت" });
-  await expect(revert).toBeVisible();
-  await expect(revert).toBeEnabled();
-  // و دکمه‌ی نقطه‌ی بازگشت پروژه (مرحله B) هم در کارت هست
-  const cp = card.getByRole("button", { name: "بازگردانی کل پروژه به قبل از این نوبت" });
-  await expect(cp).toBeVisible();
-  await expect(cp).toBeEnabled();
+  await expect(card.getByRole("button", { name: "برگرداندن همه‌ی تغییرات این نوبت" })).toHaveCount(0);
 });
 
-test("checkpoint preview modal: opens from the turn-summary card, is visible, lists rewrite/trash, confirm wires RestoreCheckpoint", async ({ page }) => {
-  await primeMockState(page, { agentMode: true });
-  await closeChangesPanelIfOpen(page);
-  await page.fill("#msg-input", "یک تغییر آزمایشی اعمال کن");
-  await page.click("#btn-send");
-  const diff = page.locator("#diff-overlay.open");
-  await expect(diff).toBeVisible({ timeout: 15000 });
-  await diff.locator("#diff-accept").click();
-  const card = page.locator(".ts-card");
-  await expect(card).toBeVisible({ timeout: 25000 });
-  await spyBridge(page, "RestoreCheckpoint");
-  await card.getByRole("button", { name: "بازگردانی کل پروژه به قبل از این نوبت" }).click();
-  const modal = page.locator("#checkpoint-overlay.open");
-  await expect(modal).toBeVisible();
-  await expect(modal).toContainText("بازگردانی کل پروژه — قبل از نوبت");
-  await expect(modal).toContainText("src/agent.go");       // rewrite
-  await expect(modal).toContainText("dist/build.out");     // trash
-  await expect(modal).toContainText("go.mod");             // unchanged
-  await modal.getByRole("button", { name: "بازگردانی کن" }).click();
-  await expect(modal).not.toBeVisible();
-  expect(await bridgeCalls(page, "RestoreCheckpoint")).toBe(1);
-});

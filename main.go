@@ -50,8 +50,16 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		OnStartup:  app.startup,
-		OnShutdown: app.shutdown,
+		// منوی زمینهٔ بومی WebView2 (راست‌کلیک) در نسخهٔ production به‌صورت
+		// پیش‌فرض خاموش است؛ با روشن‌کردن آن، «برش/کپی/چسباندن/انتخاب همه»
+		// در همه‌جا — از جمله جعبهٔ پیام و متن پاسخ‌ها — در دسترس است.
+		// میان‌برهای Ctrl+C/Ctrl+V هم به‌صورت بومی WebView2 کار می‌کنند.
+		EnableDefaultContextMenu: true,
+		OnStartup:                app.startup,
+		OnShutdown:               app.shutdown,
+		// هشدار/خطاهای خود Wails و WebView2 هم در errors.log ثبت شوند
+		// (پیش‌فرض: فقط stderr که در نسخهٔ GUI دیده نمی‌شود).
+		Logger: fileLogger{app: app},
 		Bind: []interface{}{
 			app,
 		},

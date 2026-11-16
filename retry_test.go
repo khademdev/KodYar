@@ -116,16 +116,30 @@ func hasAssistantWith(content string) func(*Conversation) bool {
 // دیسک‌نویسیِ دیرهنگام تداخل نداشته باشند.
 func waitStreamDone(t *testing.T, a *App) {
 	t.Helper()
-	a.genMu.Lock()
-	g := a.gen
-	a.genMu.Unlock()
-	if g == nil {
-		return // گوروتین قبل از گرفتن دسته، تمام شده (پایانِ کامل)
-	}
-	select {
-	case <-g.done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("stream goroutine did not exit in time")
+	// SendMessage پیش از ثبت دسته برمی‌گردد؛ اگر بلافاصله g را nil ببینیم
+	// و برگردیم، تست تمام می‌شود و گوروتین استریم بعداً در پوشه‌ی موقت
+	// (که t.TempDir دارد پاک می‌شود) می‌نویسد → «directory is not empty».
+	// پس کمی برای ثبت دسته صبر می‌کنیم، بعد تا پایانش منتظر می‌مانیم.
+	grabDeadline := time.Now().Add(500 * time.Millisecond)
+	for {
+		a.genMu.Lock()
+		g := a.gen
+		a.genMu.Unlock()
+		if g != nil {
+			select {
+			case <-g.done:
+			// سناریوهای e2e داخل نوبت واقعاً `go test ./...` اجرا می‌کنند؛ با
+			// کش سرد یا دیسک کند این بیش از ۵ ثانیه طول می‌کشد و تست سالم را
+			// کاذب fail می‌کرد. این سقف فقط «هنگ نکردن» را می‌سنجد، نه سرعت.
+			case <-time.After(30 * time.Second):
+				t.Fatal("stream goroutine did not exit in time")
+			}
+			return
+		}
+		if time.Now().After(grabDeadline) {
+			return // واقعاً هیچ استریمی شروع نشده
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
@@ -378,10 +392,21 @@ func TestStreamChatNoRetryOn401(t *testing.T) {
 	convLoaded, lerr := a.loadConversation(conv.ID)
 	a.mu.Unlock()
 	if lerr == nil {
+		// قرارداد جدید: خطا به‌صورت پیام ماندگار ذخیره می‌شود، ولی هیچ
+		// پاسخ مدلی نباید ساخته شود؛ تنها پیام دستیار، همان اعلان خطا با
+		// کد ۴۰۱ است.
+		found := false
 		for _, m := range convLoaded.Messages {
-			if m.Role == "assistant" && strings.TrimSpace(m.Content) != "" {
-				t.Fatal("401 must not produce assistant content")
+			if m.Role != "assistant" {
+				continue
 			}
+			if !strings.Contains(m.Content, "401") {
+				t.Fatalf("401 must not produce model content: %q", m.Content)
+			}
+			found = true
+		}
+		if !found {
+			t.Fatal("401 must be persisted as a visible error message")
 		}
 	}
 }
@@ -414,7 +439,10 @@ func TestStreamChatAttemptsExhaustedPersianError(t *testing.T) {
 	if len(*slept) != retryMaxAttempts-1 {
 		t.Fatalf("want %d backoff waits, got %d (%v)", retryMaxAttempts-1, len(*slept), *slept)
 	}
-	waitErrorLogContains(t, logPath, "پس از ۴ تلاش خطا برگرداند (HTTP ۵۲۹)")
+	// متن پیام از ۱.۵ کوتاه/فارسی شد (httperror.go)؛ همان قراردادها می‌ماند:
+	// تعداد تلاش + کد وضعیت ASCII (قابل جست‌وجو در لاگ) + جزئیات سرویس‌دهنده.
+	waitErrorLogContains(t, logPath, "پس از ۴ تلاش")
+	waitErrorLogContains(t, logPath, "HTTP 529")
 	waitErrorLogContains(t, logPath, "upstream overloaded")
 	_ = conv
 }

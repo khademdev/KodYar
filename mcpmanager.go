@@ -407,6 +407,50 @@ func (a *App) mcpEnabledConfigs() []MCPServerConfig {
 	return out
 }
 
+// mcpWarmStart سرورهای MCP فعال را پیش از نخستین پیام (هنگام راه‌اندازی
+// برنامه) به‌صورت موازی و بی‌صدا بالا می‌آورد. پیش از این، اسپاون فرایند +
+// initialize + tools/list داخل خودِ نوبت اول انجام می‌شد و تا ۱۵ ثانیه به
+// TTFT نخستین پیام اضافه می‌کرد.
+//
+// best-effort: خطای هر سرور فقط لاگ می‌شود (وضعیت در UI می‌ماند) و نوبت
+// بعدی مثل قبل مسیر start کار خودش را دارد.
+func (a *App) mcpWarmStart(ctx context.Context) int {
+	configs := a.mcpEnabledConfigs()
+	if len(configs) == 0 {
+		return 0
+	}
+	a.initMCPManager()
+	budget, cancel := context.WithTimeout(ctx, mcpStartBudget)
+	defer cancel()
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	ready := 0
+	for _, cfg := range configs {
+		if !cfg.Enabled {
+			continue
+		}
+		cfg := cfg
+		wg.Add(1)
+		safeGo(a, "mcp.warm("+cfg.Name+")", func() {
+			defer wg.Done()
+			c, err := a.mcp.ensureStarted(budget, a, cfg)
+			if err != nil {
+				logAppErrorFor(a, "mcp", "warm start '"+cfg.Name+"' failed: "+err.Error())
+				return
+			}
+			if _, err := c.listTools(budget); err != nil {
+				logAppErrorFor(a, "mcp", "warm start tools/list '"+cfg.Name+"' failed: "+err.Error())
+				return
+			}
+			mu.Lock()
+			ready++
+			mu.Unlock()
+		})
+	}
+	wg.Wait()
+	return ready
+}
+
 // mcpToolDefs ابزارهای همه‌ی سرورهای فعال برای نوبت جاری — شروع تنبلِ
 // موازی با بودجه‌ی ۱۵ ثانیه؛ سرورِ ناموفق نوبت را نمی‌شکند (لاگ + skip).
 // هرگز با a.mu گرفته‌شده صدا نشود (start با سرور حرف می‌زند).

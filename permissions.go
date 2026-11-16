@@ -82,10 +82,11 @@ func normalizePermissionDecision(s string) string {
 // همان «ask» است)؛ run_command از دروازه‌ی دستور می‌گذرد.
 func toolDefaultDecision(tool string, confirmWrites bool) permDecision {
 	switch tool {
-	case "list_dir", "read_file", "search_files", "glob", "create_dir",
+	case "list_dir", "read_file", "search_files", "glob", "find_symbol", "find_references",
+		"create_dir", "process_output", "process_stop", "process_list",
 		"git_status", "git_diff", "git_log", "git_show":
 		return permAllow
-	case "write_file", "edit_file", "move_path", "delete_path":
+	case "write_file", "edit_file", "apply_patch", "move_path", "delete_path":
 		if confirmWrites {
 			return permAsk // مودال diff-confirm موجود همین نقش را دارد
 		}
@@ -100,7 +101,7 @@ func toolDefaultDecision(tool string, confirmWrites bool) permDecision {
 		// چک‌لیست کارهای ایجنت فقط وضعیت داخل برنامه را عوض می‌کند — نه
 		// فایلی می‌نویسد، نه دستوری اجرا می‌کند؛ نیازی به تأیید نیست.
 		return permAllow
-	case "web_fetch":
+	case "web_fetch", "web_search":
 		// درخواست به بیرون از ماشین کاربر است — هر دامنه با تأیید صریح
 		// (مودال، آدرس با ایزوله‌سازی bidi). اجازه‌ی ماندگار فقط per-host
 		// است (webfetchperm.go) — override سراسری «allow» پذیرفته نمی‌شود
@@ -126,8 +127,8 @@ func (a *App) toolPermDecisionLocked(tool string) permDecision {
 	if v, ok := a.settings.Permissions.Tools[tool]; ok {
 		switch normalizePermissionDecision(v) {
 		case "allow":
-			// web_fetch هرگز اجازه‌ی سراسری نمی‌گیرد (فایل قدیمی/دستکاری)
-			if tool == webFetchToolName {
+			// ابزارهای وب هرگز اجازه‌ی سراسری نمی‌گیرند (فایل قدیمی/دستکاری)
+			if webHostGatedTool(tool) {
 				d = permAsk
 				break
 			}
@@ -482,7 +483,7 @@ func sensitiveFileReason(name string, globs []string) string {
 var agentToolNames = []string{
 	"list_dir", "read_file", "search_files", "glob", "create_dir",
 	"git_status", "git_diff", "git_log", "git_show",
-	"write_file", "edit_file", "move_path", "delete_path",
+	"write_file", "edit_file", "apply_patch", "move_path", "delete_path",
 	"run_command", "task",
 }
 
@@ -582,9 +583,9 @@ func (a *App) SetToolPermission(tool, decision string) error {
 	default:
 		return errors.New("تصمیم نامعتبر است (allow | ask | deny | default)")
 	}
-	if tool == webFetchToolName && decision == "allow" {
-		// اجازه‌ی سراسری web_fetch = کانال نشت داده؛ فقط per-host مجاز است
-		return errors.New("برای web_fetch اجازه‌ی سراسری وجود ندارد؛ دامنه‌ها را هنگام دریافت تأیید کنید")
+	if webHostGatedTool(tool) && decision == "allow" {
+		// اجازه‌ی سراسری ابزارهای وب = کانال نشت داده؛ فقط per-host مجاز است
+		return errors.New("برای ابزارهای وب (web_fetch/web_search) اجازه‌ی سراسری وجود ندارد؛ دامنه‌ها را هنگام درخواست تأیید کنید")
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()

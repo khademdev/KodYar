@@ -12,6 +12,7 @@ package main
 // دستی «خاموش» از بین برود.
 
 import (
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -95,8 +96,27 @@ func systemProxyForRequest(req *http.Request) *url.URL {
 	return u
 }
 
+// isLoopbackHost آیا میزبان loopback است؟ localhost و هر IP حلقه‌ای
+// (127.0.0.0/8 و ::1) — سرورهای محلی (Ollama/LM Studio) و آزمون‌های httptest
+// هرگز نباید از پروکسی سیستم/محیطی عبور کنند؛ حتی اگر ProxyOverride کاربر
+// آن‌ها را نداشته باشد (ویندوز خودش این‌ها را بای‌پس می‌کند).
+func isLoopbackHost(host string) bool {
+	h := strings.TrimSpace(strings.ToLower(host))
+	h = strings.Trim(h, "[]")
+	if h == "localhost" || strings.HasSuffix(h, ".localhost") {
+		return true
+	}
+	if ip := net.ParseIP(h); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
+}
+
 // smartProxy حالت هوشمند: پروکسی سیستم → متغیر محیطی → مستقیم.
 func smartProxy(req *http.Request) (*url.URL, error) {
+	if req != nil && req.URL != nil && isLoopbackHost(req.URL.Hostname()) {
+		return nil, nil
+	}
 	if proxyCoolingDown() {
 		return nil, nil
 	}

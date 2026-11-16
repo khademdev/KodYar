@@ -403,11 +403,16 @@ func TestFaultInjectionEndStates(t *testing.T) {
 		logPath := redirectToTestLog(t)
 		runWithDeadline(t, 30*time.Second, "stall scenario", func() {
 			conv := env.send("سلام")
-			if got := lastAssistant(conv); !strings.Contains(got, "پاسخ نیمه") {
-				t.Fatalf("partial answer must be saved on mid-stream stall, got %q", got)
+			// پیام خطای ماندگار بعد از پاسخ نیمه‌کاره می‌آید؛ خودِ پاسخ
+			// نیمه‌کاره باید با Aborted در گفتگو باقی بماند.
+			var partial *Message
+			for i := range conv.Messages {
+				if conv.Messages[i].Role == "assistant" && strings.Contains(conv.Messages[i].Content, "پاسخ نیمه") && conv.Messages[i].Aborted {
+					partial = &conv.Messages[i]
+				}
 			}
-			if !env.lastAborted(t) {
-				t.Fatal("stall-saved partial must be marked aborted")
+			if partial == nil {
+				t.Fatalf("partial answer must be saved on mid-stream stall; messages=%+v", conv.Messages)
 			}
 		})
 		if n := env.model.count(); n != 1 {

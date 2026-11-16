@@ -149,6 +149,10 @@ var toolArgSpecs = map[string][]toolArgSpec{
 		{key: "replace_all", typ: "boolean"},
 		{key: "edits", typ: "edits"}, // آرایهٔ چندویرایشی — اعتبارسنجی عمیق در parseEditOps
 	},
+	"apply_patch": {
+		{key: "patch", typ: "string", required: true, nonEmpty: true},
+		{key: "dry_run", typ: "boolean"},
+	},
 	"move_path": {
 		{key: "from", typ: "string", required: true, nonEmpty: true},
 		{key: "to", typ: "string", required: true, nonEmpty: true},
@@ -164,15 +168,29 @@ var toolArgSpecs = map[string][]toolArgSpec{
 		{key: "path", typ: "string"},
 		{key: "regex", typ: "boolean"},
 		{key: "is_regex", typ: "boolean"},
+		{key: "include", typ: "string"},
+		{key: "case_sensitive", typ: "boolean"},
+		{key: "context", typ: "integer"},
 		{key: "max_results", typ: "integer"},
 	},
 	"glob": {
 		{key: "pattern", typ: "string", required: true, nonEmpty: true},
 		{key: "path", typ: "string"},
 	},
+	"find_symbol": {
+		{key: "query", typ: "string", required: true, nonEmpty: true},
+		{key: "kind", typ: "string"},
+		{key: "limit", typ: "integer"},
+	},
+	"find_references": {
+		{key: "symbol", typ: "string", required: true, nonEmpty: true},
+		{key: "include", typ: "string"},
+		{key: "limit", typ: "integer"},
+	},
 	"run_command": {
 		{key: "command", typ: "string", required: true, nonEmpty: true},
 		{key: "timeout_sec", typ: "integer"},
+		{key: "background", typ: "boolean"},
 	},
 	"git_status": {},
 	"git_diff": {
@@ -198,6 +216,19 @@ var toolArgSpecs = map[string][]toolArgSpec{
 	"web_fetch": {
 		{key: "url", typ: "string", required: true, nonEmpty: true},
 		{key: "max_chars", typ: "integer"},
+	},
+	"process_output": {
+		{key: "id", typ: "string", required: true, nonEmpty: true},
+		{key: "offset", typ: "integer"},
+		{key: "max_chars", typ: "integer"},
+	},
+	"process_stop": {
+		{key: "id", typ: "string", required: true, nonEmpty: true},
+	},
+	"process_list": {},
+	"web_search": {
+		{key: "query", typ: "string", required: true, nonEmpty: true},
+		{key: "max_results", typ: "integer"},
 	},
 }
 

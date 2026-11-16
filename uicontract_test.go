@@ -2,7 +2,7 @@
 // می‌کند که:
 //
 //	۱) هر id که JS ارجاع می‌دهد در HTML وجود دارد یا توسط خود JS ساخته
-//	   می‌شود (مثل checkpoint-overlay)؛
+//	   می‌شود (مودال‌هایی که خود JS می‌سازد)؛
 //	۲) هر کلاسی که JS برای نمایان‌شدن toggle می‌کند قاعده‌ی CSS دارد و
 //	   قاعده‌ی کلیدی «.modal-overlay.open» واقعاً مودال را قابل‌مشاهده و
 //	   قابل‌کلیک می‌کند — بازتولید‌کننده‌ی نگهبانِ باگ مودالِ نامرئی ۱.۷.۱؛
@@ -182,7 +182,7 @@ func TestUIContract(t *testing.T) {
 		t.Fatal(`CSS has no rule that makes ".modal-overlay.open" visible and clickable — the 1.7.1 invisible-modal regression`)
 	}
 	// پنج اورلی استاتیک HTML باید در JS هم باز/بسته شوند.
-	for _, id := range []string{"settings-overlay", "provider-overlay", "confirm-overlay", "changes-overlay", "diff-overlay"} {
+	for _, id := range []string{"settings-overlay", "provider-overlay", "confirm-overlay", "diff-overlay"} {
 		if !htmlIDs[id] {
 			t.Fatalf("overlay #%s missing from index.html", id)
 		}
@@ -242,27 +242,25 @@ func TestUIContract(t *testing.T) {
 		t.Fatalf("Wails bindings contract broken:\n  %s", strings.Join(bad, "\n  "))
 	}
 
-	// --------------------------------- چک ۴: پوشش مودال‌های این مأموریت
-	// (الف) مودال پیش‌نمایش بازگردانی نقطه‌ی بازگشت — turnsummary.js:
+	// --------------------------------- چک ۴: پوشش سطح‌های UI این نسخه
+	// (الف) کارت خلاصه‌ی نوبت — فقط اطلاعات؛ جریان «بازگردانی تغییرات» و
+	// پنل تغییرات فایل به‌طور کامل از محصول حذف شده‌اند.
 	ts := findSrc(js, "turnsummary.js")
 	for _, want := range []string{
-		`checkpoint-overlay`,       // ساخته‌شدن اورلی
-		`modal-overlay`,            // کلاس استاندارد مودال (باز/بسته با open)
-		`PreviewCheckpointRestore`, // پرکردن پیش‌نمایش از بک‌اند
-		`RestoreCheckpoint`,        // دکمه‌ی تأیید به بک‌اند
-		"بازگردانی کل پروژه به قبل از این نوبت", // دکمه‌ی کارت
-		"بازگردانی کن", // دکمه‌ی تأیید مودال
-		"انصراف",       // دکمه‌ی لغو
+		`ts-card`,
+		`chat:turn_summary`,
+		`GetFileChangeDiff`,
+		"خلاصه‌ی واقعی این نوبت",
 	} {
 		if !strings.Contains(ts, want) {
-			t.Fatalf("checkpoint preview modal contract: turnsummary.js must contain %q", want)
+			t.Fatalf("turn summary contract: turnsummary.js must contain %q", want)
 		}
 	}
-	// اورلی با کلاس open باز می‌شود (وگرنه نامرئی می‌ماند)
-	if !strings.Contains(ts, `add("open")`) && !strings.Contains(ts, `'open'`) {
-		t.Fatal("checkpoint preview modal must toggle the open class to become visible")
+	for _, gone := range []string{"RevertTurnChanges", "RestoreCheckpoint", "PreviewCheckpointRestore", "برگرداندن"} {
+		if strings.Contains(ts, gone) {
+			t.Fatalf("turnsummary.js must no longer contain the removed revert flow (%q)", gone)
+		}
 	}
-	// (ب) مودال دسترسی: گزینه‌ی web_host (C.1) و هرگز گزینه‌ی سراسری web_fetch
 	perm := findSrc(js, "permissions.js")
 	if !strings.Contains(perm, "web_host") {
 		t.Fatal("permission modal must handle the web_host kind (C.1)")
@@ -272,7 +270,7 @@ func TestUIContract(t *testing.T) {
 	}
 	// (ج) Mock-mode باید مودال پیش‌نمایش را هم پشتیبانی کند (قاعده‌ی ۱.۴)
 	mock := findSrc(js, "mock.js")
-	for _, want := range []string{"PreviewCheckpointRestore", "RestoreCheckpoint", "chat:turn_summary", "SetEditMode", "RevertTurnChanges"} {
+	for _, want := range []string{"chat:turn_summary", "SetEditMode", "GetFileChangeDiff"} {
 		if !strings.Contains(mock, want) {
 			t.Fatalf("mock.js must support %q so the browser smoke test can run", want)
 		}
@@ -286,4 +284,34 @@ func findSrc(js []namedSrc, name string) string {
 		}
 	}
 	return ""
+}
+
+// TestSandboxGitExemptionVisibleInUI — استثنای مستند git باید در UI دیده شود:
+// یادداشت در تب پوشه وجود دارد، متنش git/MSYS را توضیح می‌دهد و sandboxui.js
+// نمایش آن را با وضعیت سندباکس هم‌گام می‌کند (و CSS پنهان‌بودن را تضمین می‌کند).
+func TestSandboxGitExemptionVisibleInUI(t *testing.T) {
+	html, err := os.ReadFile(filepath.Join("frontend", "dist", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(html), `id="sandbox-git-note"`) {
+		t.Fatal("index.html must contain the #sandbox-git-note hint under the sandbox settings")
+	}
+	if !strings.Contains(string(html), "خارج از سندباکس اجرا می‌شوند") {
+		t.Fatal("the git-exemption note must explain that git runs outside the sandbox")
+	}
+	js, err := os.ReadFile(filepath.Join("frontend", "dist", "assets", "js", "sandboxui.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(js), "sandbox-git-note") || !strings.Contains(string(js), "note.hidden") {
+		t.Fatal("sandboxui.js must show/hide #sandbox-git-note with the sandbox state")
+	}
+	css, err := os.ReadFile(filepath.Join("frontend", "dist", "assets", "css", "app.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(css), "#sandbox-git-note[hidden]") {
+		t.Fatal("app.css must keep #sandbox-git-note really hidden when [hidden] is set")
+	}
 }

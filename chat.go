@@ -169,6 +169,9 @@ type chatMessage struct {
 	Content    interface{}   `json:"content,omitempty"`
 	ToolCalls  []apiToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string        `json:"tool_call_id,omitempty"`
+	// CacheControl فقط وقتی Settings.PromptCache روشن است و روی "کپی ارسالی"
+	// گذاشته می‌شود (promptcache.go) — تاریخچه‌ی محلی همیشه پاک می‌ماند.
+	CacheControl *cacheControlHint `json:"cache_control,omitempty"`
 }
 
 // contentPart یک بخش از پیام multimodal — متن یا تصویر.
@@ -182,6 +185,10 @@ type contentPart struct {
 type imageRef struct {
 	URL string `json:"url"`
 }
+
+// streamDeltaFlushEvery فاصله‌ی دسته‌ای‌کردن دلتاهای استریم است؛ هر چانک SSE
+// تمیزکاری کامل متن را تکرار می‌کرد و برای پاسخ‌های بلند O(n²) می‌شد.
+const streamDeltaFlushEvery = 40 * time.Millisecond
 
 type chatRequest struct {
 	Model         string             `json:"model"`
@@ -412,9 +419,8 @@ func (a *App) SendMessage(convID, content string, images []string) (*Conversatio
 	// متن اصلی پیام برای نمایش در UI دست‌نخورده می‌ماند.
 	userMsg.Attached = attached
 	userMsg.Images = images
-	if userMsg.Attached != "" {
-		userMsg.Tokens += estimateTokens(userMsg.Attached)
-	}
+	// توجه: Tokens فقط متن نمایشی پیام است؛ Attached فقط وقتی فرستاده می‌شود
+	// (آخرین پیام کاربر / پیام سنجاق‌شده) در conversationContextTokens حساب می‌شود.
 	conv.Messages = append(conv.Messages, userMsg)
 
 	planActive := a.settings.PlanMode && a.settings.AgentMode
@@ -1006,14 +1012,20 @@ func (a *App) recordTokenUsageLocked(conv *Conversation, model string, promptTok
 	}
 }
 
+// contextLimitLocked سقف پنجره‌ی کانتکست فعال را برمی‌گرداند: مقدار خود
+// Provider اگر مشخص باشد، وگرنه تنظیمات کلی. باید با a.mu نگه داشته شود.
+func (a *App) contextLimitLocked() int {
+	if p := a.findProvider(a.settings.Provider); p != nil && p.ContextWindow > 0 {
+		return p.ContextWindow
+	}
+	return a.settings.TokenLimit
+}
+
 // usageSnapshotForUI مقادیر نمایش نوار مصرف را می‌سازد.
 // tokensUsed = تخمین کانتکست همین گفتگو (نه مجموع عمر برنامه).
 // providerTokens = مصرف تجمعی Provider فعال.
 func (a *App) usageSnapshotForUI(conv *Conversation) (used int64, limit int, providerUsed int64, chatAPI int64, exact bool, recent []int64) {
-	limit = a.settings.TokenLimit
-	if p := a.findProvider(a.settings.Provider); p != nil && p.ContextWindow > 0 {
-		limit = p.ContextWindow
-	}
+	limit = a.contextLimitLocked()
 	if conv != nil {
 		used = conversationContextTokens(conv)
 		chatAPI = conv.TokensUsed
@@ -1106,6 +1118,9 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 	turnID := a.nextTurnID()
 	turnRec := &turnRecorder{}
 	ctx = withTurnContext(ctx, turnID, turnRec)
+	// اندازه‌گیری تأخیر این نوبت (latency.go): TTFT، هر دور، هر ابزار.
+	timing := newTurnTiming()
+	ctx = withTurnTiming(ctx, timing)
 	var allContent strings.Builder
 	var promptTokens, completionTokens, estTotal int64
 	aborted := false
@@ -1174,6 +1189,9 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		sp, sc := usageTally.snapshot()
 		a.finishChat(myGen, model, content, isAborted, promptTokens+sp, completionTokens+sc, estTotal)
 		a.emitTurnSummary(convID, turnID, turnRec, promptTokens+sp, completionTokens+sc)
+		// اعداد تأخیر پس از ذخیره‌ی نهایی منتشر می‌شوند؛ نوبت کند در
+		// errors.log با برچسب [latency] ثبت می‌شود.
+		a.recordTurnTiming(convID, turnID, timing.snapshot())
 	}
 	// شمارش توکن تاریخچه با کش — هر پیام فقط یک‌بار تخمین زده می‌شود؛
 	// tool_calls هم حساب می‌شود (قرابت نزدیک‌تر با prompt_tokens واقعی).
@@ -1188,6 +1206,13 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		if wsPath != "" && len(history) > 0 && history[0].Role == "system" {
 			if facts := a.projectFactsPromptLine(wsPath); facts != "" {
 				history[0].Content = historyContentString(history[0].Content) + "\n" + facts
+				counter.invalidate()
+			}
+			// نقشهٔ مخزن (repomap.go) — تصویری فشرده از نمادهای هر فایل تا
+			// ایجنت پیش از هر جست‌وجو بداند چه چیزی کجاست. یک‌بار در هر نوبت،
+			// بیرون از a.mu و با بودجهٔ کران‌دار.
+			if rmap := a.repoMapPromptLine(wsPath); rmap != "" {
+				history[0].Content = historyContentString(history[0].Content) + "\n" + rmap
 				counter.invalidate()
 			}
 		}
@@ -1209,6 +1234,13 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 	stallRetries := 0          // سکون پیش از خروجی: سقف تلاش مجدد مثل سیاست شبکه
 	// تذکر راستی‌آزمایی (A.2): حداکثر یک‌بار در هر نوبت.
 	nudged := false
+	// راستی‌آزمایی خودکار (گام ۵): حداکثر یک‌بار در هر نوبت.
+	autoVerified := false
+	// بازیابی «پاسخ خاموش»: حداکثر یک‌بار در هر نوبت؛ thinking دورِ
+	// بی‌پاسخ برای پیام ماندگار نگه داشته می‌شود (دور بازیابی آن را
+	// بازنویسی می‌کند).
+	silentRecovered := false
+	silentThinking := ""
 	// سقف توکن هر نوبت (A.4): اعلان ۸۰٪ یک‌بار؛ عبور از سقف → پایان مودبانه.
 	tokenCapWarned := false
 	tokenCapHit := false
@@ -1251,7 +1283,12 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		// فشرده‌سازی خودکار در ≥۸۰٪ بودجه — فقط کپیِ ارسالی به مدل
 		// کوچک می‌شود؛ گفتگوی ذخیره‌شده کامل می‌ماند.
 		if budget > 0 && int64(float64(estTotal)*calibRatio) >= budget*compactTriggerPercent/100 {
-			if nh, ch := compactHistoryForBudget(history, calibratedBudget(budget, calibRatio), counter, false); ch {
+			// گام ۸: پیش از حذف، خلاصهٔ مدل + واقعیت‌های سنجاق‌شده ساخته
+			// می‌شود (best-effort و کران‌دار — خطا فقط لاگ می‌شود).
+			if nh, ch := compactHistoryForBudget(history, calibratedBudget(budget, calibRatio), counter, false,
+				func(dropped []chatMessage) string {
+					return a.summarizeDroppedMessages(ctx, dropped, pinnedFactsFrom(dropped, compactFactsLimit))
+				}); ch {
 				history = nh
 				if fixed, problems := validateHistory(history); len(problems) > 0 {
 					for _, p := range problems {
@@ -1283,6 +1320,14 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		if useTools && !droppedTools {
 			reqBody.Tools = tools
 		}
+		// کش پرامپت (فاز ۲) — پیش‌فرض خاموش؛ فقط بلوک پایدار (system + آخرین
+		// tool) نشانه می‌خورد و نشانه روی کپی می‌نشیند. اگر سرویس‌دهنده آن را
+		// رد کند، پایین‌تر یک‌بار بدون آن تلاش می‌شود و در حافظه علامت می‌خورد.
+		cacheHints := false
+		if a.promptCacheEnabled() && providerSupportsPromptCache(baseURL) {
+			reqBody, cacheHints = withPromptCacheHints(reqBody)
+		}
+		timing.noteCacheHints(cacheHints)
 		// توکن‌های واقعی از سرویس‌دهنده (آخرین chunk استریم). اگر Provider این
 		// پارامتر را نشناسد، dialStream خطای ۴۰۰ را برمی‌گرداند و پایین‌تر یک‌بار
 		// بدون آن تلاش می‌شود؛ حافظه‌ی per-provider در toolguard.go است.
@@ -1295,6 +1340,8 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		// شکستی مسیر savePartial/abort فعلی خودش را دارد (بدون دوباره‌کاری).
 		// نگهبان سکون این دور: هر بایت خوانده‌شده (حتی کامنت keep-alive)
 		// فعالیت است؛ قطع بی‌صدای سرویس‌دهنده پس از مهلت لغو می‌شود.
+		// آغاز زمان‌گیری دور (شامل dial، هدرها و خواندن کامل استریم).
+		roundStart := time.Now()
 		idleGuard, reqCtx := newStreamIdleGuard(ctx, streamIdleTimeout)
 		resp, err := a.dialStream(reqCtx, func() (*http.Request, error) {
 			req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, strings.TrimRight(baseURL, "/")+"/chat/completions", bytes.NewReader(body))
@@ -1314,15 +1361,42 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 			})
 		})
 		if err != nil {
+			// پرچم نگهبان قبل از Stop خوانده می‌شود؛ پس از Stop دیگر معنا ندارد.
+			stalledByGuard := idleGuard.Stalled()
 			idleGuard.Stop()
 			if ctx.Err() != nil {
 				aborted = true
 				finalize(allContent.String()[persistedLen:], aborted)
 				return
 			}
-			a.emitChatError(myGen, err.Error())
+			// لغوِ نگهبان سکون، "context canceled" خام برمی‌گرداند و ctx والد هم
+			// پاک است؛ پیش‌تر همین حالت خطای فنی انگلیسی می‌شد و مسیر تلاش مجدد
+			// (که فقط بعد از خواندن بدنه بررسی می‌شد) دور می‌خورد.
+			if stalledByGuard {
+				stallRetries++
+				if stallRetries < retryMaxAttempts {
+					runtimeEmit(a, "chat:notice", map[string]interface{}{
+						"conversationId": convID,
+						"text": fmt.Sprintf("پاسخ از سرویس‌دهنده قطع شد؛ تلاش مجدد %s از %s …",
+							faDigits(stallRetries+1), faDigits(retryMaxAttempts)),
+					})
+					if werr := retrySleepFn(ctx, retryDelay(stallRetries-1, "", time.Now())); werr != nil {
+						aborted = true
+						finalize(allContent.String()[persistedLen:], aborted)
+						return
+					}
+					round-- // تلاش مجدد، دور را نمی‌سوزاند
+					continue
+				}
+				a.emitChatError(myGen, fmt.Sprintf("دریافت پاسخ متوقف شد (بدون داده برای %s ثانیه). می‌توانید «ادامه» را بزنید.", faDigits(streamIdleSec)))
+				return
+			}
+			a.emitChatError(myGen, friendlyStreamError(err))
 			return
 		}
+		// فقط از این لحظه (رسیدن پاسخ) سکون شمرده می‌شود — صف/تأخیر هدرها
+		// «سکون استریم» نیست و نباید درخواست را بکشد.
+		idleGuard.Arm()
 
 		if resp.StatusCode != http.StatusOK {
 			reason := readErrorBody(resp.Body)
@@ -1336,6 +1410,14 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 			// یک‌بار در نوبت فعال می‌شود، حلقه‌ی بی‌پایان ممکن نیست.
 			if reqBody.StreamOptions != nil && isStreamOptionsUnsupported(resp.StatusCode, reason) {
 				markStreamUsageBroken(baseURL)
+				round--
+				continue
+			}
+			// ۴۰۰ِ مربوط به cache_control → یک‌بار بدون نشانه‌های کش (حافظه‌ی
+			// per-provider؛ دور بعد اصلاً فرستاده نمی‌شود). مثل stream_options،
+			// این عقب‌نشینی دور را مصرف نمی‌کند و حلقه‌ی بی‌پایان ممکن نیست.
+			if cacheHints && isPromptCacheUnsupported(resp.StatusCode, reason) {
+				markPromptCacheBroken(baseURL)
 				round--
 				continue
 			}
@@ -1374,14 +1456,61 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 					continue
 				}
 			}
-			a.emitChatError(myGen, fmt.Sprintf("سرویس‌دهنده خطا برگرداند (HTTP %d): %s", resp.StatusCode, reason))
+			// خطای سهمیه/اعتبار (۴۰۲ یا ۴۲۹ «insufficient quota/balance»):
+			// نگهبان مصرف را خبر می‌کند تا شارژ بعدیِ کاربر خودکار شناسایی
+			// شود و شمارنده‌ها بی‌دخالت کاربر صفر شوند (usageguard.go).
+			if a.autoUsageGuardEnabled() && isQuotaError(resp.StatusCode, reason) {
+				a.noteProviderQuotaError(a.activeProviderID())
+			}
+			// بدنهٔ خام (حتی HTML چندکیلوبایتی) هرگز در گفتگو/UI نوشته نمی‌شود؛
+			// پیام کوتاه فارسی + حداکثر ۱۸۰ نویسه جزئیات (httperror.go).
+			a.emitChatError(myGen, humanizeProviderHTTPError(resp.StatusCode, reason))
 			return
+		}
+		// پاسخ موفق: اگر پیش‌تر خطای سهمیه دیده بودیم، همین یعنی سرویس
+		// دوباره شارژ شده — نگهبان شمارنده‌ها را خودکار صفر می‌کند.
+		if a.autoUsageGuardEnabled() {
+			a.noteProviderSuccess(a.activeProviderID())
 		}
 
 		// ---------- استریم یک مرحله ----------
 		var roundContent strings.Builder
 		var roundThinking strings.Builder
 		visEmitted, thinkEmitted := 0, 0
+		// «فکر کردن» فقط در حالت ایجنت معنا دارد؛ در چت معمولی نه ارسال و نه
+		// ذخیره می‌شود. دلتاها هم دسته‌ای (هر ۴۰ms) فرستاده می‌شوند: تمیزکاری
+		// کامل متن در هر چانک SSE برای پاسخ‌های بلند O(n²) بود و اندازه‌گیری
+		// ~۱.۴ ثانیه CPU برای پاسخ ۴۰ کیلوبایتی می‌داد.
+		showThinking := useTools
+		lastFlush := time.Now()
+		thinkSent := 0
+		flushStream := func(force bool) {
+			if !force && time.Since(lastFlush) < streamDeltaFlushEvery {
+				return
+			}
+			lastFlush = time.Now()
+			vis, th := cleanAssistantContent(roundContent.String())
+			if showThinking && len(th) > thinkEmitted {
+				roundThinking.WriteString(th[thinkEmitted:])
+				thinkEmitted = len(th)
+			}
+			if showThinking && roundThinking.Len() > thinkSent {
+				runtimeEmit(a, "chat:thinking", map[string]interface{}{
+					"conversationId": convID,
+					"delta":          roundThinking.String()[thinkSent:],
+					"elapsed":        int64(time.Since(started).Seconds()),
+				})
+				thinkSent = roundThinking.Len()
+			}
+			if len(vis) > visEmitted {
+				runtimeEmit(a, "chat:delta", map[string]interface{}{
+					"conversationId": convID,
+					"delta":          vis[visEmitted:],
+					"elapsed":        int64(time.Since(started).Seconds()),
+				})
+				visEmitted = len(vis)
+			}
+		}
 		pend := map[int]*pendingToolCall{}
 		var roundPrompt, roundCompletion int64
 		// آخرین finish_reason غیرتهی این دور — «length» یعنی خروجی مدل به‌خاطر
@@ -1393,6 +1522,13 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		// رفتار این حلقه (رویدادها، ذخیره‌ی جزئی، reasoning، usage) تغییری نکرده.
 		var roundModelErr string
 		scanErr := readSSEChunks(reqCtx, idleGuard.Body(resp.Body), func(chunk sseChunk) bool {
+			// TTFT: نخستین دلتای محتوا/استدلال/فراخوانی ابزار = نخستین توکن.
+			for _, ch := range chunk.Choices {
+				if ch.Delta.Content != "" || ch.Delta.ReasoningContent != "" || ch.Delta.Reasoning != "" || len(ch.Delta.ToolCalls) > 0 {
+					timing.noteFirstToken()
+					break
+				}
+			}
 			if chunk.Error != nil && chunk.Error.Message != "" {
 				// خطای مدل: توقف خواندن؛ رسیدگی (ذخیره‌ی جزئی + رویداد) پایین‌تر
 				roundModelErr = chunk.Error.Message
@@ -1428,37 +1564,13 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 				if rc == "" {
 					rc = ch.Delta.Reasoning
 				}
-				if rc != "" {
+				if rc != "" && showThinking {
 					roundThinking.WriteString(rc)
-					runtimeEmit(a, "chat:thinking", map[string]interface{}{
-						"conversationId": convID,
-						"delta":          rc,
-						"elapsed":        int64(time.Since(started).Seconds()),
-					})
 				}
 				if ch.Delta.Content != "" {
 					roundContent.WriteString(ch.Delta.Content)
 					// جداسازی <think> و حذف [TOOL_CALL] خام از خروجی قابل‌نمایش
-					vis, th := cleanAssistantContent(roundContent.String())
-					if len(th) > thinkEmitted {
-						chunkTh := th[thinkEmitted:]
-						thinkEmitted = len(th)
-						roundThinking.WriteString(chunkTh)
-						runtimeEmit(a, "chat:thinking", map[string]interface{}{
-							"conversationId": convID,
-							"delta":          chunkTh,
-							"elapsed":        int64(time.Since(started).Seconds()),
-						})
-					}
-					if len(vis) > visEmitted {
-						chunkVis := vis[visEmitted:]
-						visEmitted = len(vis)
-						runtimeEmit(a, "chat:delta", map[string]interface{}{
-							"conversationId": convID,
-							"delta":          chunkVis,
-							"elapsed":        int64(time.Since(started).Seconds()),
-						})
-					}
+					flushStream(false)
 				}
 				for _, tc := range ch.Delta.ToolCalls {
 					p := pend[tc.Index]
@@ -1481,6 +1593,9 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		})
 		resp.Body.Close()
 		idleGuard.Stop()
+		// پایان زمان دور — پیش از بررسی خطاها، تا دورهای ناموفق هم شمرده شوند.
+		timing.noteRound(time.Since(roundStart))
+		flushStream(true) // دلتاهای باقی‌مانده‌ی این دور پیش از هر خطا/پایان
 		// ---------- سکون استریم (Stage 2) ----------
 		// لغوِ عمدی کاربر (ctx والد) هرگز «سکون» گزارش نمی‌شود؛ پرچم نگهبان
 		// منبع حقیقت است.
@@ -1521,7 +1636,8 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 			completionTokens += roundCompletion
 			a.savePartial(convID, allContent.String()[persistedLen:]+roundContent.String(), promptTokens, completionTokens, model)
 			a.emitTurnSummary(convID, turnID, turnRec, promptTokens, completionTokens)
-			a.emitChatError(myGen, "خطای مدل: "+roundModelErr)
+			// پیام مدل هم کران‌دار و پاک می‌شود (هرگز HTML/بدنهٔ بلند در گفتگو)
+			a.emitChatError(myGen, "خطای مدل: "+sanitizeErrorSnippet(roundModelErr, maxSnippetRunes))
 			return
 		}
 		if scanErr != nil && ctx.Err() == nil {
@@ -1538,6 +1654,28 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 
 		promptTokens += roundPrompt
 		completionTokens += roundCompletion
+		// ---------- مصرف زنده (دایره‌ی توکن) ----------
+		// بعد از هر دور، مصرف واقعیِ همان درخواست (اگر API usage داده باشد) یا
+		// تخمین همان دور به UI می‌رسد تا دایره در طول پاسخ ایجنت - که چند دور
+		// طول می‌کشد - زنده بماند؛ chat:done فقط عدد نهایی را قطعی می‌کند.
+		// «دقیق» فقط وقتی که prompt_tokens واقعی از API آمده باشد؛ اگر فقط
+		// completion یا total آمده بود، عدد نمایشی تخمین است.
+		liveCtx, liveExact := roundPrompt, roundPrompt > 0
+		if liveCtx <= 0 {
+			liveCtx = estTotal
+		}
+		a.mu.Lock()
+		liveLimit := a.contextLimitLocked()
+		a.mu.Unlock()
+		runtimeEmit(a, "chat:usage", map[string]interface{}{
+			"conversationId":  convID,
+			"contextTokens":   liveCtx,
+			"tokenLimit":      liveLimit,
+			"roundPrompt":     roundPrompt,
+			"roundCompletion": roundCompletion,
+			"turnTokens":      promptTokens + completionTokens,
+			"exact":           liveExact,
+		})
 		// کالیبراسیون تخمین توکن: نسبتِ prompt_tokens واقعیِ همین
 		// درخواست به تخمین estTotal (که برای همین درخواست محاسبه شده بود)
 		// ثبت می‌شود؛ دورهای بدون usage یا با تخمین کوچک داخل observe رد می‌شوند.
@@ -1568,9 +1706,11 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		// اگر از reasoning_content آمده و thFinal هم هست، تکراری ننویس
 		allContent.WriteString(visFinal)
 		// thinking را روی gen برای finishChat نگه می‌داریم
-		myGen.thinking = roundThinking.String()
-		if myGen.thinking == "" {
-			myGen.thinking = thFinal
+		if showThinking {
+			myGen.thinking = roundThinking.String()
+			if myGen.thinking == "" {
+				myGen.thinking = thFinal
+			}
 		}
 
 		if aborted {
@@ -1590,43 +1730,65 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 				if c := strings.TrimSpace(visFinal); c != "" {
 					history = append(history, chatMessage{Role: "assistant", Content: c})
 				}
-				history = append(history, chatMessage{Role: "user", Content: verificationNudgeText})
+				// پوشش راستی‌آزمایی (فاز ۲): فقط «یک build اجرا شد» کافی نیست؛
+				// دایرکتوری‌های تغییرکرده و یک دستور تست هدفمند پیشنهاد می‌شود.
+				// متن پایه دست‌نخورده می‌ماند (تست‌های e2e به آن تکیه دارند) و
+				// جزئیات فقط به انتهایش اضافه می‌شوند — همه در verifycover.go.
+				a.mu.Lock()
+				wsCover := strings.TrimSpace(a.settings.WorkspacePath)
+				a.mu.Unlock()
+				nudge, notice, _ := verificationNudgePayload(
+					turnRec.changedFiles(), turnRec.lastVerificationCommand(), a.projectFactsFor(wsCover).Commands)
+				history = append(history, chatMessage{Role: "user", Content: nudge})
 				counter.invalidate()
 				runtimeEmit(a, "chat:notice", map[string]interface{}{
 					"conversationId": convID,
-					"text":           "فایل‌ها تغییر کردند ولی از آخرین تغییر، تست یا ساختی با موفقیت اجرا نشده؛ از مدل خواسته شد آن را اجرا کند.",
+					"text":           notice,
 				})
 				round-- // تذکر دورِ بودجه را مصرف نمی‌کند (مثل بازگشت‌های دیگر)
 				continue
 			}
-			// ---------- تشخیص «پاسخ خاموش» (باگ فکر-بدون-جواب) ----------
-			// اگر این دور هیچ متن قابل‌نمایشی نداشت، نوبت با chat:done تمام
-			// می‌شود و کاربر فقط بلوک فکر (یا هیچ‌چیز) می‌بیند. کاربر باید
-			// بداند چرا پاسخی نیامده — سه حالت:
-			// ۱) فقط استدلال (reasoning_content یا <think> بسته‌نشده)،
-			// ۲) برش به‌خاطر سقف توکن خروجی (finish_reason=length)،
-			// ۳) پاسخ کاملاً خالی (بدون فکر و بدون متن).
-			// اعلان فقط در پایان واقعی نوبت (نه بعد از ابزار که متن داشت) و
-			// فقط یک‌بار در هر دور صدا زده می‌شود؛ مسیرهای abort/خطا اعلان
-			// خودشان را دارند.
-			if strings.TrimSpace(visFinal) == "" && len(pend) == 0 {
-				switch {
-				case roundThinking.Len() > 0 && roundFinish == "length":
+			// ---------- بازیابی «پاسخ خاموش» (باگ فکر-بدون-جواب) ----------
+			// دوری که هیچ متن قابل‌نمایشی نداشت، قبلاً نوبت را کاملاً بی‌صدا
+			// تمام می‌کرد (کاربر فقط بلوک فکر یا هیچ‌چیز می‌دید). حالا یک‌بار
+			// در هر نوبت با دستور صریح ادامه می‌دهیم؛ دلیل اصلی این حالت در
+			// مدل‌های reasoning، نوشتن کد داخل استدلال و خوردن به سقف توکن
+			// خروجی است.
+			// شرط بر اساس visFinal است، نه len(pend): tool_callهای بی‌نام و
+			// فراخوانی‌های ابزارِ خاموش/حذف‌شده هم باید همین مسیر را بگیرند،
+			// وگرنه دقیقاً همان سکوت قبلی برمی‌گردد.
+			if strings.TrimSpace(visFinal) == "" {
+				if !silentRecovered && round+1 < maxRounds {
+					silentRecovered = true
+					silentThinking = roundThinking.String()
+					if silentThinking == "" {
+						silentThinking = thFinal
+					}
+					history = append(history, chatMessage{
+						Role:    "user",
+						Content: silentTurnRecoveryText(roundFinish == "length", !useTools || droppedTools),
+					})
+					counter.invalidate()
 					runtimeEmit(a, "chat:notice", map[string]interface{}{
 						"conversationId": convID,
-						"text":           "مدل وسط فکر‌کردن به «سقف توکن خروجی» خورد و پاسخ برش خورد. سقف خروجی را در تنظیمات («مدل و رفتار») بیشتر کنید یا دوباره بفرستید.",
+						"text":           silentTurnRecoveryNotice(roundFinish == "length"),
 					})
-				case roundThinking.Len() > 0:
-					runtimeEmit(a, "chat:notice", map[string]interface{}{
-						"conversationId": convID,
-						"text":           "مدل فقط استدلال تولید کرد و پاسخ متنی نداد. دوباره بفرستید، درخواست را واضح‌تر بنویسید یا مدل دیگری انتخاب کنید.",
-					})
-				default:
-					runtimeEmit(a, "chat:notice", map[string]interface{}{
-						"conversationId": convID,
-						"text":           "مدل پاسخ خالی برگرداند (بدون متن و بدون فراخوانی ابزار). دوباره تلاش کنید؛ اگر تکرار شد، مدل دیگری انتخاب کنید.",
-					})
+					round-- // بازیابی دورِ بودجه را مصرف نمی‌کند (مثل تذکر راستی‌آزمایی)
+					continue
 				}
+				// بازیابی هم پاسخ نداد (یا جای دور نمانده): به‌جای پایان
+				// خاموش، پیام ماندگار در گفتگو ذخیره می‌شود تا کاربر دلیل
+				// نبود پاسخ و راه‌حل را ببیند. thinking دورِ اول حفظ می‌شود.
+				if silentThinking != "" && !strings.Contains(myGen.thinking, silentThinking) {
+					if strings.TrimSpace(myGen.thinking) == "" {
+						myGen.thinking = silentThinking
+					} else {
+						myGen.thinking = strings.TrimSpace(silentThinking + "\n" + myGen.thinking)
+					}
+				}
+				hadThinking := silentThinking != "" || roundThinking.Len() > 0 || strings.TrimSpace(myGen.thinking) != ""
+				finalize(silentTurnNotice(roundFinish == "length", hadThinking), false)
+				return
 			}
 			finalize(allContent.String()[persistedLen:], false)
 			return
@@ -1678,6 +1840,36 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 			})
 		}
 
+		// ---------- راستی‌آزمایی خودکار (گام ۵) ----------
+		// این دور فایلی تغییر داده و از آخرین تغییر راستی‌آزمایی موفقی نبوده؟
+		// یک دستور ساخت/تایپ‌چکِ ثابت اجرا می‌شود؛ فقط شکست به مدل داده می‌شود
+		// تا همان‌جا علت را رفع کند (autoverify.go).
+		if shouldAutoVerify(useTools, droppedTools, autoVerified, round, maxRounds, turnRec, a.autoVerifyEnabled()) {
+			autoVerified = true
+			a.mu.Lock()
+			wsVerify := strings.TrimSpace(a.settings.WorkspacePath)
+			a.mu.Unlock()
+			runs, skipped := a.autoVerifyTurn(ctx, wsVerify, turnRec.changedFiles())
+			for _, run := range runs {
+				turnRec.recordCommand(run.Command, run.ExitCode, run.OK)
+				timing.noteTool(run.Ms)
+			}
+			if len(runs) > 0 {
+				noticeText, _ := autoVerifyNotice(runs, skipped)
+				runtimeEmit(a, "chat:notice", map[string]interface{}{
+					"conversationId": convID,
+					"text":           noticeText,
+				})
+				if last := runs[len(runs)-1]; !last.OK {
+					history = append(history, chatMessage{Role: "user", Content: autoVerifyFailedMessage(last)})
+					counter.invalidate()
+				}
+			} else if skipped != "" && ctx.Err() == nil {
+				// فقط یک‌بار برای هر (پوشه، دلیل) لاگ می‌شود — نه هر نوبت.
+				a.noteAutoVerifySkip(wsVerify, skipped)
+			}
+		}
+
 		pc, _ := cleanAssistantContent(roundContent.String())
 		if !a.persistAgentRound(convID, pc, calls, toolMsgs) {
 			a.emitTurnSummary(convID, turnID, turnRec, promptTokens, completionTokens)
@@ -1723,7 +1915,9 @@ func (a *App) finishChat(myGen *genState, model, content string, aborted bool, p
 
 	// اگر API usage داده باشد فقط همان ثبت می‌شود (بدون مخلوط با تخمین).
 	// اگر هیچ usage نباشد → تخمین محلی و علامت غیر دقیق.
-	exact := promptTokens > 0 || completionTokens > 0
+	// فقط وقتی دقیق است که prompt_tokens واقعی از API آمده باشد؛ در غیر این صورت
+	// بخشی از عدد (prompt) تخمین محلی است و برچسب «تخمینی» باید بماند.
+	exact := promptTokens > 0
 	if !exact {
 		if completionTokens == 0 && content != "" {
 			completionTokens = estimateTokens(content)
@@ -1812,6 +2006,23 @@ func (a *App) finishChat(myGen *genState, model, content string, aborted bool, p
 	})
 }
 
+// friendlyStreamError متن خطاهای زمینه (context) را برای کاربر قابل‌فهم
+// می‌کند؛ پیش از این «Post ...: context canceled» خام و انگلیسی در گفتگو
+// می‌ماند و کاربر هیچ راهنمایی نمی‌گرفت.
+func friendlyStreamError(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "context canceled"):
+		return "درخواست پیش از دریافت پاسخ لغو شد (خطای شبکه نبود). اگر خودتان متوقف نکردید، دوباره بفرستید؛ در صورت تکرار، مهلت سکون را در تب «مدل و رفتار» بیشتر کنید."
+	case strings.Contains(msg, "context deadline exceeded"):
+		return "زمان انتظار برای پاسخ سرویس‌دهنده تمام شد. دوباره بفرستید یا مهلت سکون را در تب «مدل و رفتار» بیشتر کنید."
+	}
+	return msg
+}
+
 // emitChatError خطا را به فرانت‌اند می‌فرستد و gen را (اگر همان gen ما بود)
 // قبل از emit پاک می‌کند.
 func (a *App) emitChatError(myGen *genState, msg string) {
@@ -1823,10 +2034,38 @@ func (a *App) emitChatError(myGen *genState, msg string) {
 	a.clearGenAllowWrites()
 	// ثبت شفاف در لاگ خطاها — قابل مشاهده از تنظیمات
 	logAppErrorFor(a, "chat", msg)
+	// خطا را در گفتگو هم ماندگار کن؛ توست chat:error گذراست و کاربر
+	// پس از چند ثانیه دلیل نبود پاسخ را از دست می‌داد.
+	a.persistChatError(myGen.convID, msg)
 	runtimeEmit(a, "chat:error", map[string]interface{}{
 		"conversationId": myGen.convID,
 		"error":          msg,
 	})
+}
+
+// persistChatError پیام خطای پایان نوبت را به‌صورت یک پیام دستیار در گفتگو
+// ذخیره می‌کند تا با بسته‌شدن توست گذرا، خطا از دید کاربر پاک نشود. اگر
+// گفتگو در دسترس نباشد (حذف‌شده/دیسک خراب) فقط لاگ می‌شود و چیزی تغییر نمی‌کند.
+func (a *App) persistChatError(convID, msg string) {
+	text := strings.TrimSpace(msg)
+	if text == "" {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	conv, err := a.loadConversation(convID)
+	if err != nil {
+		return
+	}
+	conv.Messages = append(conv.Messages, Message{
+		ID:      newID(),
+		Role:    "assistant",
+		Content: "⚠️ " + text,
+		At:      time.Now().Unix(),
+	})
+	if err := a.saveConversation(conv); err != nil {
+		logAppError("save", "persistChatError: "+err.Error())
+	}
 }
 
 // StopGeneration توقف پاسخ در جریان.

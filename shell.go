@@ -38,6 +38,21 @@ const (
 // خروجی: متن کران‌دار (سر+نشانگر+دنباله)، کد خروج فرایند (-1 اگر با سیگنال
 // کشته شده یا Start شکست خورده) و خطای Wait (nil فقط در موفقیت کامل).
 // رفتار خطا/متن دقیقاً مثل CombinedOutput قبلی حفظ شده است.
+// runShellWithPolicy اجرای دستور با سیاست سندباکس. nil = بدون سندباکس
+// (خاموش، پلتفرم بدون پیاده‌سازی، یا محیط تست). اگر سندباکس روشن باشد و
+// راه‌اندازی‌اش شکست بخورد، دستور اجرا نمی‌شود (fail-closed) — هیچ مسیر
+// بی‌صدا بدون ایزوله‌سازی اجرا نمی‌کند.
+func runShellWithPolicy(ctx context.Context, dir, command string, timeout time.Duration, onOutput func([]byte), sb *sandboxPolicy) (string, int, error) {
+	if sb == nil {
+		return runShell(ctx, dir, command, timeout, onOutput)
+	}
+	out, code, err := runSandboxedShell(ctx, dir, command, timeout, onOutput, sb)
+	if err != nil && code < 0 {
+		return out, code, fmt.Errorf("command was not run: sandbox failed: %w (disable the sandbox in Settings → Folder to run it unsandboxed)", err)
+	}
+	return out, code, err
+}
+
 func runShell(ctx context.Context, dir, command string, timeout time.Duration, onOutput func([]byte)) (string, int, error) {
 	if timeout <= 0 {
 		timeout = shellDefaultTimeout
@@ -47,7 +62,32 @@ func runShell(ctx context.Context, dir, command string, timeout time.Duration, o
 	}
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	return runShellCtx(cctx, dir, command, onOutput)
+}
 
+// runShellBackground مثل runShell است اما بدون مهلت: فرایند تا وقتی خودش
+// تمام شود یا ctx لغو شود (stop/خروج برنامه) زنده می‌ماند. کشتن درخت فرایند
+// روی لغو همان مسیر runShell است (watchdog → terminate → kill).
+func runShellBackground(ctx context.Context, dir, command string, onOutput func([]byte)) (string, int, error) {
+	return runShellCtx(ctx, dir, command, onOutput)
+}
+
+// runShellWithPolicyBackground همان runShellWithPolicy برای فرایند بلندمدت:
+// اگر سندباکس سیاست داشته باشد، داخل آن و بدون مهلت اجرا می‌شود؛ شکست
+// آماده‌سازی سندباکس = اجرا نمی‌شود (fail-closed).
+func runShellWithPolicyBackground(ctx context.Context, dir, command string, onOutput func([]byte), sb *sandboxPolicy) (string, int, error) {
+	if sb == nil {
+		return runShellBackground(ctx, dir, command, onOutput)
+	}
+	out, code, err := runSandboxedShell(ctx, dir, command, 0, onOutput, sb)
+	if err != nil && code < 0 {
+		return out, code, fmt.Errorf("command was not run: sandbox failed: %w (disable the sandbox in Settings → Folder to run it unsandboxed)", err)
+	}
+	return out, code, err
+}
+
+// runShellCtx بدنه‌ی اجرا با ctx آماده (مهلت یا لغو، تصمیم فراخواننده).
+func runShellCtx(cctx context.Context, dir, command string, onOutput func([]byte)) (string, int, error) {
 	var cmd *exec.Cmd
 	if isWindows() {
 		cmd = exec.CommandContext(cctx, "cmd")

@@ -1,0 +1,135 @@
+/* MyAI — sidebar.css
+   نوار کناری: چیدمان کنترل‌های منتقل‌شده از نوار بالا + حالت جمع‌شده (Ctrl+B).
+   این فایل بعد از app.css بارگذاری می‌شود تا فقط چیدمان سایدبار را تکمیل کند
+   و رفتار بقیه‌ی رابط دست‌نخورده بماند. */
+
+/* دکمه‌ی جمع/باز کردن در نوار بالا (کنار برند، سمت راست در RTL) */
+.sidebar-toggle {
+  margin-inline-end: 2px;
+}
+.sidebar-toggle[aria-expanded="false"] {
+  color: var(--accent-h);
+  background: var(--accent-softer);
+}
+
+/* بسته‌شدن نرم: عرض و حاشیه‌ها به صفر می‌رسند و محتوا محو می‌شود */
+#sidebar {
+  transition:
+    width 0.18s ease,
+    padding 0.18s ease,
+    border-width 0.18s ease;
+}
+#sidebar > * {
+  transition: opacity 0.12s ease;
+}
+html.sidebar-collapsed #sidebar {
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  border-width: 0;
+}
+html.sidebar-collapsed #sidebar > * {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* سربرگ بخش «گفتگوها» و دکمه‌ی حذف، هم‌تراز و هم‌ارتفاع */
+.sidebar-section {
+  padding: 4px 6px 0;
+  min-height: 26px;
+}
+.sidebar-section .link-btn {
+  height: 24px;
+}
+#sidebar .switch-title,
+#sidebar .link-btn,
+#sidebar .sidebar-title,
+#sidebar .btn-new-chat {
+  white-space: nowrap;
+}
+
+/* ردیف پایین سایدبار: دکمه‌ی حمایت (ردیف هم‌ارتفاع با آیکن و برچسب) */
+.sidebar-footer {
+  gap: 4px;
+  padding-top: 10px;
+}
+.sidebar-footer .support-row {
+  min-height: 42px;
+  padding: 0 10px;
+  gap: 8px;
+  border-radius: var(--radius-sm);
+  justify-content: center;
+  white-space: nowrap;
+  color: var(--accent-h);
+  font-size: calc(var(--ui-size) + 1px);
+  font-weight: 800;
+}
+.sidebar-footer .support-row:hover {
+  background: var(--card);
+}
+.sidebar-footer .switch-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 8px;
+  font-size: calc(var(--ui-size) - 1px);
+  color: var(--text2);
+}
+.sidebar-footer .switch-title svg {
+  color: var(--text3);
+}
+.sidebar-footer .support-row {
+  justify-content: center;
+  margin-top: 8px;
+  box-shadow: 0 0 0 3px var(--accent-softer);
+}
+.sidebar-footer .support-row .switch-title {
+  color: inherit;
+  font-weight: 800;
+}
+.sidebar-footer .support-row .switch-title svg {
+  color: #f06cb0;
+  opacity: 1;
+}
+
+/* تنظیمات: دکمه‌ی آیکن‌دار با برچسب در پایین سایدبار */
+.sidebar-utility {
+  display: flex;
+  gap: 5px;
+  padding-top: 8px;
+  margin-top: 2px;
+  border-top: 1px solid var(--border);
+}
+.sidebar-utility .icon-btn {
+  flex: 1 1 0;
+  width: auto;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: calc(var(--ui-size) - 1.5px);
+  color: var(--text2);
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+  border-radius: var(--radius-sm);
+  transition:
+    background-color 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+.sidebar-utility .icon-btn:hover {
+  background: var(--card);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.sidebar-util-label {
+  white-space: nowrap;
+}
+
+/* حرکت کمتر برای کاربرانی که ترجیح می‌دهند */
+@media (prefers-reduced-motion: reduce) {
+  #sidebar,
+  #sidebar > * {
+    transition: none;
+  }
+}

@@ -1,1 +1,235 @@
-!function(){"use strict";const{$:e,fa:n,esc:t,faDateTime:s}=window.MyAIUtils,d=()=>window.go.main.App,i={create:"ایجاد فایل جدید",modify:"ویرایش فایل",delete:"حذف فایل",move:"جابه‌جایی / تغییر نام"},a={create:"plus",modify:"pencil",delete:"trash",move:"edit2"};let c=null,o=null,l=0;function r(e,n){const s=String(n||"").split("\n");const MAX=2500;let d="",shown=0,truncated=0;for(const line of s){if(""===line)continue;if(shown>=MAX){truncated++;continue}shown++;const cls=line.startsWith("+++")||line.startsWith("---")?"dl-file":line.startsWith("@@")?"dl-hunk":line.startsWith("+")?"dl-add":line.startsWith("-")?"dl-del":"dl-ctx";d+='<div class="dl '+cls+'">'+t(line)+"</div>"}if(truncated)d+='<div class="dl dl-ctx">… '+truncated+" خط دیگر نمایش داده نشد</div>";e.innerHTML=d||'<div class="dl dl-ctx">(بدون تفاوت)</div>'}function f(){o&&(clearInterval(o),o=null),e("#diff-countdown").hidden=!0}function v(n,s){if(!c)return;const t=c.id;c=null,f(),e("#diff-overlay").classList.remove("open");const sc=s||"";d().RespondFileConfirmScope?d().RespondFileConfirmScope(t,n,sc).catch(()=>{}):d().RespondFileConfirm(t,n).catch(()=>{})}function h(){e("#changes-overlay").classList.add("open"),p()}function g(){e("#changes-overlay").classList.remove("open")}function p(){const c=e("#changes-list");c.innerHTML='<div class="chg-loading">در حال بارگذاری…</div>',d().GetFileChanges().then(c=>{!function(c){const o=e("#changes-list");c.length?(o.innerHTML=c.map(e=>{const d=e.kind||"modify",c=!e.rejected&&!e.reverted,o="move"===d&&e.movedTo?e.path+"  →  "+e.movedTo:e.path;return'<div class="chg-row" data-id="'+t(e.id)+'"><div class="chg-main"><span class="chg-kind" title="'+t(i[d]||"")+'">'+Icons.get(a[d]||"save",16)+'</span><span class="chg-path" dir="ltr" title="'+t(o)+'">'+t(o)+'</span><span class="chg-diffstat" dir="ltr"><span class="ds-add">+'+n(e.added||0)+'</span><span class="ds-del">−'+n(e.removed||0)+"</span></span>"+function(e){return e.rejected?'<span class="chg-status rejected">رد شده</span>':e.reverted?'<span class="chg-status reverted">برگشت داده شد</span>':'<span class="chg-status applied">اعمال شد</span>'}(e)+'<span class="chg-time">'+s(e.at||0)+'</span><span class="spacer"></span><button class="icon-btn chg-expand" title="نمایش تفاوت">'+Icons.get("split",15)+"</button>"+(c?'<button class="icon-btn chg-revert" title="برگرداندن این تغییر">'+Icons.get("undo",15)+"</button>":"")+'</div><div class="chg-diff" dir="ltr" hidden></div></div>'}).join(""),o.querySelectorAll(".chg-row").forEach(e=>{const n=e.dataset.id,s=e.querySelector(".chg-diff");e.querySelector(".chg-expand").addEventListener("click",()=>{s.hidden?s.dataset.loaded?s.hidden=!1:(s.innerHTML='<div class="dl dl-ctx">…</div>',d().GetFileChangeDiff(n).then(e=>{r(s,e),s.dataset.loaded="1",s.hidden=!1}).catch(e=>{s.innerHTML='<div class="dl dl-ctx">'+t(String(e&&e.message?e.message:e))+"</div>",s.hidden=!1})):s.hidden=!0});const i=e.querySelector(".chg-revert");i&&i.addEventListener("click",()=>{const e=c.find(e=>e.id===n)||{},t="move"===e.kind&&e.movedTo?e.path+" ← "+e.movedTo:e.path;window.MyAIModals.confirmBox({title:"برگرداندن تغییر",msg:"فایل «"+t+"» به وضعیت قبل از این تغییر بازمی‌گردد. ادامه می‌دهید؟",confirmText:"برگرداندن",danger:!0}).then(e=>{e&&d().RevertFileChange(n).then(()=>{window.toast("تغییر برگردانده شد"),p(),m()}).catch(e=>window.toast(String(e&&e.message?e.message:e),"err"))})})})):o.innerHTML='<div class="chg-empty"><div>'+Icons.get("fileCode",30)+'</div><div class="t1">هنوز تغییری ثبت نشده است</div><div class="t2">وقتی ایجنت فایلی را بسازد، ویرایش کند یا حذف کند، اینجا نمایش داده می‌شود.</div></div>'}(c||[])}).catch(e=>{c.innerHTML='<div class="chg-loading">خطا در دریافت فهرست: '+t(String(e&&e.message?e.message:e))+"</div>"})}function u(){window.MyAIModals.confirmBox({title:"برگرداندن همه‌ی تغییرات",msg:"همه‌ی تغییرات اعمال‌شده‌ی ایجنت از آخر به اول برمی‌گردند و فایل‌ها به وضعیت قبلی بازمی‌گردند. ادامه می‌دهید؟",confirmText:"همه را برگردان",danger:!0}).then(t=>{if(!t)return;const s=e("#changes-revert-all");s.disabled=!0,d().RevertAllFileChanges().then(e=>{s.disabled=!1,window.toast(n(e)+" تغییر برگردانده شد"),p(),m()}).catch(e=>{s.disabled=!1,window.toast(String(e&&e.message?e.message:e),"err")})})}function m(){d().GetFileChanges().then(t=>{let s=0;for(const e of t||[])e.rejected||e.reverted||s++;const d=e("#changes-badge");s>0?(d.hidden=!1,d.textContent=n(s)):d.hidden=!0,e("#changes-row-desc").textContent=s>0?n(s)+" تغییر بازگشت‌پذیر":"فایل‌های ویرایش‌شده توسط ایجنت"}).catch(()=>{})}window.MyAIChanges={bind:function(){e("#diff-accept").addEventListener("click",()=>v(!0,"")),e("#diff-allow-gen")&&e("#diff-allow-gen").addEventListener("click",()=>v(!0,"generation")),e("#diff-allow-session")&&e("#diff-allow-session").addEventListener("click",()=>v(!0,"session")),e("#diff-copy").addEventListener("click",()=>{c&&window.MyAIMD.copyText(c.diff||"").then(()=>window.toast("متن Diff کپی شد"))}),e("#diff-reject").addEventListener("click",()=>v(!1)),e("#diff-close").addEventListener("click",()=>v(!1)),e("#diff-overlay").addEventListener("click",n=>{n.target===e("#diff-overlay")&&v(!1)}),e("#changes-close").addEventListener("click",g),e("#changes-revert-all").addEventListener("click",u),e("#changes-overlay").addEventListener("click",n=>{n.target===e("#changes-overlay")&&g()}),document.addEventListener("keydown",e=>{if(c&&"Enter"===e.key){const n=e.target;if(n&&n.closest&&n.closest("button, input, textarea, select, a[href], [contenteditable]")&&"diff-accept"!==n.id)return;e.preventDefault(),v(!0)}});const n=e("#btn-file-changes");n.addEventListener("click",h),n.addEventListener("keydown",e=>{"Enter"!==e.key&&" "!==e.key||(e.preventDefault(),h())}),m()},onAgentConfirm:function(t){t&&t.change&&function(t){if(!t||!t.id)return;c&&v(!1),c=t;const s=t.kind||"modify";e("#diff-kind-badge").innerHTML=Icons.get(a[s]||"save",20),e("#diff-kind-badge").title=i[s]||"",e("#diff-file-path").textContent="move"===s&&t.movedTo?t.path+"  →  "+t.movedTo:t.path||"",e("#diff-stats").innerHTML='<span class="ds-add">+'+n(t.added||0)+'</span><span class="ds-del">−'+n(t.removed||0)+"</span>",r(e("#diff-view"),t.diff),e("#diff-overlay").classList.add("open"),function(){f(),l=180;const t=e("#diff-countdown");t.hidden=!1;const s=()=>{const e=Math.floor(l/60),s=l%60;t.innerHTML=Icons.get("clock",13)+"<span>"+n(e)+":"+n(String(s).padStart(2,"0"))+"</span>"};s(),o=setInterval(()=>{if(l--,l<=0)return s(),void v(!1);s()},1e3)}(),setTimeout(()=>{const n=e("#diff-accept");n&&n.focus()},120)}(t.change)},onChangeApplied:function(t){const s=t&&t.change;s&&s.path&&window.toast("تغییر اعمال شد: "+s.path+" (+‎"+n(s.added||0)+"/−‎"+n(s.removed||0)+")"),m(),e("#changes-overlay").classList.contains("open")&&p()},onChangeRejected:function(){m(),e("#changes-overlay").classList.contains("open")&&p()},onChangeReverted:function(){window.toast("تغییر برگردانده شد"),m(),e("#changes-overlay").classList.contains("open")&&p()},onGenerationEnd:function(){c&&(c=null,f(),e("#diff-overlay").classList.remove("open"))},handleEscape:function(){return c?(v(!1),!0):!!e("#diff-overlay").classList.contains("open")&&(f(),e("#diff-overlay").classList.remove("open"),!0)},openPanel:h,closePanel:g,refreshBadge:m,renderDiff:r}}();
+/* MyAI — دیالوگ تأیید تغییر فایل (Diff Preview) و رندر Diff.
+ *
+ * پنل «تغییرات فایل» و همه‌ی مسیرهای «برگرداندن تغییر» از پروژه حذف شده‌اند؛
+ * این فایل فقط دو چیز را نگه می‌دارد:
+ *   - مودال تأیید تغییر (#diff-overlay) با شمارش معکوس ۳ دقیقه‌ای،
+ *     «اجازه تا پایان پاسخ/نشست» و پاسخ به بک‌اند (RespondFileConfirm)
+ *   - renderDiff که کارت خلاصه‌ی نوبت هم از آن برای نمایش تفاوت استفاده می‌کند
+ * رویدادها از app.js می‌آیند: agent:confirm / agent:change_applied /
+ * agent:change_rejected / agent:change_reverted و پایان نسل (chat:done/error).
+ */
+(function () {
+  "use strict";
+
+  var U = window.MyAIUtils;
+  var $ = U.$;
+  var fa = U.fa;
+  var esc = U.esc;
+  var app = function () {
+    return window.go.main.App;
+  };
+
+  var labels = {
+    create: "ایجاد فایل جدید",
+    modify: "ویرایش فایل",
+    delete: "حذف فایل",
+    move: "جابه‌جایی / تغییر نام"
+  };
+  var icons = { create: "plus", modify: "pencil", delete: "trash", move: "edit2" };
+
+  var current = null;
+  var timer = null;
+  var left = 0;
+
+  /* ------------------------------------------------------------- رندر Diff */
+
+  function renderDiff(box, diff) {
+    if (!box) return;
+    var lines = String(diff || "").split("\n");
+    var MAX = 2500;
+    var html = "";
+    var shown = 0;
+    var truncated = 0;
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      if (line === "") continue;
+      if (shown >= MAX) {
+        truncated++;
+        continue;
+      }
+      shown++;
+      var cls =
+        line.indexOf("+++") === 0 || line.indexOf("---") === 0
+          ? "dl-file"
+          : line.indexOf("@@") === 0
+            ? "dl-hunk"
+            : line.charAt(0) === "+"
+              ? "dl-add"
+              : line.charAt(0) === "-"
+                ? "dl-del"
+                : "dl-ctx";
+      html += '<div class="dl ' + cls + '">' + esc(line) + "</div>";
+    }
+    if (truncated) html += '<div class="dl dl-ctx">… ' + truncated + " خط دیگر نمایش داده نشد</div>";
+    box.innerHTML = html || '<div class="dl dl-ctx">(بدون تفاوت)</div>';
+  }
+
+  /* ------------------------------------------------------- پاسخ به بک‌اند */
+
+  function stopCountdown() {
+    if (timer) {
+      clearInterval(timer);
+      timer = null;
+    }
+    var c = $("#diff-countdown");
+    if (c) c.hidden = true;
+  }
+
+  function respond(allow, scope) {
+    if (!current) return;
+    var id = current.id;
+    current = null;
+    stopCountdown();
+    var overlay = $("#diff-overlay");
+    if (overlay) overlay.classList.remove("open");
+    var be = app();
+    if (!be) return;
+    var chosen = scope || "";
+    var p = be.RespondFileConfirmScope
+      ? be.RespondFileConfirmScope(id, allow, chosen)
+      : be.RespondFileConfirm(id, allow);
+    if (p && p.catch) p.catch(function () {});
+  }
+
+  function startCountdown() {
+    stopCountdown();
+    left = 180;
+    var box = $("#diff-countdown");
+    if (!box) return;
+    box.hidden = false;
+    // آیکون یک‌بار ساخته می‌شود و هر ثانیه فقط متن شمارنده عوض می‌شود
+    // (قبلاً هر تیک innerHTML کامل دوباره parse می‌شد).
+    box.innerHTML = Icons.get("clock", 13);
+    var num = document.createElement("span");
+    box.appendChild(num);
+    function paint() {
+      var m = Math.floor(left / 60);
+      var s = left % 60;
+      var next = fa(m) + ":" + fa(String(s).padStart(2, "0"));
+      if (num.textContent !== next) num.textContent = next;
+    }
+    paint();
+    timer = setInterval(function () {
+      left--;
+      if (left <= 0) {
+        paint();
+        respond(false);
+        return;
+      }
+      paint();
+    }, 1000);
+  }
+
+  /* ------------------------------------------------------------ مودال تأیید */
+
+  function showConfirm(change) {
+    if (!change || !change.id) return;
+    if (current) respond(false);
+    current = change;
+    var kind = change.kind || "modify";
+    var badge = $("#diff-kind-badge");
+    if (badge) {
+      badge.innerHTML = Icons.get(icons[kind] || "save", 20);
+      badge.title = labels[kind] || "";
+    }
+    var pathEl = $("#diff-file-path");
+    if (pathEl) {
+      pathEl.textContent =
+        kind === "move" && change.movedTo ? change.path + "  →  " + change.movedTo : change.path || "";
+    }
+    var stats = $("#diff-stats");
+    if (stats) {
+      stats.innerHTML =
+        '<span class="ds-add">+' +
+        fa(change.added || 0) +
+        '</span><span class="ds-del">−' +
+        fa(change.removed || 0) +
+        "</span>";
+    }
+    renderDiff($("#diff-view"), change.diff);
+    var overlay = $("#diff-overlay");
+    if (overlay) overlay.classList.add("open");
+    startCountdown();
+    setTimeout(function () {
+      var accept = $("#diff-accept");
+      if (accept) accept.focus();
+    }, 120);
+  }
+
+  function bind() {
+    var accept = $("#diff-accept");
+    if (accept) accept.addEventListener("click", function () { respond(true, ""); });
+    var allowGen = $("#diff-allow-gen");
+    if (allowGen) allowGen.addEventListener("click", function () { respond(true, "generation"); });
+    var allowSession = $("#diff-allow-session");
+    if (allowSession) allowSession.addEventListener("click", function () { respond(true, "session"); });
+    var copy = $("#diff-copy");
+    if (copy)
+      copy.addEventListener("click", function () {
+        if (current && window.MyAIMD) {
+          window.MyAIMD.copyText(current.diff || "").then(function () {
+            window.toast("متن Diff کپی شد");
+          });
+        }
+      });
+    var reject = $("#diff-reject");
+    if (reject) reject.addEventListener("click", function () { respond(false); });
+    var close = $("#diff-close");
+    if (close) close.addEventListener("click", function () { respond(false); });
+    var overlay = $("#diff-overlay");
+    if (overlay)
+      overlay.addEventListener("click", function (e) {
+        if (e.target === overlay) respond(false);
+      });
+    document.addEventListener("keydown", function (e) {
+      if (!current || e.key !== "Enter") return;
+      var t = e.target;
+      if (t && t.closest && t.closest("button, input, textarea, select, a[href], [contenteditable]") &&
+          t.id !== "diff-accept") {
+        return;
+      }
+      e.preventDefault();
+      respond(true);
+    });
+  }
+
+  function onGenerationEnd() {
+    if (!current) return;
+    current = null;
+    stopCountdown();
+    var overlay = $("#diff-overlay");
+    if (overlay) overlay.classList.remove("open");
+  }
+
+  function handleEscape() {
+    if (current) {
+      respond(false);
+      return true;
+    }
+    var overlay = $("#diff-overlay");
+    if (overlay && overlay.classList.contains("open")) {
+      stopCountdown();
+      overlay.classList.remove("open");
+      return true;
+    }
+    return false;
+  }
+
+  window.MyAIChanges = {
+    bind: bind,
+    onAgentConfirm: function (data) {
+      if (data && data.change) showConfirm(data.change);
+    },
+    onChangeApplied: function (data) {
+      var ch = data && data.change;
+      if (ch && ch.path && window.toast) {
+        window.toast("تغییر اعمال شد: " + ch.path + " (+‎" + fa(ch.added || 0) + "/−‎" + fa(ch.removed || 0) + ")");
+      }
+    },
+    onChangeRejected: function () {},
+    onChangeReverted: function () {},
+    onGenerationEnd: onGenerationEnd,
+    handleEscape: handleEscape,
+    renderDiff: renderDiff
+  };
+})();

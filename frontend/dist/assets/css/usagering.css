@@ -1,0 +1,218 @@
+/* MyAI — usagering.css (نسخهٔ ۱.۱۱ — بازطراحی)
+   نشانگر مصرف توکن (usagering.js): دونات SVG با گرادیان و کلاهِ گرد به‌جای
+   conic-gradient با لبهٔ کِش؛ پیل روشن با برچسب «کانتکست» و کسر عددی؛
+   پاپ‌اور توضیحات با وضعیت پایش خودکار شارژ (بدون دکمهٔ صفر کردن دستی).
+   تمام رنگ‌ها از متغیرهای تم می‌آیند (روشن/تاریک و اندازهٔ فونت). */
+
+/* دایره — شناور در گوشهٔ بالا-راست ناحیهٔ چت (RTL) */
+#usage-widget.usage-pill {
+  position: absolute;
+  top: 6px;
+  inset-inline-start: 14px; /* در RTL یعنی سمت راست */
+  z-index: 6;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  user-select: none;
+  opacity: 0.92;
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+#usage-widget.usage-pill:hover {
+  border-color: var(--accent);
+  background: var(--card-hover);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+  opacity: 1;
+}
+/* عنوان گفتگو و محتوا زیر دایره نروند */
+/* نوار وضعیت بلندتر می‌شود تا دایره کامل داخلش جا بگیرد و روی کادر پیام‌ها نیفتد */
+#chat:has(#usage-widget:not([hidden])) #chat-status {
+  height: 58px;
+  padding-inline-start: 78px;
+}
+#chat:has(#usage-widget:not([hidden])) #messages {
+  padding-top: 80px;
+}
+#usage-widget.usage-pill:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------- دونات SVG ---------- */
+#usage-widget .usage-ring {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+/* دونات قبلی (::after با conic-gradient) — حذف منطقی؛ SVG جای آن را می‌گیرد */
+#usage-widget .usage-ring::after {
+  display: none;
+}
+.usage-ring-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.usage-ring-track {
+  fill: none;
+  stroke: var(--bg-soft);
+  stroke-width: 3.6;
+}
+.usage-ring-arc {
+  fill: none;
+  stroke: url(#usageRingGrad);
+  stroke-width: 3.6;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.6s cubic-bezier(0.22, 1, 0.36, 1), stroke 0.3s ease;
+}
+/* هشدار/خطر: رنگ کمان عوض می‌شود و یک هالهٔ لطیف می‌گیرد */
+.usage-ring.warn .usage-ring-arc {
+  stroke: var(--warn);
+  filter: drop-shadow(0 0 2.5px var(--warn-soft));
+}
+.usage-ring.danger .usage-ring-arc {
+  stroke: var(--danger);
+  filter: drop-shadow(0 0 3px var(--danger-soft));
+}
+
+/* عدد درصد وسط دایره — app.js متنش را می‌نویسد؛ نیم‌علامت با ::after */
+#usage-widget .usage-pct {
+  position: relative;
+  z-index: 1;
+  font-size: calc(var(--ui-size) - 1.5px);
+  font-weight: 800;
+  line-height: 1;
+  color: var(--text2);
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+#usage-widget .usage-pct::after {
+  content: "\066A"; /* ٪ فارسی */
+  font-size: calc(var(--ui-size) - 7px);
+  font-weight: 700;
+  margin-inline-start: 1px;
+  opacity: 0.75;
+}
+#usage-widget.usage-warn .usage-pct { color: var(--warn); }
+#usage-widget.usage-danger .usage-pct { color: var(--danger); }
+
+
+/* ---------- پاپ‌اور توضیحات ---------- */
+.usage-pop {
+  position: fixed;
+  z-index: 90;
+  width: 330px;
+  max-width: calc(100vw - 16px);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 10px 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: calc(var(--ui-size) - 1px);
+}
+.usage-pop[hidden] {
+  display: none;
+}
+.usage-pop-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.usage-pop-title {
+  font-weight: 700;
+  color: var(--text);
+  flex: 1 1 auto;
+}
+.usage-pop-close {
+  border: 0;
+  background: transparent;
+  color: var(--text3);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+}
+.usage-pop-close:hover {
+  color: var(--text);
+  background: var(--card-hover);
+}
+.usage-pop-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 45vh;
+  overflow-y: auto;
+}
+.usage-row {
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, var(--radius));
+  padding: 7px 9px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.usage-row-label {
+  font-size: calc(var(--ui-size) - 3px);
+  color: var(--text3);
+}
+.usage-row-value {
+  font-size: calc(var(--ui-size) + 1px);
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.usage-row-note {
+  font-size: calc(var(--ui-size) - 3.5px);
+  color: var(--text3);
+  line-height: 1.7;
+}
+.usage-pop-meta {
+  font-size: calc(var(--ui-size) - 3px);
+  color: var(--text3);
+}
+/* وضعیت پایش خودکار شارژ */
+.usage-monitor {
+  border-style: dashed;
+}
+.usage-monitor-status {
+  font-size: calc(var(--ui-size) - 3px);
+  color: var(--text2);
+  line-height: 1.8;
+  white-space: pre-line;
+  font-variant-numeric: tabular-nums;
+}
+.usage-pop-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.usage-pop-footnote {
+  font-size: calc(var(--ui-size) - 3.5px);
+  color: var(--text3);
+  line-height: 1.6;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.usage-probe {
+  font-size: calc(var(--ui-size) - 2px);
+  flex: none;
+  white-space: nowrap;
+}

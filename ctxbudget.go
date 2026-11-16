@@ -388,7 +388,11 @@ func compactToolCallArgs(argsJSON string) string {
 // aggressive=true (بازیابی سرریز): هدف ۴۰٪ بودجه؛ و اگر تخمین ما از قبل زیر
 // هدف باشد هم نصف واحدهای قابل حذف کنار می‌روند (سرویس‌دهنده سرریز را عین
 // خطا اعلام کرده — تخمینِ ما می‌تواند کم‌برآورد باشد).
-func compactHistoryForBudget(history []chatMessage, budget int64, counter *historyTokenCache, aggressive bool) ([]chatMessage, bool) {
+//
+// summarize (اختیاری، گام ۸): اگر داده شود، پیش از حذف، خلاصهٔ مدل از
+// پیام‌های حذف‌شده گرفته می‌شود و همراه «واقعیت‌های سنجاق‌شده» در نشانگر
+// فشرده‌سازی می‌نشیند (best-effort — خطای آن فقط لاگ می‌شود).
+func compactHistoryForBudget(history []chatMessage, budget int64, counter *historyTokenCache, aggressive bool, summarize ...func(dropped []chatMessage) string) ([]chatMessage, bool) {
 	h := history
 	if len(h) == 0 {
 		return h, false
@@ -577,6 +581,13 @@ func compactHistoryForBudget(history []chatMessage, budget int64, counter *histo
 			(h[frontCut].Role == "assistant" || h[frontCut].Role == "tool") {
 			frontCut++
 		}
+		// پیام‌های حذف‌شده را برای خلاصه‌سازی/سنجاق نگه می‌داریم.
+		var droppedMsgs []chatMessage
+		for k := 0; k < dropped; k++ {
+			for i := droppable[k].start; i < droppable[k].end && i < len(h); i++ {
+				droppedMsgs = append(droppedMsgs, h[i])
+			}
+		}
 		out := make([]chatMessage, 0, len(h))
 		out = append(out, h[:firstDrop]...)
 		if dropped <= nFront {
@@ -588,8 +599,14 @@ func compactHistoryForBudget(history []chatMessage, budget int64, counter *histo
 			out = append(out, h[frontCut:tailStart]...)
 			out = append(out, h[droppable[dropped-1].end:]...)
 		}
-		// نشانگر حذف کانتکست — دقیقاً یکی، بعد از system/pin
+		// نشانگر حذف کانتکست — دقیقاً یکی، بعد از system/pin. پیش از آن
+		// واقعیت‌های سنجاق‌شده (قطعی) و در صورت امکان خلاصهٔ مدل.
 		h = ensureContextDropMarker(out)
+		summary := ""
+		if len(summarize) > 0 && summarize[0] != nil {
+			summary = summarize[0](droppedMsgs)
+		}
+		h = enrichContextDropMarkerDetails(h, summary, pinnedFactsFrom(droppedMsgs, compactFactsLimit))
 		changed = true
 		if counter != nil {
 			counter.invalidate()
@@ -631,4 +648,45 @@ func isContextOverflowError(status int, body string) bool {
 		}
 	}
 	return false
+}
+
+// enrichContextDropMarkerDetails خلاصهٔ مدل و واقعیت‌های سنجاق‌شده را به
+// «تنها» نشانگر حذف کانتکست می‌چسباند (گام ۸). دقیقاً برعکس enrichContextDropMarker
+// محتوای قبلی نشانگر حفظ می‌شود؛ فقط یک‌بار و به‌صورت کران‌دار می‌نشیند تا
+// نشانگرهای تکراری ساخته نشوند.
+func enrichContextDropMarkerDetails(h []chatMessage, summary string, pinned []string) []chatMessage {
+	summary = strings.TrimSpace(summary)
+	if summary == "" && len(pinned) == 0 {
+		return h
+	}
+	var block strings.Builder
+	block.WriteString("Context kept from the removed part (do not redo this work):\n")
+	if len(pinned) > 0 {
+		block.WriteString("Pinned facts:\n")
+		for _, p := range pinned {
+			block.WriteString("- " + p + "\n")
+		}
+	}
+	if summary != "" {
+		block.WriteString("Summary of the removed part:\n" + summary + "\n")
+	}
+	text := contextDropMarkerText + "\n" + cutUTF8(strings.TrimRight(block.String(), "\n"), compactMarkerPartLimit)
+	out := make([]chatMessage, 0, len(h))
+	touched := false
+	for _, m := range h {
+		if isContextDropMarker(m) {
+			if touched {
+				continue
+			}
+			touched = true
+			// اگر نشانگر از قبل فهرست کارها دارد، آن را حفظ می‌کنیم.
+			extra := ""
+			if rest := strings.TrimPrefix(historyContentString(m.Content), contextDropMarkerText); strings.TrimSpace(rest) != "" {
+				extra = "\n" + strings.TrimSpace(rest)
+			}
+			m.Content = text + extra
+		}
+		out = append(out, m)
+	}
+	return out
 }

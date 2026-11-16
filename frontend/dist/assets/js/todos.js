@@ -1,4 +1,4 @@
-// MyAI — پنل «کارهای ایجنت» (ابزار todo_write).
+// MyAI — پنل «برنامهٔ کار» (ابزار todo_write؛ پیش‌تر «کارهای ایجنت»).
 //
 // چک‌لیست جمع‌وجمع‌شونده‌ای که بالای composer نمایش داده می‌شود و وضعیت
 // کارهای اعلام‌شدهٔ ایجنت را زنده نشان می‌دهد. وقتی فهرست خالی است، پنل
@@ -28,8 +28,22 @@
 	var fa = utils.fa || function (n) { return String(n).replace(/\d/g, function (d) { return "۰۱۲۳۴۵۶۷۸۹"[d]; }); };
 
 	var todos = [];        // آخرین وضعیت فهرست
-	var collapsed = false; // جمع‌شده/باز — فقط حافظهٔ همین نشست
+	// پیش‌فرض جمع‌شده: این پنل «برنامه» است، نه گزارش زندهٔ کار. باز‌کردنش
+	// درخواستی است تا با نوار «گزارش زنده» که همیشه فعال است اشتباه نشود.
+	var collapsed = true;
 	var panel, listEl, countEl, chevBtn;
+	var lastKey = "";      // امضای آخرین رندر — برای رد کردن به‌روزرسانی تکراری
+
+	// امضای سبک فهرست (وضعیت + متن)؛ اگر رویدادی با همان داده دوباره
+	// برسد، DOM بازسازی نمی‌شود (چک‌لیست در هر نوبت چندبار emit می‌شود).
+	function keyOf(list) {
+		var out = "";
+		for (var i = 0; i < list.length; i++) {
+			var it = list[i] || {};
+			out += String(it.status) + "\u0001" + String(it.content == null ? "" : it.content) + "\u0002";
+		}
+		return out;
+	}
 
 	// برچسب وضعیت هر آیتم (فارسی، هم‌لحن با بقیهٔ پیام‌های برنامه)
 	function statusLabel(s) {
@@ -53,7 +67,7 @@
 
 		var title = document.createElement("span");
 		title.className = "todos-title";
-		title.textContent = "کارهای ایجنت";
+		title.textContent = "برنامهٔ کار";
 
 		countEl = document.createElement("span");
 		countEl.className = "todos-count";
@@ -65,7 +79,7 @@
 		chevBtn.setAttribute("aria-expanded", "true");
 		chevBtn.addEventListener("click", function () {
 			collapsed = !collapsed;
-			render();
+			render(true);
 		});
 
 		head.appendChild(title);
@@ -76,7 +90,7 @@
 			// دسترس‌پذیری keyboard است)
 			if (ev.target === title || ev.target === head || ev.target === countEl) {
 				collapsed = !collapsed;
-				render();
+				render(true);
 			}
 		});
 
@@ -90,8 +104,12 @@
 	}
 
 	// رندر کامل پنل از روی todos — بدون innerHTML؛ همه‌چیز textContent.
-	function render() {
+	// force=true برای تغییرهای UI (جمع/باز) که داده عوض نشده است.
+	function render(force) {
 		if (!ensureContainer()) return;
+		var key = keyOf(todos);
+		if (!force && key === lastKey) return;
+		lastKey = key;
 		var n = todos.length;
 		panel.hidden = n === 0;
 		if (n === 0) {
@@ -149,9 +167,16 @@
 	}
 
 	// بازگردانی از روی شیء گفتگو (chat:start / chat:done / GetConversation)
+	//
+	// گارد «فقط گفتگوی فعال» اکید است: وقتی هیچ گفتگویی باز نیست (activeId
+	// خالی — مثلاً «گفتگوی تازه») یا گفتگوی دیگری باز است، چک‌لیستِ آن گفتگو
+	// نباید بالای composer ظاهر شود. پیش‌تر با activeId خالی گارد رد می‌شد و
+	// chat:done یک گفتگوی پس‌زمینه، فهرست کارهایش را روی صفحهٔ خالی نشان
+	// می‌داد. به همین دلیل chat:start یک macrotask به تعویق می‌افتد تا app.js
+	// (که بعد از ما همان رویداد را می‌گیرد) activeId را ست کرده باشد.
 	function setFromConversation(conv) {
 		if (!conv || !conv.id) return;
-		if (activeId() && String(conv.id) !== activeId()) return;
+		if (String(conv.id) !== activeId()) return;
 		todos = Array.isArray(conv.todos) ? conv.todos : [];
 		render();
 	}
@@ -159,7 +184,7 @@
 	// پنل را پاک کن (گفتگوی تازه)
 	function clearAll() {
 		todos = [];
-		render();
+		render(true);
 	}
 
 	// ---- اتصال رویدادها ----
@@ -169,7 +194,13 @@
 			try {
 				rt.EventsOn("chat:todos", onTodosEvent);
 				rt.EventsOn("chat:start", function (p) {
-					if (p && p.conversation) setFromConversation(p.conversation);
+					// تعویق تا پس از ست‌شدن activeId توسط app.js (همان رویداد،
+					// ثبت‌شده بعد از ما) — وگرنه گارد گفتگوی فعال رد می‌کند.
+					if (!p || !p.conversation) return;
+					var conv = p.conversation;
+					setTimeout(function () {
+						try { setFromConversation(conv); } catch (e) { /* UI نباید بخوابد */ }
+					}, 0);
 				});
 				rt.EventsOn("chat:done", function (p) {
 					if (p && p.conversation) setFromConversation(p.conversation);
@@ -217,10 +248,25 @@
 		connect();
 	}
 
+	// currentTask کارِ در حال انجام را برمی‌گرداند (برای ارجاع خطوط «گزارش
+	// زنده» به وظیفه‌ی متناطر): { index, total, content }. اگر هیچ کاری در
+	// حال انجام نباشد، null.
+	function currentTask() {
+		var total = todos.length;
+		for (var i = 0; i < total; i++) {
+			var it = todos[i] || {};
+			if (it.status === "in_progress") {
+				return { index: i + 1, total: total, content: String(it.content == null ? "" : it.content) };
+			}
+		}
+		return null;
+	}
+
 	// API عمومی برای تست/دیباگ و استفادهٔ سایر ماژول‌ها
 	window.MyAITodos = {
 		setFromConversation: setFromConversation,
 		clear: clearAll,
-		render: render
+		render: render,
+		currentTask: currentTask
 	};
 })();

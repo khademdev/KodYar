@@ -5,12 +5,15 @@ package main
 // مهاجرت یک‌باره‌ی تنظیمات قدیمی به auto.
 
 import (
+	"context"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 )
@@ -86,6 +89,31 @@ func TestHostBypassesProxy(t *testing.T) {
 	}
 }
 
+// TestSmartProxyAlwaysBypassesLoopback: پروکسی سیستم روشن است و ProxyOverride
+// کاربر 127.* را ندارد؛ باز هم localhost/127.*/::1 باید مستقیم بروند تا
+// Provider محلی و آزمون‌های httptest قربانی پروکسی نشوند.
+func TestSmartProxyAlwaysBypassesLoopback(t *testing.T) {
+	old := systemProxyFn
+	defer restoreProxyTestState(t, old)
+	systemProxyFn = func() (string, string, bool) {
+		return "127.0.0.1:8080", "<local>;10.*;192.168.*", true
+	}
+	resetSystemProxyCache()
+
+	for _, raw := range []string{"http://127.0.0.1:9/v1", "http://localhost:9", "http://[::1]:9"} {
+		req := httptest.NewRequest(http.MethodGet, raw, nil)
+		if u, err := smartProxy(req); err != nil || u != nil {
+			t.Fatalf("loopback %s must bypass proxy; got %v err=%v", raw, u, err)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "https://api.example.com/v1", nil)
+	u, err := smartProxy(req)
+	if err != nil || u == nil || u.String() != "http://127.0.0.1:8080" {
+		t.Fatalf("remote host must still use the system proxy; got %v err=%v", u, err)
+	}
+}
+
 func TestSmartProxySystemFirst(t *testing.T) {
 	old := systemProxyFn
 	oldEnv := envProxyFn
@@ -94,6 +122,9 @@ func TestSmartProxySystemFirst(t *testing.T) {
 		envProxyFn = oldEnv
 		restoreProxyTestState(t, old)
 	}()
+	// این محیط ممکن است HTTP_PROXY داشته باشد؛ برای سنجش بای‌پسِ سیستم،
+	// منبع محیطی را خنثی می‌کنیم (مرحله‌ی ۳ خودش آن را تزریق می‌کند).
+	envProxyFn = func(*http.Request) (*url.URL, error) { return nil, nil }
 
 	// 1) رجیستری ویندوز اولویت دارد
 	systemProxyFn = func() (string, string, bool) {
@@ -154,10 +185,26 @@ func TestFailOpenDeadProxyServesDirect(t *testing.T) {
 	resetSystemProxyCache()
 	atomic.StoreInt64(&proxyDeadUntil, 0)
 
-	tr := &http.Transport{Proxy: smartProxy}
+	// هدف باید غیر-loopback باشد؛ خود loopback طبق قرارداد جدید همیشه
+	// مستقیم می‌رود و سناریوی «پروکسیِ مرده» را قابل سنجش نمی‌گذارد. نام
+	// غیرواقعی را با DialContext به همان سرور تست می‌رسانیم.
+	addr := target.Listener.Addr().String()
+	dialTest := func(ctx context.Context, network, address string) (net.Conn, error) {
+		if strings.Contains(address, "myai-test.invalid") {
+			address = addr
+		}
+		var d net.Dialer
+		return d.DialContext(ctx, network, address)
+	}
+	// مسیر نجات fail-open از directTransport استفاده می‌کند، نه از tr؛ آن را
+	// هم موقتاً به سرور تست وصل می‌کنیم تا سناریوی غیر-loopback قابل سنجش باشد.
+	oldDirect := directTransport
+	directTransport = &http.Transport{DialContext: dialTest}
+	defer func() { directTransport = oldDirect }()
+	tr := &http.Transport{Proxy: smartProxy, DialContext: dialTest}
 	client := &http.Client{Transport: failOpenTransport{base: tr}}
 
-	resp, err := client.Get(target.URL) // پورت ۱ بسته است؛ dial فوراً رد می‌شود
+	resp, err := client.Get("http://myai-test.invalid/") // پروکسی 127.0.0.1:1 بسته است
 	if err != nil {
 		t.Fatalf("fail-open failed: %v", err)
 	}
@@ -171,7 +218,7 @@ func TestFailOpenDeadProxyServesDirect(t *testing.T) {
 	}
 
 	// درخواست دوم با فاصله‌ی خنک‌سازی مستقیماً می‌رود (بدون تلاش مجدد)
-	resp2, err := client.Get(target.URL)
+	resp2, err := client.Get("http://myai-test.invalid/")
 	if err != nil {
 		t.Fatalf("second request failed: %v", err)
 	}
