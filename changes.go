@@ -532,7 +532,7 @@ func (a *App) writeFileWithConfirm(ctx context.Context, rel, afterContent string
 		// هم خراب بود» عذر پذیرفته می‌شود (قطعه‌کد/قالب).
 		beforeInvalid := existed && validateContent(p, before) != ""
 		if !beforeInvalid {
-			return "ERROR: file written but it no longer parses: " + rel + ": " + vmsg + ". Fix it with edit_file before continuing.", false
+			return "ERROR: the change WAS applied (the file on disk was updated, a backup exists and the «file changes» panel can revert it) but it no longer parses: " + rel + ": " + vmsg + ". Do not rewrite the whole file blindly — fix it with edit_file before continuing.", false
 		}
 		parseNote = " (note: this file did not parse before this edit either — " + vmsg + ")"
 	}

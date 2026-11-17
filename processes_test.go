@@ -45,7 +45,7 @@ func TestBackgroundProcessIncrementalOutput(t *testing.T) {
 	t.Cleanup(func() { _, _ = a.stopBackgroundProcess(p.id) })
 
 	waitForProcessOutput(t, p, "one")
-	first, ok := a.toolProcessOutput(p.id, 0, 0)
+	first, ok := a.toolProcessOutput(p.id, 0, false, 0)
 	if !ok {
 		t.Fatalf("first read failed: %s", first)
 	}
@@ -57,7 +57,7 @@ func TestBackgroundProcessIncrementalOutput(t *testing.T) {
 	}
 
 	waitForProcessOutput(t, p, "two")
-	second, ok := a.toolProcessOutput(p.id, 0, 0)
+	second, ok := a.toolProcessOutput(p.id, 0, false, 0)
 	if !ok {
 		t.Fatalf("second read failed: %s", second)
 	}
@@ -124,7 +124,7 @@ func TestBackgroundProcessListAndUnknownID(t *testing.T) {
 		t.Fatalf("list must explain the follow-up tools: %q", list)
 	}
 
-	if out, ok := a.toolProcessOutput("proc-does-not-exist", 0, 0); ok || !strings.Contains(out, "unknown process id") {
+	if out, ok := a.toolProcessOutput("proc-does-not-exist", 0, false, 0); ok || !strings.Contains(out, "unknown process id") {
 		t.Fatalf("unknown id must return an ERROR: %q", out)
 	}
 	if out, ok := a.toolProcessStop("proc-does-not-exist"); ok || !strings.Contains(out, "unknown process id") {

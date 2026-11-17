@@ -180,7 +180,7 @@ func TestLinuxSandboxMissingBwrapFailsClosedInBackground(t *testing.T) {
 		t.Fatalf("background command ran unsandboxed although bwrap is missing (%s exists)", marker)
 	}
 	// خروجی ابزار هم باید خطا را نشان دهد و خواندن/توقف تمیز کار کند.
-	out, ok := a.toolProcessOutput(p.id, 0, 0)
+	out, ok := a.toolProcessOutput(p.id, 0, false, 0)
 	if !ok || !strings.Contains(out, "bwrap") || !strings.Contains(out, "failed") {
 		t.Fatalf("process_output must surface the failure: ok=%v %q", ok, out)
 	}

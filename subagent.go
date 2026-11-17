@@ -236,7 +236,7 @@ func (a *App) execSubagentTool(ctx context.Context, name, argsJSON string) (stri
 		return a.toolReadFile(ctx, gs("path"), gi("start_line"), gi("end_line"))
 	case "search_files":
 		regex := gb("regex") || gb("is_regex")
-		return a.toolSearchFilesOpts(searchOptions{
+		return a.toolSearchFilesOpts(ctx, searchOptions{
 			Query:         gs("query"),
 			Path:          gs("path"),
 			Regex:         regex,

@@ -283,7 +283,10 @@ func (a *App) toolRunCommandBackground(parent context.Context, dir, command stri
 }
 
 // toolProcessOutput خروجی تازه‌ی یک فرایند را برمی‌گرداند.
-func (a *App) toolProcessOutput(id string, offset int64, maxChars int) (string, bool) {
+// toolProcessOutput لاگ یک فرایند پس‌زمینه را می‌خواند. hasOffset=false یعنی
+// مدل فیلد offset را نفرستاده (فقط خروجی جدید را بده)؛ hasOffset=true با
+// offset=0 یعنی «از ابتدای لاگ بخوان» — تا مدل بتواند لاگ کامل را بازبینی کند.
+func (a *App) toolProcessOutput(id string, offset int64, hasOffset bool, maxChars int) (string, bool) {
 	p := a.bgGet(id)
 	if p == nil {
 		return fmt.Sprintf("ERROR: unknown process id %q (use process_list to see active processes).", strings.TrimSpace(id)), false
@@ -295,10 +298,13 @@ func (a *App) toolProcessOutput(id string, offset int64, maxChars int) (string, 
 		maxChars = bgMaxChars
 	}
 	p.mu.Lock()
-	if offset <= 0 && p.read > 0 {
-		offset = p.read // خواندن افزایشی پیش‌فرض
+	if !hasOffset {
+		offset = p.read // خواندن افزایشی پیش‌فرض (فیلد offset فرستاده نشده)
 	}
 	p.mu.Unlock()
+	if offset < 0 {
+		offset = 0
+	}
 	text, from, next, total, status, gap := p.snapshot(offset, maxChars)
 	p.mu.Lock()
 	p.read = next

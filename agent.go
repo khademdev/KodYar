@@ -306,7 +306,7 @@ func agentToolDefs() []toolDef {
 					"Also reports whether the process is still running and its exit status.",
 				Parameters: schemaObj(map[string]interface{}{
 					"id":        propStr("Process id returned by run_command (e.g. 'proc-abc123')."),
-					"offset":    propInt("Byte offset to read from (optional; default = last read position)."),
+					"offset":    propInt("Byte offset to read from (optional; omit for only-new output, pass 0 to read the log from the beginning)."),
 					"max_chars": propInt("Maximum characters to return (optional, default 12000, max 60000); the newest output is kept."),
 				}, []string{"id"}),
 			},
@@ -867,7 +867,7 @@ func (a *App) execToolCtx(ctx context.Context, name, argsJSON string) (string, b
 		return a.toolCreateDir(gs("path"))
 	case "search_files":
 		regex := gb("regex") || gb("is_regex")
-		return a.toolSearchFilesOpts(searchOptions{
+		return a.toolSearchFilesOpts(ctx, searchOptions{
 			Query:         gs("query"),
 			Path:          gs("path"),
 			Regex:         regex,
@@ -885,7 +885,11 @@ func (a *App) execToolCtx(ctx context.Context, name, argsJSON string) (string, b
 	case "run_command":
 		return a.toolRunCommand(ctx, gs("command"), gi("timeout_sec"), gb("background"))
 	case "process_output":
-		return a.toolProcessOutput(gs("id"), int64(gi("offset")), gi("max_chars"))
+		// offset خاموش (نبودِ فیلد) = «فقط خروجی جدید»؛ offset=0 صریح
+		// یعنی «از ابتدای لاگ بخوان» — پیش‌تر هر مقدار ≤۰ به خواندن
+		// افزایشی تبدیل می‌شد و مدل هیچ راهی برای از-سر-خواندن نداشت.
+		offset, hasOffset := coerceInt(args["offset"])
+		return a.toolProcessOutput(gs("id"), int64(offset), hasOffset, gi("max_chars"))
 	case "process_stop":
 		return a.toolProcessStop(gs("id"))
 	case "process_list":
@@ -967,14 +971,13 @@ func (a *App) toolListDir(rel string) (string, bool) {
 		ig.push(cur, baseAcc)
 	}
 
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("Directory '%s' — %d item(s):\n", relDisplay(ws, p), len(entries)))
-	shown := 0
+	// ابتدا فقط آیتم‌های «نمایش‌پذیر» جمع می‌شوند (پوشه‌های cache و
+	// قاعده‌های .gitignore کنار می‌روند) تا هم سرایند و هم شمارنده‌ی
+	// «چند مورد دیگر» فقط آیتم‌های واقعاً پنهان‌شده را بشمارند — پیش‌تر
+	// len(entries)-shown شامل آیتم‌های ردشده هم می‌شد و عدد بزرگ‌تر از
+	// واقعیت بود.
+	lines := make([]string, 0, len(entries))
 	for _, e := range entries {
-		if shown >= maxListEntries {
-			b.WriteString(fmt.Sprintf("...[%d more items not shown]\n", len(entries)-shown))
-			break
-		}
 		name := e.Name()
 		if e.IsDir() && searchSkipDirs[name] {
 			continue
@@ -987,16 +990,31 @@ func (a *App) toolListDir(rel string) (string, bool) {
 			continue
 		}
 		if e.IsDir() {
-			b.WriteString(name + "/\n")
-		} else {
-			if info, ierr := e.Info(); ierr == nil {
-				name += fmt.Sprintf("  (%d B)", info.Size())
-			}
-			b.WriteString(name + "\n")
+			lines = append(lines, name+"/")
+			continue
 		}
-		shown++
+		if info, ierr := e.Info(); ierr == nil {
+			name += fmt.Sprintf("  (%d B)", info.Size())
+		}
+		lines = append(lines, name)
 	}
-	return strings.TrimRight(truncateToolOutput(b.String()), "\n"), true
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("Directory '%s' — %d item(s):\n", relDisplay(ws, p), len(lines)))
+	shown := len(lines)
+	if shown > maxListEntries {
+		shown = maxListEntries
+	}
+	for _, line := range lines[:shown] {
+		b.WriteString(line + "\n")
+	}
+	body := strings.TrimRight(truncateToolOutput(b.String()), "\n")
+	// هشدار «موارد بیشتر» پس از برش نوشته می‌شود تا در فهرست‌های بزرگ‌تر
+	// از سقف خروجی هرگز قربانی truncateToolOutput نشود.
+	if rest := len(lines) - shown; rest > 0 {
+		body += fmt.Sprintf("\n...[%d more items not shown]\n", rest)
+	}
+	return strings.TrimRight(body, "\n"), true
 }
 
 // toolReadFile خواندن فایل متنی به‌صورت تکه‌ای (streaming).
@@ -1524,10 +1542,13 @@ func matchSearchInclude(pattern, rel string) bool {
 
 // toolSearchFiles امضای قدیمی (سازگاری با تست‌ها و زیرایجنت) — بدون فیلتر.
 func (a *App) toolSearchFiles(query, rel string, useRegex bool, maxResults int) (string, bool) {
-	return a.toolSearchFilesOpts(searchOptions{Query: query, Path: rel, Regex: useRegex, MaxResults: maxResults})
+	return a.toolSearchFilesOpts(context.Background(), searchOptions{Query: query, Path: rel, Regex: useRegex, MaxResults: maxResults})
 }
 
-func (a *App) toolSearchFilesOpts(opts searchOptions) (string, bool) {
+func (a *App) toolSearchFilesOpts(ctx context.Context, opts searchOptions) (string, bool) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	query := strings.TrimSpace(opts.Query)
 	rel := opts.Path
 	useRegex := opts.Regex
@@ -1591,11 +1612,19 @@ func (a *App) toolSearchFilesOpts(opts searchOptions) (string, bool) {
 	var matches []string
 	hits := 0 // تطبیق‌های واقعی — خطوط context در سقف maxResults حساب نمی‌شوند
 	scanned := 0
+	filesSeen := 0
+	if err := ctx.Err(); err != nil {
+		return "ERROR: cancelled by the user.", false
+	}
 	walkErr := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if d.IsDir() {
+			// لغو پیش از هر پوشه — مثل glob، تا «توقف» در درخت بزرگ فوری اثر کند.
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
 			if path != root && searchSkipDirs[d.Name()] {
 				return filepath.SkipDir
 			}
@@ -1617,8 +1646,17 @@ func (a *App) toolSearchFilesOpts(opts searchOptions) (string, bool) {
 			skippedSensitive++
 			return nil
 		}
-		if len(matches) >= maxResults || hits >= maxResults {
+		// سقف فقط با «تطبیق واقعی» پر می‌شود. پیش‌تر len(matches) (که خطوط
+		// context را هم دارد) هم بررسی می‌شد و با context>0 پیمایش زودتر
+		// از موعد قطع می‌شد، در حالی که نشانگر «limit reached» چاپ نمی‌شد
+		// و نتیجه بی‌صدا کم گزارش می‌شد.
+		if hits >= maxResults {
 			return filepath.SkipAll
+		}
+		// لغو هر ۲۵۶ فایل — ارزان و پوشه‌های پر از فایل را هم قطع می‌کند.
+		filesSeen++
+		if filesSeen%256 == 0 && ctx.Err() != nil {
+			return ctx.Err()
 		}
 		if d.Type()&os.ModeSymlink != 0 {
 			return nil
@@ -1711,6 +1749,10 @@ func (a *App) toolSearchFilesOpts(opts searchOptions) (string, bool) {
 		}
 		return nil
 	})
+	// لغو کاربر همیشه مسیر خودش را دارد: نتایج نصفه به‌عنوان موفقیت برنمی‌گردند.
+	if walkErr != nil && (ctx.Err() != nil || errors.Is(walkErr, context.Canceled) || errors.Is(walkErr, context.DeadlineExceeded)) {
+		return "ERROR: cancelled by the user.", false
+	}
 	if walkErr != nil && len(matches) == 0 {
 		return "ERROR: search failed: " + walkErr.Error(), false
 	}
