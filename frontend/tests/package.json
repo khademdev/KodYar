@@ -1,6 +1,6 @@
 {
   "name": "myai-frontend-tests",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "Optional Playwright smoke tests for the MyAI frontend (dev-only; not part of the app build).",
   "scripts": {

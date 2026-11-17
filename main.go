@@ -22,11 +22,11 @@ var assets embed.FS
 
 // version در زمان ساخت با ldflags قابل بازنویسی است:
 //
-// -ldflags "-X main.version=1.0.1"
+// -ldflags "-X main.version=1.0.2"
 //
 // عدد باید با آخرین سرفصل CHANGELOG یکی بماند (تست TestVersionMatchesChangelog
 // همین را تضمین می‌کند).
-var version = "1.0.1"
+var version = "1.0.2"
 
 func main() {
 	app := NewApp()
