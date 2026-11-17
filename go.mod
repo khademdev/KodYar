@@ -1,4 +1,4 @@
-module myai
+module github.com/khademdev/MyAi
 
 go 1.26.0
 

@@ -196,8 +196,8 @@ myai/
 ## ساخت و اجرا
 
 ```bash
-git clone <آدرس-مخزن> MyAI
-cd MyAI
+git clone https://github.com/khademdev/MyAi.git
+cd MyAi
 
 # حالت توسعه (hot-reload)
 wails dev
