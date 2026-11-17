@@ -1,7 +1,8 @@
 # MyAI — Architecture Reference
 
 Wails v2 desktop coding agent (Go + system WebView, Persian/RTL UI).
-Single `package main` (~8.5k lines); frontend is embedded from `frontend/dist`
+Single `package main` (~29.7k lines of production code + ~28k lines of tests);
+frontend is embedded from `frontend/dist`
 (no npm; JS is minified — never hand-edit, add new readable files instead).
 
 ## Lock order (mandatory — violations have deadlocked this app before)
@@ -363,6 +364,36 @@ failing-before/passing-after tests):
   `a.mu`-held-across-emit in `finishChat`'s save-failure path) and the
   `runWithDeadline` deadlock watchdog (full goroutine dump past the
   deadline) on every stream-driven scenario.
+
+## Subsystems added in 1.9 – 1.13
+
+- **Command sandbox (`sandbox*.go`)** — every `run_command`, sub-agent command
+  and auto-verify run goes through `sandboxPolicyForCommand` → Windows
+  AppContainer (workspace read/write, network per setting). Setup failure is
+  fail-closed; git/MSYS is a documented exemption; `scripts/grant-sandbox-nul.ps1`
+  (and app startup) grants `\Device\Null` so go/git can run inside.
+- **Read-before-write + turn review (`fileread.go`, `writeguard.go`, `turnreview.go`,
+  `verifycover.go`)** — a bounded per-conversation read store, hash checks against
+  external edits, and a per-turn recorder of changed files/commands that feeds the
+  real summary (`chat:turn_summary`) and the one-time verification nudge.
+- **Auto-verify (`autoverify.go`)** — after a round that changed files, a fixed
+  whitelisted build/typecheck command runs once per turn (gate + sandbox aware,
+  never a binary from inside the repo); only failures are injected into the next
+  round. Setting `autoVerify` (default on).
+- **Sub-agents (`subagent.go`)** — headless read-only loop with its own rounds/token
+  budget, `subagentNoAsk` context (no modals inside), verification-only
+  `run_command`, and parallel `task` batches (limit `parallelTaskLimit()`, 2–3).
+- **`apply_patch` (`patchtool.go`)** — unified-diff editing (multi-file, multi-hunk)
+  with pre-write validation, ambiguity rejection, `dry_run`, and the same
+  backup/diff/approval path as `write_file`/`edit_file`.
+- **Context compaction (`ctxbudget.go`, `compactsummary.go`)** — tool-result/turn
+  compaction plus a drop marker enriched with deterministic *pinned facts* and an
+  optional one-shot model summary (best-effort, bounded, never breaks a turn).
+- **Latency + prompt cache (`latency.go`, `promptcache.go`)** — per-turn timing
+  (`chat:timing`, `GetLastTurnTiming`) and cache hints on the stable prompt block.
+- **Frontend panels (`usagering.js`, `activity.js`, `sidebar.js`, `composer.js`,
+  `errorcapture.js`, `sandboxui.js`)** — additive readable files loaded from
+  `index.html`; minified `app.js`/`modals.js`/`mock.js`/`popovers.js` stay untouched.
 
 ## Events (backend → frontend, Wails runtime)
 

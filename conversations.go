@@ -29,17 +29,24 @@ type toolCallRecord struct {
 // Message یک پیام داخل گفتگو است.
 // Role یکی از: user | assistant | tool
 type Message struct {
-	ID         string           `json:"id"`
-	Role       string           `json:"role"` // user | assistant | tool
-	Content    string           `json:"content"`
-	Thinking   string           `json:"thinking,omitempty"`  // استدلال مدل (reasoning / <think>) — نمایش جمع‌شونده در UI
-	Attached   string           `json:"attached,omitempty"`  // کانتکست @mention — فقط برای مدل، در UI نمایش داده نمی‌شود
-	Images     []string         `json:"images,omitempty"`    // تصاویر پیام (data URL پایه۶۴) — Vision
-	Pinned     bool             `json:"pinned,omitempty"`    // پیام سنجاق‌شده — همیشه در کانتکست مدل می‌ماند
-	Compacted  bool             `json:"compacted,omitempty"` // نتیجه‌ی ابزار هرس‌شده (نمایش در UI)
-	At         int64            `json:"at"`                  // unix seconds
-	Tokens     int64            `json:"tokens"`
-	Aborted    bool             `json:"aborted,omitempty"`
+	ID        string   `json:"id"`
+	Role      string   `json:"role"` // user | assistant | tool
+	Content   string   `json:"content"`
+	Thinking  string   `json:"thinking,omitempty"`  // استدلال مدل (reasoning / <think>) — نمایش جمع‌شونده در UI
+	Attached  string   `json:"attached,omitempty"`  // کانتکست @mention — فقط برای مدل، در UI نمایش داده نمی‌شود
+	Images    []string `json:"images,omitempty"`    // تصاویر پیام (data URL پایه۶۴) — Vision
+	Pinned    bool     `json:"pinned,omitempty"`    // پیام سنجاق‌شده — همیشه در کانتکست مدل می‌ماند
+	Compacted bool     `json:"compacted,omitempty"` // نتیجه‌ی ابزار هرس‌شده (نمایش در UI)
+	At        int64    `json:"at"`                  // unix seconds
+	Tokens    int64    `json:"tokens"`
+	Aborted   bool     `json:"aborted,omitempty"`
+	// Unfinished یعنی نوبت نه با توقف کاربر، بلکه با پر شدن سقف دورهای
+	// ایجنت تمام شد و کار نیمه‌مانده است؛ UI برای همین حالت دکمهٔ
+	// «ادامه بده» را نشان می‌دهد (بدون برچسب «متوقف شد»).
+	Unfinished bool `json:"unfinished,omitempty"`
+	// Mode حالت تولید پیام است: "agent" یا "chat" (پیام‌های قدیمی خالی‌اند).
+	// UI از آن برای متمایزکردن حباب ایجنت از پاسخ معمولی استفاده می‌کند.
+	Mode       string           `json:"mode,omitempty"`
 	ToolName   string           `json:"toolName,omitempty"`   // فقط role=tool
 	ToolArgs   string           `json:"toolArgs,omitempty"`   // فقط role=tool (JSON خام آرگومان‌ها)
 	ToolCallID string           `json:"toolCallId,omitempty"` // فقط role=tool

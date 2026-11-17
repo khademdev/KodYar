@@ -3767,3 +3767,42 @@ html.sidebar-collapsed #composer-wrap {
 
 /* یادداشت استثنای git در تب پوشه — با hidden باید واقعاً پنهان شود. */
 #sandbox-git-note[hidden] { display: none !important; }
+
+/* ---- پیام ایجنت در برابر پاسخ چت معمولی (P2 UX) ------------------------- */
+/* ایجنت ابزار صدا می‌زند و روی فایل کار می‌کند؛ حبابش قاب و برچسب دارد تا با
+   پاسخ ساده‌ی چت اشتباه گرفته نشود. */
+.msg.ai.agent .msg-avatar {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+}
+.msg.ai.agent .msg-bubble {
+  border-inline-start: 2px solid rgba(124, 108, 240, 0.5);
+  padding-inline-start: 10px;
+}
+.msg-tag-agent {
+  display: inline-flex;
+  align-items: center;
+  font-size: calc(var(--ui-size) - 3px);
+  font-weight: 600;
+  color: var(--accent-h);
+  background: var(--accent-softer);
+  border: 1px solid rgba(124, 108, 240, 0.3);
+  border-radius: 99px;
+  padding: 1px 8px;
+}
+
+/* ---- فیلد رمز: فقط دکمه‌ی چشم خودِ برنامه ----------------------------- */
+/* WebView2/Edge یک دکمه‌ی «نمایش رمز» بومی هم داخل input می‌کشد؛ وقتی کاربر
+   کلید را تایپ می‌کند آن آیکن کنار دکمه‌ی چشم ما ظاهر می‌شد و «دو چشم» دیده
+   می‌شد. هر دو نسخه‌ی بومی را پنهان می‌کنیم؛ کنترل نمایش/مخفی فقط مال ماست. */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none;
+}
+input::-webkit-credentials-auto-fill-button,
+input::-webkit-strong-password-auto-fill-button {
+  display: none !important;
+  visibility: hidden;
+  pointer-events: none;
+}

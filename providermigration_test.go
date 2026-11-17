@@ -257,20 +257,24 @@ func TestSaveProviderOnlyDisplayName(t *testing.T) {
 	}
 }
 
-// TestProviderFormOnlyNameAndKey — فرم افزودن Provider فقط «نام سرویس» و
-// «کلید API» دارد؛ هیچ فیلد دستی برای آدرس/مدل‌ها/کانتکست باقی نمانده است.
-func TestProviderFormOnlyNameAndKey(t *testing.T) {
+// TestProviderFormUsesBaseURLAndDisplayName — فرم Provider «آدرس سرویس
+// (Base URL)» را به‌عنوان شناسه می‌گیرد و یک «نام نمایشی» اختیاری دارد؛ فیلد
+// دستی برای مدل‌ها/کانتکست هنوز وجود ندارد (خودکار شناسایی می‌شوند).
+func TestProviderFormUsesBaseURLAndDisplayName(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("frontend", "dist", "index.html"))
 	if err != nil {
 		t.Fatalf("index.html: %v", err)
 	}
 	html := string(raw)
-	for _, want := range []string{`id="prov-name"`, `id="prov-key"`, "همین نام و کلید API کافی است"} {
+	for _, want := range []string{
+		`id="prov-name"`, `id="prov-key"`, `id="prov-display"`,
+		"آدرس سرویس (Base URL)", "نام نمایشی",
+	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("provider form must keep %q", want)
 		}
 	}
-	for _, unwanted := range []string{`id="prov-displayname"`, `id="prov-baseurl"`, `id="prov-models"`, `id="prov-context"`} {
+	for _, unwanted := range []string{`id="prov-models"`, `id="prov-context"`} {
 		if strings.Contains(html, unwanted) {
 			t.Fatalf("provider form must not expose manual field %q", unwanted)
 		}
@@ -279,8 +283,12 @@ func TestProviderFormOnlyNameAndKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("modals.js: %v", err)
 	}
-	if !strings.Contains(string(js), `displayName:nm`) {
-		t.Fatal("the single name field must be sent as displayName (backend derives everything else)")
+	src := string(js)
+	if !strings.Contains(src, "baseUrl:url") {
+		t.Fatal("the URL field must be sent as baseUrl (it is the service identity)")
+	}
+	if !strings.Contains(src, "displayName:disp||host") {
+		t.Fatal("the optional display name must fall back to the URL host")
 	}
 }
 

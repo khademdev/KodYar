@@ -86,6 +86,9 @@ type turnRecorder struct {
 	lastModSeq int64
 	lastVerSeq int64
 	lastVerCmd string
+	// lastVerKind نوع آخرین راستی‌آزماییِ موفق: "test" یا "build".
+	// «build/vet فقط» یعنی رفتار تغییرکرده هنوز آزمایش نشده.
+	lastVerKind string
 	// files مسیرهای نسبیِ تغییرکرده در این نوبت (فاز ۲) — پایه‌ی پوشش
 	// راستی‌آزمایی: «آیا تستی که اجرا شد همین پوشه‌ها را می‌پوشاند؟»
 	files    []string
@@ -184,6 +187,7 @@ func (r *turnRecorder) recordCommand(command string, exitCode int, exitOK bool) 
 		r.seq++
 		r.lastVerSeq = r.seq
 		r.lastVerCmd = command
+		r.lastVerKind = verificationKind(command)
 	}
 }
 
@@ -215,6 +219,30 @@ func (r *turnRecorder) needsVerification() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.lastModSeq > 0 && r.lastVerSeq < r.lastModSeq
+}
+
+// needsTestVerification یعنی پس از آخرین تغییر فایل، آخرین راستی‌آزماییِ
+// موفق فقط ساخت/تحلیل ایستا بود (build یا vet) و تستی اجرا نشده — «کامپایل
+// شد» با «کار می‌کند» یکی نیست.
+func (r *turnRecorder) needsTestVerification() bool {
+	if r == nil {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.lastModSeq > 0 && r.lastVerSeq >= r.lastModSeq && r.lastVerKind == "build"
+}
+
+// openTodos کپی آیتم‌های بازِ چک‌لیست همین نوبت (pending/in_progress) برای
+// دروازهٔ پایان کار؛ بر اساس آخرین todo_write نوبت.
+func (r *turnRecorder) openTodos() []TodoItem {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	items := append([]TodoItem(nil), r.todos...)
+	r.mu.Unlock()
+	return openTodoItems(items)
 }
 
 // hasTodos آیا رکورد نوبت فهرست کارها دارد؟

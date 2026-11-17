@@ -283,6 +283,9 @@ type genState struct {
 	convID string
 	// thinking متن استدلال مدل (reasoning / <think>) — فقط برای نمایش UI
 	thinking string
+	// unfinished یعنی این نوبت به‌خاطر سقف دورهای ابزار نیمه‌کاره رها شد
+	// (نه با توقف کاربر) — در پیام نهایی ذخیره می‌شود تا UI «ادامه بده» بدهد.
+	unfinished bool
 	// done با بسته‌شدنشان اعلام می‌کند گوروتین استریم کاملاً خارج شده
 	// (هیچ ذخیره‌ی دیگری روی دیسک نمی‌نویسد) — برای حذف کامل گفتگو
 	// در حین پاسخ‌دهی ضروری است تا فایل حذف‌شده دوباره ساخته نشود.
@@ -787,12 +790,22 @@ func (a *App) prepareStream(conv *Conversation, planMode bool, gitLine string) (
 			return "", "", "", 0, nil, errors.New("برای حالت ایجنت ابتدا مسیر پروژه (پوشه‌ی کاری) را در تنظیمات مشخص کنید")
 		}
 		systemPrompt = agentSystemPrompt(ws)
+		// دروازهٔ پایان کار: چک‌لیست بازِ گفتگو در شروع نوبت به مدل داده
+		// می‌شود تا پس از توقف/نوبت جدید، طرح کار فراموش نشود.
+		if conv != nil {
+			if block := todoResumeBlock(conv.Todos); block != "" {
+				systemPrompt += "\n\n" + block
+			}
+		}
 		// آگاهی مدل از branch و وضعیت dirty — از قبلِ قفل محاسبه شده
 		// (gitContextLineForSend) و فقط اینجا تزریق می‌شود؛ خودِ
 		// prepareStream هیچ فرمانی اجرا نمی‌کند (F1).
 		if gitLine != "" {
 			systemPrompt += "\n" + gitLine + "\n"
 		}
+	}
+	if !a.settings.AgentMode {
+		systemPrompt += "\n\n" + chatToolsPromptBlock(strings.TrimSpace(a.settings.WorkspacePath))
 	}
 	// قوانین پروژه (Project Rules) — هم در حالت عادی و هم ایجنت تزریق می‌شود
 	if block := a.rulesPromptBlockLocked(); block != "" {
@@ -1052,6 +1065,10 @@ func (a *App) savePartial(convID, content string, promptTokens, completionTokens
 	}
 	a.recordTokenUsageLocked(conv, model, promptTokens, completionTokens, promptTokens > 0 || completionTokens > 0)
 	if strings.TrimSpace(vis) != "" || strings.TrimSpace(th) != "" {
+		partialMode := "chat"
+		if a.settings.AgentMode {
+			partialMode = "agent"
+		}
 		conv.Messages = append(conv.Messages, Message{
 			ID:       newID(),
 			Role:     "assistant",
@@ -1060,6 +1077,7 @@ func (a *App) savePartial(convID, content string, promptTokens, completionTokens
 			At:       time.Now().Unix(),
 			Tokens:   estimateTokens(vis),
 			Aborted:  true,
+			Mode:     partialMode,
 		})
 	}
 	if err := a.saveConversation(conv); err != nil {
@@ -1090,6 +1108,7 @@ func (a *App) persistAgentRound(convID, assistantContent string, calls []apiTool
 			Thinking:  th,
 			At:        time.Now().Unix(),
 			ToolCalls: recs,
+			Mode:      "agent",
 		})
 	}
 	conv.Messages = append(conv.Messages, toolMsgs...)
@@ -1117,6 +1136,15 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 	// فقط از همین رکوردها ساخته می‌شود (ground truth، نه متن مدل).
 	turnID := a.nextTurnID()
 	turnRec := &turnRecorder{}
+	// دروازهٔ پایان کار: چک‌لیستِ منتقل‌شده از نوبت‌های قبل باید همین‌جا
+	// هم دیده شود، وگرنه مدل می‌تواند با آیتم باز (بدون todo_write در این
+	// نوبت) «تمام شد» بگوید و گیت بی‌خبر بماند. todo_write همین نوبت
+	// بعداً آن را بازنویسی می‌کند.
+	a.mu.Lock()
+	if conv, cerr := a.loadConversation(convID); cerr == nil {
+		turnRec.setTodos(conv.Todos)
+	}
+	a.mu.Unlock()
 	ctx = withTurnContext(ctx, turnID, turnRec)
 	// اندازه‌گیری تأخیر این نوبت (latency.go): TTFT، هر دور، هر ابزار.
 	timing := newTurnTiming()
@@ -1128,7 +1156,13 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 	persistedLen := 0
 
 	a.mu.Lock()
-	useTools := allowTools && a.settings.AgentMode && strings.TrimSpace(a.settings.WorkspacePath) != ""
+	// ابزارها در حالت ایجنت کامل‌اند و در حالت چت فقط «خواندنی» (جستجوی وب،
+	// جستجو/خواندن فایل) — تا «چیزی را جست‌وجو کن» در چت هم واقعاً کار کند.
+	agentOn := a.settings.AgentMode
+	useTools := allowTools && agentOn && strings.TrimSpace(a.settings.WorkspacePath) != ""
+	if !agentOn {
+		useTools = allowTools
+	}
 	customTools := copyCustomTools(a.settings.CustomTools)
 	maxTokens := a.settings.MaxTokens
 	// سقف دورهای ابزار — تنظیم قابل‌تغییر کاربر (پیش‌فرض ۲۵، محدوده‌ی ۵ تا ۲۰۰)؛
@@ -1148,13 +1182,16 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 	budget := contextBudget(cw, maxTokens)
 	// ابزارهای داخلی + ابزارهای سفارشی کاربر — هر دو به مدل معرفی می‌شوند.
 	tools := agentToolDefs()
-	if len(customTools) > 0 {
+	if !agentOn {
+		tools = filterChatTools(tools)
+	}
+	if len(customTools) > 0 && agentOn {
 		tools = append(tools, customToolDefs(customTools)...)
 	}
 	// ابزارهای MCP — شروع تنبلِ سرورها با بودجه‌ی ۱۵ ثانیه؛ بیرون از
 	// a.mu (start با فرایند فرزند حرف می‌زند) و شکستِ سرور نوبت را
 	// نمی‌شکند (فقط لاگ + وضعیت «خطا»).
-	if mcpDefs := a.mcpToolDefs(ctx); len(mcpDefs) > 0 {
+	if mcpDefs := a.mcpToolDefs(ctx); len(mcpDefs) > 0 && agentOn {
 		tools = append(tools, mcpDefs...)
 	}
 	droppedTools := false
@@ -1232,8 +1269,10 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 	compactedNotified := false // اعلان فارسی فشرده‌سازی خودکار: فقط یک‌بار در نوبت
 	overflowRetried := false   // بازیابی سرریز کانتکست: فقط یک تلاش مجدد در نوبت
 	stallRetries := 0          // سکون پیش از خروجی: سقف تلاش مجدد مثل سیاست شبکه
-	// تذکر راستی‌آزمایی (A.2): حداکثر یک‌بار در هر نوبت.
-	nudged := false
+	// دروازهٔ پایان کار: تذکرهای «چک‌لیست باز» (تا دو بار) و تذکر
+	// راستی‌آزمایی (یک‌بار، همان سیاست A.2).
+	finishNudges := 0
+	verifyNudged := false
 	// راستی‌آزمایی خودکار (گام ۵): حداکثر یک‌بار در هر نوبت.
 	autoVerified := false
 	// بازیابی «پاسخ خاموش»: حداکثر یک‌بار در هر نوبت؛ thinking دورِ
@@ -1481,7 +1520,7 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		// ذخیره می‌شود. دلتاها هم دسته‌ای (هر ۴۰ms) فرستاده می‌شوند: تمیزکاری
 		// کامل متن در هر چانک SSE برای پاسخ‌های بلند O(n²) بود و اندازه‌گیری
 		// ~۱.۴ ثانیه CPU برای پاسخ ۴۰ کیلوبایتی می‌داد.
-		showThinking := useTools
+		showThinking := agentOn
 		lastFlush := time.Now()
 		thinkSent := 0
 		flushStream := func(force bool) {
@@ -1566,6 +1605,15 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 				}
 				if rc != "" && showThinking {
 					roundThinking.WriteString(rc)
+					// دلتای استدلال هم مثل متن باید زنده به UI برسد. پیش از این
+					// flushStream فقط با دلتای content صدا زده می‌شد؛ مدلی که
+					// دقیقه‌ها فقط reasoning_content می‌فرستد تا پایان همان دور
+					// هیچ chat:thinkingای تولید نمی‌کرد: UI روی «در حال
+					// آماده‌سازی…» می‌ماند و کاربر فکر می‌کرد ایجنت هنگ کرده؛
+					// کل فکر تازه پس از «توقف»/پایان دور یک‌جا ظاهر می‌شد.
+					// نخستین دلتا فوری (پس UI بلافاصله «فکر کردن» را می‌بیند)،
+					// بقیه با همان گلوگاه ۴۰ms تا استریم ارزان بماند.
+					flushStream(thinkSent == 0)
 				}
 				if ch.Delta.Content != "" {
 					roundContent.WriteString(ch.Delta.Content)
@@ -1725,28 +1773,54 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 			// اجرا نشده، حداقل یک دور دیگر جا هست و این تذکر قبلاً داده نشده
 			// → یک پیام انگلیسی به‌عنوان «user» و ادامه‌ی حلقه. دور و محافظ
 			// تکرار مصرف نمی‌شوند و پیام فقط یک‌بار در نوبت می‌آید.
-			if useTools && !droppedTools && !nudged && round+1 < maxRounds && turnRec.needsVerification() {
-				nudged = true
-				if c := strings.TrimSpace(visFinal); c != "" {
-					history = append(history, chatMessage{Role: "assistant", Content: c})
+			// ---------- دروازهٔ پایان کار ----------
+			// مدل می‌خواهد تمام کند ولی چک‌لیست باز دارد یا آخرین تغییر
+			// راستی‌آزمایی نشده؟ تا سقف دو تذکر ادامه می‌دهیم؛ توقف کاربر،
+			// سقف توکن و سقف دورها هرگز نقض نمی‌شوند.
+			canFinishNudge := finishNudges < maxFinishGateNudges
+			canVerifyNudge := !verifyNudged && (turnRec.needsVerification() || turnRec.needsTestVerification())
+			if agentOn && useTools && !droppedTools && !tokenCapHit && ctx.Err() == nil &&
+				(canFinishNudge || canVerifyNudge) && round+1 < maxRounds {
+				openTodos := turnRec.openTodos()
+				needsVerify := turnRec.needsVerification()
+				// «آخرین راستی‌آزمایی فقط build/vet بود»: یعنی تستی که رفتار را
+				// بسنجد اجرا نشده؛ vet تحلیل ایستاست، نه تست.
+				needsTest := !needsVerify && turnRec.needsTestVerification()
+				nudge, notice := "", ""
+				finishGate := false
+				if len(openTodos) > 0 && finishNudges < maxFinishGateNudges {
+					nudge = finishGateNudge(openTodos, needsVerify || needsTest, turnRec.changedFiles())
+					notice = finishGateNotice(len(openTodos), finishNudges+1)
+					finishGate = true
+				} else if (needsVerify || needsTest) && !verifyNudged {
+					// پوشش راستی‌آزمایی (فاز ۲): فقط «یک build/vet اجرا شد» کافی
+					// نیست؛ دایرکتوری‌های تغییرکرده و یک دستور تست هدفمند
+					// پیشنهاد می‌شود (verifycover.go). اگر پروژه هیچ دستور تستی
+					// ندارد، برای «فقط build» تذکر نمی‌دهیم (فقط سروصدا است).
+					a.mu.Lock()
+					wsCover := strings.TrimSpace(a.settings.WorkspacePath)
+					a.mu.Unlock()
+					cmds := a.projectFactsFor(wsCover).Commands
+					if needsVerify || hasTestCommand(cmds) {
+						verifyNudged = true
+						nudge, notice, _ = verificationNudgePayload(turnRec.changedFiles(), turnRec.lastVerificationCommand(), cmds)
+					}
 				}
-				// پوشش راستی‌آزمایی (فاز ۲): فقط «یک build اجرا شد» کافی نیست؛
-				// دایرکتوری‌های تغییرکرده و یک دستور تست هدفمند پیشنهاد می‌شود.
-				// متن پایه دست‌نخورده می‌ماند (تست‌های e2e به آن تکیه دارند) و
-				// جزئیات فقط به انتهایش اضافه می‌شوند — همه در verifycover.go.
-				a.mu.Lock()
-				wsCover := strings.TrimSpace(a.settings.WorkspacePath)
-				a.mu.Unlock()
-				nudge, notice, _ := verificationNudgePayload(
-					turnRec.changedFiles(), turnRec.lastVerificationCommand(), a.projectFactsFor(wsCover).Commands)
-				history = append(history, chatMessage{Role: "user", Content: nudge})
-				counter.invalidate()
-				runtimeEmit(a, "chat:notice", map[string]interface{}{
-					"conversationId": convID,
-					"text":           notice,
-				})
-				round-- // تذکر دورِ بودجه را مصرف نمی‌کند (مثل بازگشت‌های دیگر)
-				continue
+				if nudge != "" {
+					if finishGate {
+						finishNudges++
+					}
+					if c := strings.TrimSpace(visFinal); c != "" {
+						history = append(history, chatMessage{Role: "assistant", Content: c})
+					}
+					history = append(history, chatMessage{Role: "user", Content: nudge})
+					counter.invalidate()
+					runtimeEmit(a, "chat:notice", map[string]interface{}{
+						"conversationId": convID,
+						"text":           notice,
+					})
+					continue
+				}
 			}
 			// ---------- بازیابی «پاسخ خاموش» (باگ فکر-بدون-جواب) ----------
 			// دوری که هیچ متن قابل‌نمایشی نداشت، قبلاً نوبت را کاملاً بی‌صدا
@@ -1797,7 +1871,10 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		if round >= maxRounds {
 			pc, _ := cleanAssistantContent(roundContent.String())
 			a.persistAgentRound(convID, pc, nil, nil)
-			finalize("\n\n⚠️ حداکثر تعداد مراحل اجرای ابزار ("+faDigits(maxRounds)+" دور) پر شد؛ کار نیمه‌تمام ماند. برای ادامه، درخواست را تکرار کنید.", false)
+			// سقف دورها: نوبت با توقف کاربر یکی نیست؛ پرچم جدا می‌شود تا UI
+			// به‌جای «متوقف شد» دکمهٔ «ادامه بده» نشان دهد.
+			myGen.unfinished = true
+			finalize("\n\n⚠️ حداکثر تعداد مراحل اجرای ابزار ("+faDigits(maxRounds)+" دور) پر شد؛ کار نیمه‌تمام ماند. برای ادامه، دکمهٔ «ادامه بده» را بزنید.", false)
 			return
 		}
 
@@ -1947,16 +2024,22 @@ func (a *App) finishChat(myGen *genState, model, content string, aborted bool, p
 	} else if myGen.thinking != "" && !strings.Contains(th, myGen.thinking) {
 		th = strings.TrimSpace(myGen.thinking + "\n" + th)
 	}
-	msg := Message{
-		ID:       newID(),
-		Role:     "assistant",
-		Content:  vis,
-		Thinking: th,
-		At:       time.Now().Unix(),
-		Tokens:   completionTokens,
-		Aborted:  aborted,
+	mode := "chat"
+	if a.settings.AgentMode {
+		mode = "agent"
 	}
-	if vis != "" || th != "" || aborted {
+	msg := Message{
+		ID:         newID(),
+		Role:       "assistant",
+		Content:    vis,
+		Thinking:   th,
+		At:         time.Now().Unix(),
+		Tokens:     completionTokens,
+		Aborted:    aborted,
+		Unfinished: myGen.unfinished && !aborted,
+		Mode:       mode,
+	}
+	if vis != "" || th != "" || aborted || msg.Unfinished {
 		conv.Messages = append(conv.Messages, msg)
 	}
 	a.recordTokenUsageLocked(conv, model, promptTokens, completionTokens, exact)
@@ -1997,6 +2080,7 @@ func (a *App) finishChat(myGen *genState, model, content string, aborted bool, p
 		"tokens":             total,
 		"tokensExact":        exact && tokensExact,
 		"aborted":            aborted,
+		"unfinished":         msg.Unfinished,
 		"tokensUsed":         used,
 		"tokenLimit":         limit,
 		"providerTokensUsed": providerUsed,

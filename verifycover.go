@@ -38,7 +38,9 @@ var verificationCommandTable = []struct {
 	kind   string
 }{
 	{"go test", "test"},
-	{"go vet", "test"},
+	// vet تحلیل ایستا است، نه تست: با «build» شمرده می‌شود تا پایان نوبتی که
+	// فقط vet/build اجرا کرده، همچنان «تست‌نشده» شناخته شود.
+	{"go vet", "build"},
 	{"go build", "build"},
 	{"cargo nextest", "test"},
 	{"cargo test", "test"},
@@ -61,6 +63,29 @@ var verificationCommandTable = []struct {
 	{"swift build", "build"},
 	{"make test", "test"},
 	{"just test", "test"},
+}
+
+// verificationKind نوع یک دستور راستی‌آزمایی را برمی‌گرداند؛ اگر دستور
+// ترکیبی هم تست و هم build داشته باشد، "test" برنده است.
+func verificationKind(cmd string) string {
+	kind := ""
+	for _, s := range parseVerifScopes(cmd) {
+		if s.Kind == "test" {
+			return "test"
+		}
+		kind = s.Kind
+	}
+	return kind
+}
+
+// hasTestCommand آیا میان دستورهای تشخیص‌داده‌شده‌ی پروژه دستور تست هست؟
+func hasTestCommand(cmds []string) bool {
+	for _, c := range cmds {
+		if strings.Contains(strings.ToLower(c), "test") {
+			return true
+		}
+	}
+	return false
 }
 
 // normalizeChangedPath مسیر نسبی را یکدست می‌کند (مثل toolbatch).

@@ -438,7 +438,10 @@ func requestMessages(req chatRequest) string {
 
 // ---------------------------------------------------------------- A.2 — تذکر
 
-func TestNudgeFiresOnceWhenUnverified(t *testing.T) {
+// TestVerificationNudgeStaysSingle: پایان نوبت بعد از تغییر فایل بدون
+// راستی‌آزمایی، یک تذکر می‌گیرد (سیاست A.2، حالا داخل دروازهٔ پایان کار) و
+// چک‌لیست باز تا دو تذکر.
+func TestVerificationNudgeStaysSingle(t *testing.T) {
 	env := newE2E(t,
 		stepTool("c1", "write_file", `{"path":"n.txt","content":"hello\n"}`),
 		stepText("انجام شد."),
@@ -456,15 +459,15 @@ func TestNudgeFiresOnceWhenUnverified(t *testing.T) {
 	if !strings.Contains(requestMessages(reqs[2]), verificationNudgeText) {
 		t.Fatalf("nudge text must be in the request after the unverified final answer:\n%s", requestMessages(reqs[2]))
 	}
-	// فقط یک تذکر در کل نوبت
-	total := 0
+	maxSeen := 0
 	for _, r := range reqs {
-		total += strings.Count(requestMessages(r), verificationNudgeText)
+		if c := strings.Count(requestMessages(r), verificationNudgeText); c > maxSeen {
+			maxSeen = c
+		}
 	}
-	if total != 1 {
-		t.Fatalf("nudge must appear exactly once in all requests, got %d", total)
+	if maxSeen != 1 {
+		t.Fatalf("verification reminder must appear once, got %d", maxSeen)
 	}
-	// خلاصه‌ی نوبت: راستی‌آزمایی نشده
 	ss := env.summaries()
 	if len(ss) != 1 {
 		t.Fatalf("expected one turn summary, got %d", len(ss))
@@ -481,8 +484,8 @@ func TestNoNudgeWhenVerified(t *testing.T) {
 	env := newE2E(t,
 		stepTool("c1", "write_file", `{"path":"main.go","content":"package main\n\nfunc main() {}\n"}`),
 		stepTool("c2", "write_file", `{"path":"go.mod","content":"module e2e\n\ngo 1.22\n"}`),
-		stepTool("c3", "run_command", `{"command":"go vet ./..."}`),
-		stepText("ساخته و تأیید شد."),
+		stepTool("c3", "run_command", `{"command":"go test ./..."}`),
+		stepText("ساخته و تست شد."),
 	)
 	env.send("پروژه بساز")
 	for i, r := range env.model.requests() {
@@ -496,6 +499,45 @@ func TestNoNudgeWhenVerified(t *testing.T) {
 	}
 	if ss[0].Verification.Command == "" {
 		t.Fatal("verification command must be recorded")
+	}
+}
+
+// TestBuildOnlyVerificationNudgesTest: vet/build تحلیل ایستاست؛ پایان نوبت
+// با «فقط build» باید یک‌بار تذکر تست بدهد (و همان یک تذکر کافی است).
+func TestBuildOnlyVerificationNudgesTest(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+	env := newE2E(t,
+		stepTool("c1", "write_file", `{"path":"main.go","content":"package main\n\nfunc main() {}\n"}`),
+		stepTool("c2", "run_command", `{"command":"go build ./..."}`),
+		stepText("ساخت موفق بود."),
+		stepText("تستی اجرا نشد."),
+	)
+	env.writeFile("go.mod", "module e2e\n\ngo 1.22\n")
+	env.send("پروژه را بساز")
+
+	reqs := env.model.requests()
+	if len(reqs) != 4 {
+		t.Fatalf("expected write → build → final → nudged final (4 requests), got %d", len(reqs))
+	}
+	if strings.Contains(requestMessages(reqs[2]), verificationNudgeText) {
+		t.Fatal("no nudge before the model's first final answer")
+	}
+	if !strings.Contains(requestMessages(reqs[3]), "build-only") {
+		t.Fatalf("a build-only verification must nudge for a test:\n%s", requestMessages(reqs[3]))
+	}
+	if strings.Contains(requestMessages(reqs[3]), "no successful verification") {
+		t.Fatal("build succeeded, so the nudge must not claim there was no verification")
+	}
+	maxSeen := 0
+	for _, r := range reqs {
+		if c := strings.Count(requestMessages(r), verificationNudgeText); c > maxSeen {
+			maxSeen = c
+		}
+	}
+	if maxSeen != 1 {
+		t.Fatalf("the test nudge must appear once, got %d", maxSeen)
 	}
 }
 

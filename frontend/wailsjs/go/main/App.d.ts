@@ -151,3 +151,5 @@ export function ToggleFullscreen():Promise<void>;
 export function GetLastTurnTiming():Promise<any>;
 
 export function SetAutoVerify(arg1:boolean):Promise<void>;
+
+export function ExportDiagnosticBundle():Promise<string>;

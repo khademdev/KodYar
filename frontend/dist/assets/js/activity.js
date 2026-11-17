@@ -88,21 +88,42 @@
 		return "«" + t + "»";
 	}
 
+	// wsLabel نام پوشه‌ی کاری (ریشه‌ی پروژه) است. ابزارهای مسیرمحور ریشه را
+	// با «.» هدف می‌گیرند و نوار فعالیت عیناً «.» نشان می‌داد؛ کاربر نام
+	// پوشه/آدرس را نمی‌فهمید. حالا «.» و «./x» با نام واقعی پوشه نمایش
+	// داده می‌شوند.
+	function wsLabel() {
+		var st = window.MyAIState;
+		var ws = st && st.view && typeof st.view.workspace === "string" ? st.view.workspace.trim() : "";
+		ws = ws.replace(/[\\/]+$/, "");
+		if (!ws) return "ریشه‌ی پروژه";
+		var parts = ws.split(/[\\/]/);
+		return parts[parts.length - 1] || ws;
+	}
+
+	function prettyPath(p) {
+		var t = String(p == null ? "" : p).trim();
+		if (!t || t === "." || t === "./" || t === ".\\") return wsLabel();
+		if (t.indexOf("./") === 0) return wsLabel() + "/" + t.slice(2);
+		if (t.indexOf(".\\") === 0) return wsLabel() + "\\" + t.slice(2);
+		return t;
+	}
+
 	// detailFor جزئیاتِ نمایشیِ هر کار را می‌سازد (همه از آرگومان‌های مدل).
 	function detailFor(name, a) {
 		a = a || {};
 		var s = function (k) { return a[k] == null ? "" : String(a[k]); };
 		switch (name) {
 			case "list_dir":
-				return q(s("path") || ".");
+				return q(prettyPath(s("path")));
 			case "read_file":
 			case "write_file":
 			case "delete_path":
 			case "create_dir":
-				return q(s("path"));
+				return q(prettyPath(s("path")));
 			case "edit_file": {
 				var n = Array.isArray(a.edits) ? a.edits.length : 0;
-				return q(s("path")) + (n > 1 ? " (" + fa(n) + " ویرایش)" : "");
+				return q(prettyPath(s("path"))) + (n > 1 ? " (" + fa(n) + " ویرایش)" : "");
 			}
 			case "move_path":
 				return q(s("from")) + " → " + q(s("to"));
@@ -126,7 +147,7 @@
 				return q(s("ref"));
 			case "git_diff": {
 				var p = s("path");
-				if (p) return q(p);
+				if (p) return q(prettyPath(p));
 				return a.staged === true || a.staged === "true" ? "تغییرات stage شده" : "";
 			}
 			case "git_log":

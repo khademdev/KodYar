@@ -301,3 +301,7 @@ export function GetLastTurnTiming() {
 export function SetAutoVerify(arg1) {
   return window['go']['main']['App']['SetAutoVerify'](arg1);
 }
+
+export function ExportDiagnosticBundle() {
+  return window['go']['main']['App']['ExportDiagnosticBundle']();
+}

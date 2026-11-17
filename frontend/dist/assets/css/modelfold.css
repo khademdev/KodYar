@@ -1,0 +1,32 @@
+/* MyAI — جمع‌شدن گروه مدل‌های هر Provider در انتخاب‌گر مدل (modelfold.js)
+ *
+ * عنوان گروه (نام Provider) دکمه‌ی باز/بسته است؛ فلش کوچک کنار نام و
+ * آپشن‌های بسته با [hidden] واقعاً پنهان می‌شوند (important لازم است چون
+ * .opt خودش display دارد و جستجوی popovers.js هم display را ست می‌کند).
+ */
+.popover .group-label {
+  cursor: pointer;
+  user-select: none;
+}
+.popover .group-label:focus-visible {
+  outline: 2px solid var(--accent, #7c6cf0);
+  outline-offset: -2px;
+  border-radius: var(--radius-xs, 6px);
+}
+.popover .group-label .fold-caret {
+  margin-inline-start: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text3);
+  transition: transform 0.15s ease;
+}
+.popover .group-label .fold-caret svg {
+  display: block;
+}
+.popover .group-label.collapsed .fold-caret {
+  transform: rotate(-90deg);
+}
+.popover .opt[hidden] {
+  display: none !important;
+}

@@ -166,3 +166,64 @@ func TestTurnRecorderTracksChangedFiles(t *testing.T) {
 		t.Fatalf("file list must be capped at %d", maxTurnFiles)
 	}
 }
+
+// TestVerificationKindClassifiesStaticChecks: vet مثل build «ایستا» است و
+// فقط دستور تست، تست شمرده می‌شود؛ ترکیب هم اگر تست داشته باشد test است.
+func TestVerificationKindClassifiesStaticChecks(t *testing.T) {
+	cases := map[string]string{
+		"go vet ./...":                    "build",
+		"go build ./...":                  "build",
+		"go test ./...":                   "test",
+		"go build ./... && go test ./pkg": "test",
+		"go test ./... && go vet ./...":   "test",
+		"npm test":                        "test",
+		"cargo check":                     "build",
+		"echo hi":                         "",
+	}
+	for cmd, want := range cases {
+		if got := verificationKind(cmd); got != want {
+			t.Fatalf("verificationKind(%q) = %q, want %q", cmd, got, want)
+		}
+	}
+}
+
+func TestHasTestCommand(t *testing.T) {
+	if hasTestCommand([]string{"go build ./...", "go vet ./..."}) {
+		t.Fatal("build/vet commands must not count as a test command")
+	}
+	if !hasTestCommand([]string{"go build ./...", "go test ./..."}) {
+		t.Fatal("go test must be detected")
+	}
+	if hasTestCommand(nil) {
+		t.Fatal("no commands → no test command")
+	}
+}
+
+// TestNeedsTestVerificationAfterBuildOnly: build موفق کافی نیست؛ تست لازم است.
+func TestNeedsTestVerificationAfterBuildOnly(t *testing.T) {
+	rec := &turnRecorder{}
+	rec.recordFileChange("a.go")
+	rec.recordCommand("go build ./...", 0, true)
+	if rec.needsVerification() {
+		t.Fatal("a successful build already satisfies needsVerification")
+	}
+	if !rec.needsTestVerification() {
+		t.Fatal("build-only verification must still require a test")
+	}
+	rec.recordCommand("go vet ./...", 0, true)
+	if !rec.needsTestVerification() {
+		t.Fatal("vet is a static check, not a test")
+	}
+	rec.recordCommand("go test ./...", 0, true)
+	if rec.needsTestVerification() {
+		t.Fatal("a successful test clears needsTestVerification")
+	}
+	// تغییر بعدی دوباره «تست‌نشده» می‌کند (از مسیر needsVerification).
+	rec.recordFileChange("b.go")
+	if !rec.needsVerification() {
+		t.Fatal("a newer change must require verification again")
+	}
+	if rec.needsTestVerification() {
+		t.Fatal("needsVerification already covers this state")
+	}
+}
