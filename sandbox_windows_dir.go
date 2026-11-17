@@ -11,7 +11,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -50,6 +52,16 @@ func parseSandboxDirArgs(argv []string) sandboxDirOptions {
 	return opts
 }
 
+// sandboxRealDir مسیر را برای مقایسه‌ی «داخل پوشه‌ی کاری» حل می‌کند:
+// EvalSymlinks مؤلفه‌های کوتاه 8.3 (C:\Users\RUNNER~1\…) و junction را به
+// مسیر بلند واقعی برمی‌گرداند. اگر حل نشد، همان مسیر تمیزشده کافی است.
+func sandboxRealDir(path string) string {
+	if rp, err := filepath.EvalSymlinks(path); err == nil {
+		return rp
+	}
+	return filepath.Clean(path)
+}
+
 // sandboxDirTarget مسیر هدف را حل و محدود به pwd می‌کند.
 func sandboxDirTarget(pwd string, opts sandboxDirOptions) (string, error) {
 	p := strings.TrimSpace(opts.path)
@@ -64,7 +76,11 @@ func sandboxDirTarget(pwd string, opts sandboxDirOptions) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("File Not Found")
 	}
-	if !withinDir(real, pwd) {
+	// هر دو طرف مقایسه باید حل‌شده باشند. پیش‌تر real (مسیر بلند) با pwd
+	// خام مقایسه می‌شد؛ روی رانرهای ویندوز که Temp شان مؤلفه‌ی کوتاه 8.3
+	// دارد (C:\Users\RUNNER~1\…) همین باعث می‌شد `dir` داخل پوشه‌ی کاریِ
+	// خودش «Access is denied.» بگیرد (CI ویندوز آن را نشان داد).
+	if !withinDir(real, sandboxRealDir(pwd)) {
 		return "", fmt.Errorf("Access is denied.")
 	}
 	st, err := os.Stat(real)
@@ -79,7 +95,14 @@ func sandboxDirTarget(pwd string, opts sandboxDirOptions) (string, error) {
 func sandboxDirList(b *strings.Builder, root string, opts sandboxDirOptions, top bool) (files, dirs int, bytes int64) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
-		b.WriteString("Access is denied.\r\n")
+		// دلایل غیرمجوز (مسیر ناپیدا/نوع نادرست) نباید پشت متن گمراه‌کننده‌ی
+		// «Access is denied.» پنهان شوند؛ روی CI فقط همین متن دیده می‌شد و
+		// عیب‌یابی را غیرممکن می‌کرد.
+		if errors.Is(err, fs.ErrPermission) {
+			b.WriteString("Access is denied.\r\n")
+		} else {
+			b.WriteString(err.Error() + "\r\n")
+		}
 		return 0, 0, 0
 	}
 	sort.Slice(entries, func(i, j int) bool {
@@ -164,13 +187,14 @@ func sandboxDirRedirect(pwd string, rs []redirect) (path string, appendMode, sup
 	if err != nil {
 		return "", appendMode, true, true
 	}
-	if !withinDir(realParent, pwd) {
+	realPwd := sandboxRealDir(pwd)
+	if !withinDir(realParent, realPwd) {
 		return "", appendMode, true, true
 	}
 	// اگر فایل از قبل symlink است، مقصد واقعی‌اش هم باید داخل pwd باشد.
 	if fi, lerr := os.Lstat(t); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
 		real, rerr := filepath.EvalSymlinks(t)
-		if rerr != nil || !withinDir(real, pwd) {
+		if rerr != nil || !withinDir(real, realPwd) {
 			return "", appendMode, true, true
 		}
 		t = real
