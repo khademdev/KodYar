@@ -49,6 +49,16 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      # پیش‌نیاز محیطی مستند: توکن AppContainer به \Device\Null دسترسی ندارد و
+      # go/git داخل سندباکس می‌میرند (تست‌های TestSandboxDirInComposite و
+      # TestMCPRunsInsideAppContainer همین را نشان دادند). رانر ویندوزی
+      # Administrator است، پس همان اسکریپت مستند را قبل از تست اجرا می‌کنیم;
+      # اگر شکست بخورد تست‌ها با همان دلیل skip می‌شوند، نه قرمز.
+      - name: Grant NUL device to the sandbox SID (documented prerequisite)
+        shell: pwsh
+        continue-on-error: true
+        run: powershell -ExecutionPolicy Bypass -File scripts\grant-sandbox-nul.ps1
+
       # شکست تست‌ها به شکل annotation منتشر می‌شود تا نام تستِ قرمز و
       # فایل/خطای آن، علاوه بر لاگ (که فقط با دسترسی مدیر خواندنی است)،
       # از API/صفحه‌ی Actions هم دیده شود. کد خروج همان کد go test است.
