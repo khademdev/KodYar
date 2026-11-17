@@ -49,8 +49,20 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      # شکست تست‌ها به شکل annotation منتشر می‌شود تا نام تستِ قرمز و
+      # فایل/خطای آن، علاوه بر لاگ (که فقط با دسترسی مدیر خواندنی است)،
+      # از API/صفحه‌ی Actions هم دیده شود. کد خروج همان کد go test است.
       - name: go test (race)
-        run: go test -race -count=1 ./...
+        shell: bash
+        run: |
+          set -o pipefail
+          if go test -race -count=1 ./... 2>&1 | tee go-test.log; then
+            exit 0
+          fi
+          grep -aE '^\s*--- FAIL|^FAIL|^panic:|_test\.go:[0-9]+:' go-test.log | head -40 | while IFS= read -r line; do
+            echo "::error title=go test failure::${line}"
+          done
+          exit 1
 
       # کامپایل واقعی اپ ویندوزی (WebView2 — بدون نیاز به پکیج سیستمی)
       - name: Desktop compile check (production)
