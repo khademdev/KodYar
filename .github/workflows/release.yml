@@ -1,0 +1,56 @@
+# .github/workflows/release.yml — انتشار خودکار نسخه‌ی ویندوزی MyAI.
+#
+# با پوش‌شدن هر تگ `v*` (مثل `v1.0.0`) این workflow باینری ویندوز را
+# می‌سازد و به همان Release در GitHub پیوست می‌کند. نسخه از خود تگ خوانده
+# می‌شود (`v1.0.0` → `1.0.0`) تا باینری هرگز نسخه‌ی دیگری گزارش نکند.
+#
+# همان روش CI اصلی: کامپایل متقاطع ویندوز روی ubuntu (خالص Go، بدون MinGW)
+# با `-skipbindings` چون frontend/wailsjs دستی و در مخزن نگه‌داری می‌شود.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-release:
+    name: Build MyAI.exe and publish the release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go (from go.mod)
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Wails CLI (pinned to go.mod version)
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1
+
+      - name: Sanity check (tests must pass before publishing)
+        run: go test -count=1 ./...
+
+      - name: Wails build (windows/amd64, skipbindings)
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "building MyAI ${VERSION}"
+          wails build -platform windows/amd64 -skipbindings \
+            -ldflags "-s -w -H windowsgui -X main.version=${VERSION}"
+
+      - name: Publish release with the Windows executable
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" build/bin/MyAI.exe \
+            --title "MyAI $GITHUB_REF_NAME" \
+            --generate-notes \
+            --verify-tag
