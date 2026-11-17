@@ -1,0 +1,30 @@
+# خط پایان یکدست در همه‌ی سیستم‌ها.
+#
+# بدون این فایل، چک‌اوت ویندوزی (core.autocrlf=true که پیش‌فرض رانرهای
+# windows-latest است) فایل‌های Go را با CRLF می‌نوشت و گیت `gofmt -l` در CI
+# همه‌ی ۱۹۹ فایل را «قالب‌نشده» می‌دید (کل job ویندوز قرمز می‌شد). اکنون
+# مخزن و همه‌ی چک‌اوت‌ها LF دارند و اسکریپت‌های شل هم روی لینوکس سالم‌اند.
+* text=auto eol=lf
+
+*.go text eol=lf
+*.mod text eol=lf
+*.sum text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.ps1 text eol=lf
+
+# فایل‌های دودویی هرگز تغییر نکنند
+*.png binary
+*.ico binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.woff2 binary
+*.exe binary
