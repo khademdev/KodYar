@@ -651,6 +651,11 @@ func runSandboxedShell(ctx context.Context, dir, command string, timeout time.Du
 	}
 
 	text := out.String()
+	// خطای NUL گیج‌کننده است («Access is denied» بی هیچ نشانه‌ای از علت)؛
+	// اگر راهنما لازم باشد همان‌جا اضافه می‌شود (sandbox_nul_windows.go).
+	if hint := sandboxNulDeniedHint(text); hint != "" {
+		text = strings.TrimRight(text, "\n") + "\n" + hint + "\n"
+	}
 	if timedOut {
 		return text, int(code), context.DeadlineExceeded
 	}

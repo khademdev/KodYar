@@ -134,6 +134,10 @@ export function SetProxySettings(arg1:string,arg2:string):Promise<void>;
 
 export function SetRulesEnabled(arg1:boolean):Promise<void>;
 
+export function SandboxNulEnable():Promise<string>;
+
+export function SandboxNulStatus():Promise<Record<string, any>>;
+
 export function SetSandbox(arg1:boolean,arg2:boolean):Promise<void>;
 
 export function SetTheme(arg1:string):Promise<void>;

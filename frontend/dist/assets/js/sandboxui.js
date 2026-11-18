@@ -37,6 +37,46 @@
     return !v || v.sandboxNetwork === undefined ? true : !!v.sandboxNetwork;
   }
 
+  // --- مجوز دستگاه NUL (sandbox_nul_windows.go) -------------------------
+  // AppContainer فقط با ACE صریح برای Package SID به NUL دسترسی دارد و آن
+  // ACE بدون Administrator نوشتنی نیست؛ پس راه‌حل یک‌بار تأیید UAC است که
+  // یک Task سیستمی ONSTART می‌سازد. این‌جا فقط وضعیت سنجیده‌شده را نشان
+  // می‌دهیم (پروب واقعی داخل AppContainer) و دکمه را وصل می‌کنیم.
+  var nul = { loading: false, data: null, at: 0 };
+
+  function refreshNul(force) {
+    var be = backend();
+    if (!be || typeof be.SandboxNulStatus !== "function") return;
+    if (nul.loading) return;
+    if (!force && Date.now() - nul.at < 15000) return;
+    nul.loading = true;
+    var finish = function (d) {
+      nul.loading = false;
+      nul.at = Date.now();
+      nul.data = d || null;
+      paintNul();
+    };
+    be.SandboxNulStatus().then(finish, function () {
+      finish(null);
+    });
+  }
+
+  function paintNul() {
+    var row = el("sandbox-nul-note");
+    if (!row) return;
+    var d = nul.data;
+    var show = !!(d && d.available && d.granted === false && enabled() && available());
+    row.hidden = !show;
+    if (!show) return;
+    var txt = el("sandbox-nul-text");
+    if (!txt) return;
+    var text =
+      "مجوز دستگاه NUL برای سندباکس اعمال نشده است؛ go/git داخل سندباکس با «Access is denied» متوقف می‌شوند.";
+    if (d.lastError) text += " آخرین تلاش ناموفق: " + String(d.lastError).slice(0, 160);
+    else if (d.detail) text += " (" + d.detail + ")";
+    txt.textContent = text;
+  }
+
   function sync() {
     var root = el("sandbox-row");
     if (!root) return;
@@ -61,6 +101,9 @@
       // استثنای git فقط وقتی معنا دارد که سندباکس روشن و در دسترس باشد.
       note.hidden = !(on && ok);
     }
+    if (on && ok) refreshNul(false);
+    else nul.at = 0;
+    paintNul();
     if (net) {
       var netOn = on && ok && networkAllowed();
       net.classList.toggle("on", netOn);
@@ -140,6 +183,36 @@
           return;
         }
         save(true, !networkAllowed());
+      });
+    }
+    var grant = el("sandbox-nul-enable");
+    if (grant && !grant.dataset.bound) {
+      grant.dataset.bound = "1";
+      grant.addEventListener("click", function () {
+        var be = backend();
+        if (!be || typeof be.SandboxNulEnable !== "function") return;
+        grant.disabled = true;
+        be.SandboxNulEnable()
+          .then(function (msg) {
+            toast(msg || "پنجرهٔ تأیید ویندوز باز شد", "info");
+            var tries = 0;
+            var tick = setInterval(function () {
+              tries += 1;
+              nul.at = 0;
+              refreshNul(true);
+              var done = tries >= 10 || (nul.data && nul.data.granted);
+              if (!done) return;
+              clearInterval(tick);
+              grant.disabled = false;
+              if (nul.data && nul.data.granted) {
+                toast("دسترسی NUL فعال شد — go/git داخل سندباکس کار می‌کنند", "ok");
+              }
+            }, 2000);
+          })
+          .catch(function (err) {
+            grant.disabled = false;
+            toast(String(err && err.message ? err.message : err), "err");
+          });
       });
     }
     sync();

@@ -266,6 +266,14 @@ export function SetRulesEnabled(arg1) {
   return window['go']['main']['App']['SetRulesEnabled'](arg1);
 }
 
+export function SandboxNulEnable() {
+  return window['go']['main']['App']['SandboxNulEnable']();
+}
+
+export function SandboxNulStatus() {
+  return window['go']['main']['App']['SandboxNulStatus']();
+}
+
 export function SetSandbox(arg1, arg2) {
   return window['go']['main']['App']['SetSandbox'](arg1, arg2);
 }
