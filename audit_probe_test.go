@@ -12,12 +12,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+// pyBin نام مفسر پایتونِ موجود روی این ماشین ("" یعنی هیچ).
+func pyBin() string {
+	for _, n := range []string{"python", "python3"} {
+		if _, err := exec.LookPath(n); err == nil {
+			return n
+		}
+	}
+	return ""
+}
 
 // probeCall یک فراخوانی ابزار با آرگومان‌های JSON می‌سازد.
 func probeCall(id, name string, args map[string]string) apiToolCall {
@@ -129,8 +140,12 @@ func TestProbeParallelWriteIndependentFiles(t *testing.T) {
 
 // P4 — خروجی فارسیِ یک دستور باید سالم برگردد (چاپ Python روی ویندوز).
 func TestProbePersianCommandOutput(t *testing.T) {
+	py := pyBin()
+	if py == "" {
+		t.Skip("python not available")
+	}
 	a := newTestApp(t)
-	out, ok := probeExec(t, a.settings.WorkspacePath, `python -c "print('سلام دنیا — تست')"`, 30)
+	out, ok := probeExec(t, a.settings.WorkspacePath, py+` -c "print('سلام دنیا — تست')"`, 30)
 	t.Logf("ok=%v out=%q", ok, out)
 	if !ok {
 		t.Skipf("python unavailable: %s", out)
@@ -144,9 +159,16 @@ func TestProbePersianCommandOutput(t *testing.T) {
 // دهدهیِ گیج‌کنندهٔ 3221225477. کرش واقعی با TerminateProcess ساخته می‌شود
 // (همان کدی که یک برنامهٔ native در access violation برمی‌گرداند).
 func TestProbeNativeCrashExitCode(t *testing.T) {
+	if !isWindows() {
+		t.Skip("NTSTATUS exit codes are a Windows concept")
+	}
+	py := pyBin()
+	if py == "" {
+		t.Skip("python not available")
+	}
 	a := newTestApp(t)
 	// 0xC0000005 به‌صورت int32 علامت‌دار = -1073741819
-	cmd := `python -c "import os; os._exit(-1073741819)"`
+	cmd := py + ` -c "import os; os._exit(-1073741819)"`
 	out, ok := probeExec(t, a.settings.WorkspacePath, cmd, 30)
 	t.Logf("ok=%v out=%q", ok, out)
 	if ok {
@@ -173,8 +195,12 @@ func TestProbeNormalExitCodeUnchanged(t *testing.T) {
 
 // P6 — خروجی طولانی باید انتهایش (جای خطای واقعی) را نگه دارد.
 func TestProbeLongOutputKeepsTail(t *testing.T) {
+	py := pyBin()
+	if py == "" {
+		t.Skip("python not available")
+	}
 	a := newTestApp(t)
-	cmd := `python -c "` +
+	cmd := py + ` -c "` +
 		`[print('line-%05d-'%i + 'x'*40) for i in range(6000)]; print('FINAL_ERROR_MARKER: build failed here')"`
 	out, _ := probeExec(t, a.settings.WorkspacePath, cmd, 60)
 	t.Logf("len=%d hasMarker=%v", len(out), strings.Contains(out, "FINAL_ERROR_MARKER"))
@@ -185,10 +211,14 @@ func TestProbeLongOutputKeepsTail(t *testing.T) {
 
 // P7 — timeout هم پیام درست بدهد و هم فرایند را واقعاً بکشد.
 func TestProbeTimeoutKillsProcess(t *testing.T) {
+	py := pyBin()
+	if py == "" {
+		t.Skip("python not available")
+	}
 	a := newTestApp(t)
 	start := time.Now()
 	out, ok := probeExec(t, a.settings.WorkspacePath,
-		`python -c "import time; print('started', flush=True); time.sleep(120)"`, 2)
+		py+` -c "import time; print('started', flush=True); time.sleep(120)"`, 2)
 	elapsed := time.Since(start)
 	t.Logf("ok=%v elapsed=%dms out=%q", ok, elapsed.Milliseconds(), out)
 	if ok {
@@ -210,8 +240,12 @@ func TestProbeTimeoutKillsProcess(t *testing.T) {
 
 // P8 — دستور موفقِ بی‌خروجی باید پیام روشن بدهد، نه رشتهٔ خالی.
 func TestProbeSilentSuccessMessage(t *testing.T) {
+	py := pyBin()
+	if py == "" {
+		t.Skip("python not available")
+	}
 	a := newTestApp(t)
-	out, ok := probeExec(t, a.settings.WorkspacePath, `python -c "pass"`, 30)
+	out, ok := probeExec(t, a.settings.WorkspacePath, py+` -c "pass"`, 30)
 	t.Logf("ok=%v out=%q", ok, out)
 	if !ok || out == "" {
 		t.Fatalf("silent success must produce a clear message: ok=%v out=%q", ok, out)
@@ -242,17 +276,24 @@ func TestProbeRepeatedCommandGuardMessage(t *testing.T) {
 // دقیقاً همان‌طور که مدل نوشته اجرا شوند. این حالت روزمره است (python -c،
 // git commit -m "…"، echo "…").
 func TestProbeInnerQuotesSurvive(t *testing.T) {
+	if !isWindows() {
+		t.Skip("cmd.exe quote handling is Windows-specific (sh keeps quotes correctly)")
+	}
+	py := pyBin()
+	if py == "" {
+		t.Skip("python not available")
+	}
 	a := newTestApp(t)
 	ws := a.settings.WorkspacePath
 	cases := []struct {
 		cmd  string
 		want string
 	}{
-		{`python -c "print(42)"`, "42"},
-		{`python -c "print('a b')"`, "a b"},
-		{`python -c "import os; print('ok')"`, "ok"},
+		{py + ` -c "print(42)"`, "42"},
+		{py + ` -c "print('a b')"`, "a b"},
+		{py + ` -c "import os; print('ok')"`, "ok"},
 		{`echo "hello world"`, "hello world"},
-		{`python -c "print('x')" && echo done`, "done"},
+		{py + ` -c "print('x')" && echo done`, "done"},
 		{`git 2>&1 | findstr /C:"usage"`, "usage"},
 	}
 	for _, c := range cases {
@@ -291,23 +332,34 @@ func TestProbeGitCommitMessageIntact(t *testing.T) {
 
 // P12 — مسیر فارسی با فاصله باید در نوشتن و خواندن کار کند.
 func TestProbePersianPathCommand(t *testing.T) {
+	py := pyBin()
+	if py == "" {
+		t.Skip("python not available")
+	}
 	a := newTestApp(t)
 	ws := a.settings.WorkspacePath
 	dir := "پروژه من"
 	if err := os.MkdirAll(filepath.Join(ws, dir), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	out, ok := probeExec(t, ws, `python -c "open('`+dir+`/فایل.txt','w',encoding='utf-8').write('سلام')"`, 30)
+	rel := dir + "/فایل.txt"
+	out, ok := probeExec(t, ws, py+` -c "open('`+rel+`','w',encoding='utf-8').write('سلام')"`, 30)
 	if !ok {
 		t.Fatalf("write to persian path failed: %s", out)
 	}
-	onDisk := filepath.Join(ws, dir, "فایل.txt")
-	if _, err := os.Stat(onDisk); err != nil {
+	if _, err := os.Stat(filepath.Join(ws, dir, "فایل.txt")); err != nil {
 		t.Fatalf("the file was not created where expected: %v", err)
 	}
-	out, ok = probeExec(t, ws, `type "`+dir+`\فایل.txt"`, 30)
-	t.Logf("type out=%q ok=%v", out, ok)
+	out, ok = probeExec(t, ws, py+` -c "print(open('`+rel+`',encoding='utf-8').read())"`, 30)
 	if !ok || !strings.Contains(out, "سلام") {
 		t.Fatalf("read back persian path failed: %q", out)
+	}
+	// مسیر ویندوزی با `type` هم باید کار کند (فقط ویندوز).
+	if isWindows() {
+		out, ok = probeExec(t, ws, `type "`+dir+`\فایل.txt"`, 30)
+		t.Logf("type out=%q ok=%v", out, ok)
+		if !ok || !strings.Contains(out, "سلام") {
+			t.Fatalf("type on persian path failed: %q", out)
+		}
 	}
 }
