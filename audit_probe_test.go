@@ -363,3 +363,19 @@ func TestProbePersianPathCommand(t *testing.T) {
 		}
 	}
 }
+
+// P13 — خروجی غیر-ASCIIِ برنامه‌های فرزند نباید به کدپیج ANSI سیستم وابسته
+// باشد؛ روی ویندوز با cp1252 خروجی فارسی با UnicodeEncodeError می‌مرد.
+func TestProbeUTF8ChildEnvForced(t *testing.T) {
+	t.Setenv("PYTHONIOENCODING", "")
+	ensureUTF8ChildEnv()
+	if got := os.Getenv("PYTHONIOENCODING"); got != "utf-8" {
+		t.Fatalf("child output encoding must be forced to UTF-8, got %q", got)
+	}
+	// انتخاب صریح کاربر نباید بازنویسی شود.
+	t.Setenv("PYTHONIOENCODING", "cp1251")
+	ensureUTF8ChildEnv()
+	if got := os.Getenv("PYTHONIOENCODING"); got != "cp1251" {
+		t.Fatalf("user-provided encoding must be kept, got %q", got)
+	}
+}

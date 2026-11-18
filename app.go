@@ -126,8 +126,22 @@ type App struct {
 	checkpointNotified map[string]bool
 }
 
+// ensureUTF8ChildEnv کدگذاری خروجیِ برنامه‌های فرزند را UTF-8 می‌کند.
+//
+// مشکل واقعی (روی یک ویندوز با کدپیج ANSI = cp1252 دیده شد): پایتون وقتی
+// stdout یک pipe است از کدپیج ANSI استفاده می‌کند، پس چاپ متن فارسی با
+// UnicodeEncodeError می‌میرد و خروجی کاملاً از دست می‌رود. `chcp 65001`
+// فقط کنسول را عوض می‌کند، نه کدگذاری pipe. MyAI خروجی را UTF-8 می‌خواند،
+// پس همان را به فرزندها هم می‌دهیم؛ مقدار دلخواه کاربر دست‌نخورده می‌ماند.
+func ensureUTF8ChildEnv() {
+	if os.Getenv("PYTHONIOENCODING") == "" {
+		_ = os.Setenv("PYTHONIOENCODING", "utf-8")
+	}
+}
+
 // NewApp ساخت نمونه‌ی اپ.
 func NewApp() *App {
+	ensureUTF8ChildEnv()
 	a := &App{}
 	a.initMCPManager()
 	return a
