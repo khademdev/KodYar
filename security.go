@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"regexp"
 	"sort"
 	"strings"
@@ -224,13 +223,7 @@ func (a *App) execCustomTool(ctx context.Context, name string, args map[string]i
 	// مثل run_command: انتهای خروجی (خطای واقعی) هم نگه داشته می‌شود.
 	result := truncateToolOutputKeepTail(strings.TrimRight(out, "\n"))
 	if err != nil {
-		if cctx.Err() == context.DeadlineExceeded {
-			return result + fmt.Sprintf("\nERROR: command timed out after %d second(s).", timeout), false
-		}
-		if result == "" {
-			result = err.Error()
-		}
-		return result + "\n[command failed]", false
+		return commandFailureResult(result, timeout, cctx.Err() == context.DeadlineExceeded, err), false
 	}
 	if result == "" {
 		result = "(command finished successfully, no output)"

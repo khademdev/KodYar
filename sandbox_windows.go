@@ -498,7 +498,9 @@ func runSandboxedShell(ctx context.Context, dir, command string, timeout time.Du
 			comspec = filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe")
 		}
 		appExe = comspec
-		cmdLine = `cmd.exe /S /C "` + escapeCmdExeQuotes(command) + `"`
+		// /S فقط نخستین/آخرین کوتیشن کل رشته را برمی‌دارد؛ کوتیشن‌های داخل
+		// دستور باید دست‌نخورده بمانند (دابل‌کردن آن‌ها آرگومان‌ها را می‌شکست).
+		cmdLine = `cmd.exe /S /C "` + command + `"`
 	}
 	appName, err := windows.UTF16PtrFromString(appExe)
 	if err != nil {
@@ -660,7 +662,7 @@ func runSandboxedShell(ctx context.Context, dir, command string, timeout time.Du
 		return text, int(code), context.DeadlineExceeded
 	}
 	if code != 0 {
-		return text, int(code), fmt.Errorf("exit status %d", code)
+		return text, int(code), annotateExitStatus(fmt.Errorf("exit status %d", code), int(code))
 	}
 	return text, 0, nil
 }

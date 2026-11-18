@@ -15,6 +15,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -405,4 +406,22 @@ func TestSettingsViewExposesGuardFields(t *testing.T) {
 func formatFloat(t *testing.T, v float64) string {
 	t.Helper()
 	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
+// TestParseOpenRouterZeroCredits صفر بودن total_credits یک خواندنِ معتبر است
+// (حساب تازه یا فقط مدل آزاد/BYOK)، نه خطای پروب؛ و پاسخ بدون فیلد باید
+// همچنان خطا بدهد.
+func TestParseOpenRouterZeroCredits(t *testing.T) {
+	bal, err := parseOpenRouterCredits(json.RawMessage(`{"data":{"total_credits":0,"total_usage":1.5}}`))
+	if err != nil {
+		t.Fatalf("zero credits must parse: %v", err)
+	}
+	if bal.Total != 0 || bal.Currency != "USD" || bal.UpdatedAt <= 0 {
+		t.Fatalf("unexpected balance: %+v", bal)
+	}
+	for _, raw := range []string{`{}`, `{"data":null}`, `{"data":{}}`, `not json`} {
+		if _, err := parseOpenRouterCredits(json.RawMessage(raw)); err == nil {
+			t.Fatalf("%s must be a parse error", raw)
+		}
+	}
 }

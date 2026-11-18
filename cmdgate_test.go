@@ -650,3 +650,51 @@ func TestCommandGatePersianPaths(t *testing.T) {
 }
 
 func init() { _ = fmt.Sprintf } // حفظ import در صورت حذف موارد آینده
+
+// TestCommandGatePythonCompileOnly راستی‌آزمایی خودکار پایتون باید بدون
+// مودال اجرا شود، اما فقط در حالت «python -m py_compile» — اجرای اسکریپت،
+// ماژول دلخواه و پرچم/تغییرمسیر اضافه همچنان تأیید می‌خواهد.
+func TestCommandGatePythonCompileOnly(t *testing.T) {
+	ws := t.TempDir()
+	allowed := []string{
+		`python -m py_compile "a.py"`,
+		`python3 -m py_compile a.py sub/b.py`,
+		`python -m py_compile -q a.py`,
+		`python -m py_compile`,
+	}
+	for _, cmd := range allowed {
+		if e := evalWS(flavorPOSIX, cmd, ws, nil); e.decision != permAllow {
+			t.Fatalf("%q must be auto-allowed, got %s (%s)", cmd, d(e.decision), e.reason)
+		}
+	}
+	notAllowed := []string{
+		`python main.py`,
+		`python -m http.server`,
+		`python -c "print(1)"`,
+		`python -m py_compile "../escape.py"`,
+		`python -m py_compile -o out.pyc a.py`,
+		`python -m py_compile a.py > log.txt`,
+		`python -m py_compile a.py && python main.py`,
+	}
+	for _, cmd := range notAllowed {
+		if e := evalWS(flavorPOSIX, cmd, ws, nil); e.decision == permAllow {
+			t.Fatalf("%q must not be auto-allowed", cmd)
+		}
+	}
+}
+
+// TestCommandGateNodeCheckOnly بررسی نحوی JS خودکار مجاز است؛ اجرای اسکریپت
+// و ‎node -e‎ همچنان تأیید می‌خواهند.
+func TestCommandGateNodeCheckOnly(t *testing.T) {
+	ws := t.TempDir()
+	for _, cmd := range []string{`node --check "a.js"`, `node --check src/game.js`} {
+		if e := evalWS(flavorPOSIX, cmd, ws, nil); e.decision != permAllow {
+			t.Fatalf("%q must be auto-allowed, got %s (%s)", cmd, d(e.decision), e.reason)
+		}
+	}
+	for _, cmd := range []string{`node a.js`, `node -e "console.log(1)"`, `node --check -e "x"`, `node --check a.js > out.txt`} {
+		if e := evalWS(flavorPOSIX, cmd, ws, nil); e.decision == permAllow {
+			t.Fatalf("%q must not be auto-allowed", cmd)
+		}
+	}
+}

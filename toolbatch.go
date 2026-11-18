@@ -127,7 +127,7 @@ func isParallelWriteTool(name string) bool {
 // ok=false یعنی مسیر قابل‌استخراج نیست (آرگومان نامعتبر/ناقص) و فراخوانی
 // باید ترتیبی بماند. مسیرها کوچک و یکدست می‌شوند تا مقایسه‌ی «همان فایل»
 // روی ویندوز/مک (حساس‌نبودن به بزرگی حروف) محافظه‌کارانه باشد.
-func toolCallPaths(call apiToolCall) ([]string, bool) {
+func toolCallPaths(call apiToolCall, ws string) ([]string, bool) {
 	args := map[string]interface{}{}
 	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
 		return nil, false
@@ -146,9 +146,16 @@ func toolCallPaths(call apiToolCall) ([]string, bool) {
 		return nil, false
 	}
 	out := make([]string, 0, len(raw))
+	ws = strings.TrimSpace(ws)
 	for _, p := range raw {
 		if p == "" {
 			return nil, false
+		}
+		// مسیر نسبی به پوشهٔ کاری گره می‌خورد تا «a.txt» و «F:\ws\a.txt»
+		// یک فایل شناخته شوند؛ وگرنه دو نوشتنِ هم‌زمان روی یک فایل واقعی
+		// از سد تداخل رد می‌شوند و یکی از ویرایش‌ها گم می‌شود.
+		if ws != "" && !filepath.IsAbs(p) {
+			p = filepath.Join(ws, p)
 		}
 		out = append(out, normalizeToolPath(p))
 	}
@@ -260,6 +267,10 @@ func (a *App) executeToolCalls(ctx context.Context, convID string, tasks []toolB
 			a.runParallelSegmentLimit(ctx, convID, tasks[i:j], outcomes[i:j], truncated, exec, false, parallelTaskLimitFn())
 			i = j
 		case isParallelWriteTool(name):
+			ws := ""
+			if a.settings != nil {
+				ws = strings.TrimSpace(a.settings.WorkspacePath)
+			}
 			// سگمنت موازیِ تغییردهنده‌ها فقط تا وقتی ادامه دارد که هر
 			// فراخوانی مسیرهای قابل‌استخراج و «جدا» داشته باشد؛ اولین
 			// تداخل (همان فایل، مثل دو edit_file روی یک مسیر) یا ابزار
@@ -268,7 +279,7 @@ func (a *App) executeToolCalls(ctx context.Context, convID string, tasks []toolB
 			seen := map[string]bool{}
 			j := i
 			for j < len(tasks) && tasks[j].exec && isParallelWriteTool(tasks[j].call.Function.Name) {
-				paths, ok := toolCallPaths(tasks[j].call)
+				paths, ok := toolCallPaths(tasks[j].call, ws)
 				if !ok || pathsOverlap(seen, paths) {
 					break
 				}

@@ -298,7 +298,7 @@ func TestToolCallPaths(t *testing.T) {
 		{batchCall("8", "list_dir", `{"path":"."}`), nil, false},
 	}
 	for _, c := range cases {
-		got, ok := toolCallPaths(c.call)
+		got, ok := toolCallPaths(c.call, "")
 		if ok != c.wantOK {
 			t.Errorf("%s ok = %v, want %v", c.call.ID, ok, c.wantOK)
 			continue

@@ -336,20 +336,25 @@ func probeProviderBalanceWithKey(kind, endpoint, key string) (ProviderBalance, e
 }
 
 // parseOpenRouterCredits {"data":{"total_credits":110,"total_usage":10}}
+//
+// total_credits مبلغ تجمعیِ خریدِ اعتبار است، نه موجودی لحظه‌ای؛ حسابِ تازه
+// یا حسابی که فقط مدل آزاد/BYOK استفاده می‌کند صفر برمی‌گرداند. صفر یک
+// خواندنِ معتبر است و نباید «خطای خواندن موجودی» شمرده شود (وگرنه پروب هر
+// ۱۵ دقیقه یک خطای بی‌معنا در لاگ می‌نویسد و تشخیص شارژ هرگز مبنا نمی‌گیرد).
 func parseOpenRouterCredits(raw json.RawMessage) (ProviderBalance, error) {
 	var v struct {
-		Data struct {
-			TotalCredits float64 `json:"total_credits"`
-			TotalUsage   float64 `json:"total_usage"`
+		Data *struct {
+			TotalCredits *float64 `json:"total_credits"`
+			TotalUsage   float64  `json:"total_usage"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return ProviderBalance{}, err
 	}
-	if v.Data.TotalCredits <= 0 {
+	if v.Data == nil || v.Data.TotalCredits == nil {
 		return ProviderBalance{}, errors.New("موجودی OpenRouter خوانده نشد")
 	}
-	return ProviderBalance{Total: v.Data.TotalCredits, Currency: "USD", UpdatedAt: timeNow()}, nil
+	return ProviderBalance{Total: *v.Data.TotalCredits, Currency: "USD", UpdatedAt: timeNow()}, nil
 }
 
 // parseDeepSeekBalance {"balance_infos":[{"currency":"CNY","total_balance":"112.00"}]}

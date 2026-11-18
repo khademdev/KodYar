@@ -14,6 +14,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
@@ -167,7 +168,46 @@ func runShellCtx(cctx context.Context, dir, command string, onOutput func([]byte
 	if cmd.ProcessState != nil {
 		exit = cmd.ProcessState.ExitCode()
 	}
-	return out.String(), exit, werr
+	return out.String(), exit, annotateExitStatus(werr, exit)
+}
+
+// annotateExitStatus کد خروجِ کرشِ native ویندوز (NTSTATUS، مثل ‎0xC0000005‎)
+// را کنار عدد دهدهی با نام خوانا نشان می‌دهد. عدد خالصِ 3221225477 در لاگ و
+// نتیجهٔ ابزار هیچ معنایی برای مدل/کاربر ندارد، در حالی که همان کد در ۹۹٪
+// موارد یعنی «برنامه در سطح سیستم‌عامل کرش کرد»، نه «برنامه خطا برگرداند».
+func annotateExitStatus(err error, code int) error {
+	if err == nil || code <= 0 {
+		return err
+	}
+	u := uint32(code)
+	if u < 0xC0000000 {
+		return err
+	}
+	// فقط خطای «کد خروج» بازنویسی می‌شود؛ خطاهای واقعی اجرا دست‌نخورده‌اند.
+	if !strings.HasPrefix(err.Error(), "exit status ") {
+		return err
+	}
+	name := ntStatusName(u)
+	return fmt.Errorf("exit status %d (0x%08X: %s)", code, u, name)
+}
+
+// ntStatusName نام خوانای کدهای NTSTATUS پرتکرار در کرش برنامه‌های native.
+func ntStatusName(code uint32) string {
+	switch code {
+	case 0xC0000005:
+		return "access violation"
+	case 0xC00000FD:
+		return "stack overflow"
+	case 0xC0000135:
+		return "DLL not found"
+	case 0xC0000142:
+		return "DLL initialization failed"
+	case 0xC0000374:
+		return "heap corruption"
+	case 0xC0000409:
+		return "stack buffer overrun / fail-fast"
+	}
+	return "fatal system error"
 }
 
 // ---------------------------------------------------------------- بافر کران‌دار

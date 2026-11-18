@@ -479,7 +479,10 @@ func shellInfoForOS(goos string) shellPlatformInfo {
 			shellUse: "run_command executes Windows CMD (cmd.exe) commands inside the workspace (build, test, git, package managers)",
 			hints: "Shell notes for this machine (Windows CMD): use `dir` to list files and `type` to print a file (not ls/cat); " +
 				"paths use `\\` as separator; wrap paths containing spaces in double quotes; environment variables use %VAR% syntax; " +
-				"chaining uses `&&`; prefer one command per call.",
+				"chaining uses `&&`; prefer one command per call. " +
+				"cmd.exe strips double quotes that appear INSIDE a double-quoted argument, so for inline code or commit " +
+				"messages use single quotes inside: python -c \"print('x')\" and git commit -m \"fix: 'x'\"; " +
+				"for multi-line code write a file with write_file and run `python file.py` instead of python -c.",
 		}
 	case "darwin":
 		return shellPlatformInfo{
@@ -526,7 +529,9 @@ func agentSystemPromptForOS(workspace, goos string) string {
 	b.WriteString("2. Read a file before changing it (read-before-write is enforced: write_file refuses to overwrite an existing file you have not read in this conversation, and refuses any file whose content changed on disk since your last read — in both cases call read_file again instead of overwriting content you have not seen). edit_file needs an exact, unique old_string copied from the current file content (mind indentation and line endings). If the exact text is not found, it retries with tolerant matching (line endings, trailing whitespace, and — only for a unique match — indentation) and reports which strategy matched; prefer exact matches. For several changes to the SAME file, pass the multi-edit form edits: [{old_string, new_string, replace_all?}, ...] (max 20): edits apply sequentially and atomically — if any edit fails, nothing is written.\n")
 	b.WriteString("2b. For structural or multi-file edits use apply_patch with a unified diff (`--- a/x` / `+++ b/x` / `@@ -a,b +c,d @@`, 3 context lines). Its hunks are validated against the real file before writing; an unmatched or ambiguous hunk aborts the whole patch. Prefer it over many edit_file calls on big files: it needs line numbers and context, not a byte-exact copy of whole blocks. Use dry_run=true when unsure whether the hunk still applies after other edits.\n")
 	b.WriteString("3. " + plat.shellUse + ". Commands are checked by a permission gate and usually need the user's approval; they are NOT sandboxed — never run a command whose effect you cannot describe precisely. For dev servers / watchers / long builds use run_command with background=true, then read progress with process_output and stop it with process_stop (always stop what you started before finishing a task). If command execution is disabled by the user, tell them to enable «اجازه اجرای دستور» in the app; never pretend a command ran. " + plat.hints + "\n")
-	b.WriteString("4. After changing code, verify it (build/compile/test) with run_command and fix what breaks, as long as rounds remain.\n")
+	b.WriteString("4. After changing code, verify it (build/compile/test) with run_command and fix what breaks, as long as rounds remain. " +
+		"Write a large file in complete pieces (create it with write_file, then extend it with edit_file) instead of one giant payload; if a result says your response was truncated, split the payload. " +
+		"GUI/interactive programs (pygame, tkinter, a game waiting for clicks or keys) never exit on their own: never run them expecting a clean exit and never treat the timeout or the crash-on-close as a failing test — verify their logic with a syntax/import check or a short bounded run, then ask the user to try the window.\n")
 	b.WriteString("5. Never invent file contents or results: base every statement on real tool output. If a tool returns an error, analyze it and try a different approach.\n")
 	b.WriteString("6. Keep going with consecutive tool calls until the task is fully done, then stop calling tools and write the final summary.\n")
 	b.WriteString("7. Git: use git_status / git_diff / git_log / git_show to understand the repository — never guess history or diffs. " +
@@ -1935,6 +1940,24 @@ func (a *App) toolGlob(ctx context.Context, pattern, rel string) (string, bool) 
 	return truncateToolOutput(out), true
 }
 
+// commandFailureResult پیام یکدستِ شکست/تایم‌اوتِ دستور را می‌سازد. وقتی
+// دستور هیچ خروجی نداشته، پیام نباید با یک خط خالی شروع شود (در لاگ به شکل
+// «[tool] run_command:» خالی دیده می‌شد و شبیه دستورِ خالی بود).
+func commandFailureResult(result string, timeoutSec int, timedOut bool, err error) string {
+	if timedOut {
+		msg := fmt.Sprintf("ERROR: command timed out after %d second(s).", timeoutSec)
+		if result != "" {
+			return result + "\n" + msg
+		}
+		return msg
+	}
+	if result == "" {
+		// دستور هیچ خروجی نداشت؛ پیام کد خروج خودش گویاست و نباید تکرار شود.
+		return fmt.Sprintf("ERROR: command failed: %v", err)
+	}
+	return result + fmt.Sprintf("\n[command failed: %v]", err)
+}
+
 // toolRunCommand اجرای دستور در پوشه‌ی کاری (فقط با اجازه‌ی کاربر + لایه‌ی امنیتی).
 func (a *App) toolRunCommand(parent context.Context, command string, timeoutSec int, background bool) (string, bool) {
 	command = strings.TrimSpace(command)
@@ -1982,13 +2005,7 @@ func (a *App) toolRunCommand(parent context.Context, command string, timeoutSec 
 	// خروجی است و بریدن فقط از سر، مدل را از علت شکست بی‌خبر می‌گذاشت.
 	result := truncateToolOutputKeepTail(strings.TrimRight(out, "\n"))
 	if err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			return result + fmt.Sprintf("\nERROR: command timed out after %d second(s).", timeoutSec), false
-		}
-		if result == "" {
-			result = err.Error()
-		}
-		return result + fmt.Sprintf("\n[command failed: %v]", err), false
+		return commandFailureResult(result, timeoutSec, ctx.Err() == context.DeadlineExceeded, err), false
 	}
 	if result == "" {
 		result = "(command finished successfully, no output)"

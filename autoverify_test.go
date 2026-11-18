@@ -216,3 +216,66 @@ func TestAutoVerifyEndToEnd(t *testing.T) {
 		t.Fatal("conversation must be returned")
 	}
 }
+
+// TestAutoVerifyPythonCommandPassesGate رگرسیونِ لاگ واقعی: فرمان
+// تولیدشده برای پروژهٔ پایتون باید از دروازهٔ غیرتعاملی رد شود، وگرنه
+// راستی‌آزمایی خودکار همیشه با «نیاز به تأیید» رد می‌شد.
+func TestAutoVerifyPythonCommandPassesGate(t *testing.T) {
+	if _, err := exec.LookPath("python"); err != nil {
+		t.Skip("python not available")
+	}
+	a := newTestApp(t)
+	a.mu.Lock()
+	a.settings.AllowCommands = true
+	a.mu.Unlock()
+	ws := t.TempDir()
+	cmds := autoVerifyCommands(ws, []string{"a.py", "sub/b.py"})
+	if len(cmds) == 0 {
+		t.Skip("no python verification command detected")
+	}
+	if ok, why := a.autoVerifyGate(ws, cmds[0]); !ok {
+		t.Fatalf("python verification command %q must pass the gate, got %q", cmds[0], why)
+	}
+}
+
+// TestAutoVerifyJSDetection بررسی نحویِ فایل‌های JS تغییرکرده — بازی/UI
+// نیمه‌کاره باید همان دور لو برود، نه در نوبت بعد.
+func TestAutoVerifyJSDetection(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node not available")
+	}
+	ws := t.TempDir()
+	found := false
+	for _, c := range autoVerifyCommands(ws, []string{"game.js", "README.md"}) {
+		if strings.Contains(c, "node --check") && strings.Contains(c, "game.js") {
+			found = true
+		}
+		if strings.Contains(c, "README.md") {
+			t.Fatalf("non-JS change must be ignored: %s", c)
+		}
+	}
+	if !found {
+		t.Fatalf("changed .js must be syntax-checked")
+	}
+	for _, c := range autoVerifyCommands(ws, []string{"node_modules/x/y.js", "a.cjs"}) {
+		if strings.Contains(c, "node_modules") {
+			t.Fatalf("node_modules must be ignored: %s", c)
+		}
+	}
+
+	a := newTestApp(t)
+	if ok, why := a.autoVerifyGate(ws, `node --check "game.js"`); !ok {
+		t.Fatalf("node --check must pass the gate, got %q", why)
+	}
+	// فایل نیمه‌کاره (پرانتز باز) باید شکست بخورد و خروجی‌اش به مدل برسد.
+	if err := os.WriteFile(filepath.Join(ws, "broken.js"), []byte("function f(\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runs, skipped := a.autoVerifyTurn(context.Background(), ws, []string{"broken.js"})
+	if skipped != "" || len(runs) == 0 || runs[0].OK {
+		t.Fatalf("truncated js must fail verification: skipped=%q runs=%+v", skipped, runs)
+	}
+	if !strings.Contains(autoVerifyFailedMessage(runs[0]), "node --check") {
+		t.Fatalf("failure message must name the command")
+	}
+}

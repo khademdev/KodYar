@@ -76,6 +76,25 @@ func autoVerifyCommands(ws string, changed []string) []string {
 		}
 		return cmds
 	}
+	// JavaScript: فقط بررسی نحویِ فایل‌های تغییرکرده با `node --check` —
+	// بدون اجرا، و هر فایل یک دستور (node فقط یک اسکریپت می‌پذیرد). بازی/UI
+	// تک‌فایلیِ نیمه‌کاره با همین مرحله لو می‌رود.
+	if hasTool("node") {
+		for _, f := range changed {
+			lf := strings.ToLower(f)
+			if !strings.HasSuffix(lf, ".js") && !strings.HasSuffix(lf, ".cjs") && !strings.HasSuffix(lf, ".mjs") {
+				continue
+			}
+			if strings.Contains(strings.ReplaceAll(lf, `\`, "/"), "node_modules/") {
+				continue
+			}
+			if len(cmds) >= autoVerifyMaxFiles {
+				break
+			}
+			cmds = append(cmds, `node --check "`+f+`"`)
+		}
+	}
+
 	// Python: فقط فایل‌های تغییرکرده (بدون پیمایش کل مخزن).
 	var pyFiles []string
 	for _, f := range changed {

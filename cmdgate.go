@@ -123,6 +123,19 @@ var safeCommandSpecs = []safeCommandSpec{
 		flags: flagsWhitelist, allowed: []string{"--silent", "-s", "--no-audit", "--no-fund"},
 		denied: npmDenied},
 
+	// ---- node: فقط بررسی نحوی (بدون اجرا) — راستی‌آزمایی فایل‌های JS
+	{argv0: "node", sub: []string{"--check"},
+		allowed: []string{"--no-warnings"}, allowPositional: true},
+
+	// ---- python: فقط py_compile (راستی‌آزمایی خودکار پروژه‌های پایتون)
+	// ماژول با `-m py_compile` ثابت است؛ ‎-c‎/اسکریپت دلخواه همچنان تأیید
+	// می‌خواهد. پرچم‌های دیگر (‎-o‎، ‎--help‎، …) در لیست سفید نیستند و
+	// تغییرمسیر/گسترش/پس‌زمینه پیش از رسیدن به این‌جا رد می‌شوند.
+	{argv0: "python", sub: []string{"-m"}, sub2: []string{"py_compile"},
+		allowed: []string{"-q"}, allowPositional: true},
+	{argv0: "python3", sub: []string{"-m"}, sub2: []string{"py_compile"},
+		allowed: []string{"-q"}, allowPositional: true},
+
 	// ---- فقط-خواندنیِ نمایشی — پرچم آزاد، بدون تغییرمسیر/گسترش (سراسری)
 	{argv0: "ls", flags: flagsAny, allowPositional: true},
 	{argv0: "dir", flags: flagsAny, allowPositional: true},
@@ -139,6 +152,7 @@ var safeCommandSpecs = []safeCommandSpec{
 	{argv0: "node", exact: [][]string{{"node", "--version"}, {"node", "-v"}}},
 	{argv0: "npm", exact: [][]string{{"npm", "--version"}}},
 	{argv0: "python", exact: [][]string{{"python", "--version"}, {"python", "-V"}}},
+	// توجه: py_compile در بخش «python -m py_compile» بالا آمده است.
 	{argv0: "python3", exact: [][]string{{"python3", "--version"}, {"python3", "-V"}}},
 	{argv0: "git", exact: [][]string{{"git", "--version"}}},
 	{argv0: "go", exact: [][]string{{"go", "version"}}},
