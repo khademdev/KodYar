@@ -38,12 +38,73 @@ func TestSandboxNulBootstrapEmbedded(t *testing.T) {
 			t.Fatalf("embedded NUL script is missing %q", want)
 		}
 	}
-	cmd := sandboxStartupCmdContent(`C:\Users\x\AppData\Local\MyAI\sandbox\run-sandbox-nul.ps1`)
-	if !strings.Contains(cmd, "-File") || !strings.Contains(cmd, `run-sandbox-nul.ps1`) {
-		t.Fatalf("startup cmd content is wrong: %q", cmd)
+	vbs := sandboxStartupVbsContent(
+		`C:\Users\x\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\MyAI-sandbox-nul.vbs`,
+		`C:\Users\x\AppData\Local\MyAI\sandbox\run-sandbox-nul.ps1`,
+		`C:\Apps\MyAI\MyAI.exe`)
+	if !strings.Contains(vbs, "-File") || !strings.Contains(vbs, `run-sandbox-nul.ps1`) {
+		t.Fatalf("startup vbs content is wrong: %q", vbs)
 	}
-	if !strings.Contains(cmd, "\r\n") {
-		t.Fatalf("startup cmd must use CRLF line endings: %q", cmd)
+	if !strings.Contains(vbs, "\r\n") {
+		t.Fatalf("startup vbs must use CRLF line endings: %q", vbs)
+	}
+}
+
+// TestSandboxNulStartupVbsIsWindowless — رگرسیون ‹پنجرهٔ cmd هنگام روشن شدن
+// کامپیوتر›: ورودی Startup باید با wscript و پنجرهٔ مخفی اجرا شود، هرگز با
+// cmd/@echo off (که کنسول را نمی‌بندد).
+func TestSandboxNulStartupVbsIsWindowless(t *testing.T) {
+	if !sandboxSupported() {
+		t.Skip("sandbox not supported")
+	}
+	vbsPath := `C:\Users\x\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\MyAI-sandbox-nul.vbs`
+	launcher := `C:\Users\x\AppData\Local\MyAI\sandbox\run-sandbox-nul.ps1`
+	vbs := sandboxStartupVbsContent(vbsPath, launcher, `C:\Apps\MyAI\MyAI.exe`)
+
+	if strings.Contains(vbs, "@echo off") || strings.Contains(vbs, ".cmd") {
+		t.Fatalf("startup entry must not be a batch script (it flashes a console): %q", vbs)
+	}
+	for _, want := range []string{
+		`CreateObject("WScript.Shell")`,
+		`CreateObject("Scripting.FileSystemObject")`,
+		"-WindowStyle Hidden",
+		", 0, True",
+		`"` + launcher + `"`,
+	} {
+		if !strings.Contains(vbs, want) {
+			t.Fatalf("windowless startup vbs missing %q:\n%s", want, vbs)
+		}
+	}
+	// متغیرها اعلام می‌شوند تا با Option Explicit در wscript خطا ندهد.
+	for _, name := range []string{"sh", "fso", "appPath"} {
+		if !strings.Contains(vbs, "Dim ") || !strings.Contains(vbs, name) {
+			t.Fatalf("vbs must declare %q:\n%s", name, vbs)
+		}
+	}
+}
+
+// خود-پاک‌سازی: اگر exe نباشد، ورودی Startup خودش را حذف می‌کند؛ و وقتی مسیر
+// exe معلوم نیست، هیچ حذفی انجام نمی‌شود (fail-open مثل launcher).
+func TestSandboxNulStartupVbsSelfCleans(t *testing.T) {
+	if !sandboxSupported() {
+		t.Skip("sandbox not supported")
+	}
+	vbsPath := `C:\Startup\MyAI-sandbox-nul.vbs`
+	launcher := `C:\Users\x\AppData\Local\MyAI\sandbox\run-sandbox-nul.ps1`
+	body := sandboxStartupVbsContent(vbsPath, launcher, `C:\Apps\MyAI\MyAI.exe`)
+	for _, want := range []string{
+		`If Not fso.FileExists(appPath) Then`,
+		`fso.DeleteFile "` + vbsPath + `", True`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("self-clean block missing %q:\n%s", want, body)
+		}
+	}
+	if got := sandboxStartupVbsContent(vbsPath, launcher, ""); strings.Contains(got, "FileExists") {
+		t.Fatalf("unknown app path must not delete the startup entry:\n%s", got)
+	}
+	if got := vbsQuote(`C:\O"Brien\MyAI.exe`); got != `"C:\O""Brien\MyAI.exe"` {
+		t.Fatalf("vbsQuote escaping wrong: %s", got)
 	}
 }
 

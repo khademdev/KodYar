@@ -17,6 +17,12 @@
 // ثبت می‌شود؛ بنابراین به‌روزرسانی/جابه‌جایی برنامه هم خودکار اصلاح می‌شود.
 // اگر ساخت Task مجاز نباشد، همان launcher از پوشه‌ی Startup کاربر اجرا می‌شود
 // (که آن هم به exe اشاره دارد و رفتار self-clean یکسان دارد).
+//
+// شکل این fallback یک فایل .vbs است، نه .cmd: فایل .cmd را cmd.exe اجرا
+// می‌کند و @echo off/تغییرمسیر پنجرهٔ کنسول را نمی‌بندد، پس هنگام هر روشن‌شدن
+// ویندوز یک پنجرهٔ سیاه کوتاه می‌آمد. wscript.exe یک برنامهٔ GUI است و با
+// مقدار 0 در sh.Run هیچ پنجره‌ای باز نمی‌کند. نسخه‌های پیش از 1.0.3 از .cmd
+// استفاده می‌کردند؛ آن فایل هنگام نصب/به‌روزرسانی پاک می‌شود.
 package main
 
 import (
@@ -76,9 +82,43 @@ func sandboxNulLauncherScript(appPath, grantPath, launcherPath string) string {
 	}, "\r\n")
 }
 
-// sandboxStartupCmdContent محتوای فایل .cmd پوشه‌ی Startup (fallback).
-func sandboxStartupCmdContent(launcherPath string) string {
-	return "@echo off\r\npowershell -NoProfile -ExecutionPolicy Bypass -File \"" + launcherPath + "\" >nul 2>&1\r\n"
+// sandboxStartupScriptName نام ورودی پوشه‌ی Startup (fallback).
+const sandboxStartupScriptName = "MyAI-sandbox-nul.vbs"
+
+// sandboxLegacyStartupScriptName نام fallback قدیمی (نسخه‌های < 1.0.3) که با
+// cmd اجرا می‌شد و پنجرهٔ کنسول باز می‌کرد.
+const sandboxLegacyStartupScriptName = "MyAI-sandbox-nul.cmd"
+
+// vbsQuote رشته را به یک literal معتبر VBScript تبدیل می‌کند (گیومه دوتایی).
+func vbsQuote(s string) string {
+	return "\"" + strings.ReplaceAll(s, "\"", "\"\"") + "\""
+}
+
+// sandboxStartupVbsContent محتوای ورودی پوشه‌ی Startup است: launcher را با
+// wscript و پنجرهٔ مخفی اجرا می‌کند و اگر فایل اجرایی MyAI دیگر نباشد، خودش را
+// هم از Startup حذف می‌کند (همان رفتار self-clean بقیه‌ی زنجیره).
+func sandboxStartupVbsContent(vbsPath, launcherPath, appPath string) string {
+	cmd := `powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "` + launcherPath + `"`
+	lines := []string{
+		"' ساخته‌شده توسط MyAI — دستی ویرایش نکنید.",
+		"' اجرا با wscript تا هیچ پنجرهٔ کنسولی باز نشود.",
+		"Option Explicit",
+		"Dim sh, fso, appPath",
+		"Set sh = CreateObject(\"WScript.Shell\")",
+		"Set fso = CreateObject(\"Scripting.FileSystemObject\")",
+		"appPath = " + vbsQuote(appPath),
+		"' آرگومان دوم 0 = پنجرهٔ مخفی، True = منتظر ماندن تا ACE اعمال شود.",
+		"sh.Run " + vbsQuote(cmd) + ", 0, True",
+	}
+	if appPath != "" {
+		lines = append(lines,
+			"' اگر MyAI حذف/جابه‌جا شده باشد، این ورودی هم نباید در Startup بماند.",
+			"If Not fso.FileExists(appPath) Then",
+			"\tfso.DeleteFile "+vbsQuote(vbsPath)+", True",
+			"End If",
+		)
+	}
+	return strings.Join(lines, "\r\n") + "\r\n"
 }
 
 // sandboxTaskLaunchCommand دستوری که Scheduled Task اجرا می‌کند.
@@ -158,18 +198,34 @@ func installSandboxNulGrant() error {
 		return err
 	}
 
+	startupDir := sandboxStartupDir()
+	startupVbs := ""
+	if startupDir != "" {
+		startupVbs = filepath.Join(startupDir, sandboxStartupScriptName)
+	}
+
+	// safeToDropLegacyCmd فقط وقتی true می‌شود که یک مسیر جایگزین واقعاً برقرار
+	// شده باشد؛ وگرنه حذف .cmd قدیمی یعنی از دست دادن مجوز NUL بعد از بوت.
+	safeToDropLegacyCmd := false
 	var registerErr error
 	if err := registerSandboxNulTask(launcherPath); err != nil {
 		registerErr = err
-		if dir := sandboxStartupDir(); dir != "" {
-			startupCmd := filepath.Join(dir, "MyAI-sandbox-nul.cmd")
-			if werr := writeIfChanged(startupCmd, []byte(sandboxStartupCmdContent(launcherPath)), 0o600); werr != nil {
+		if startupVbs != "" {
+			content := sandboxStartupVbsContent(startupVbs, launcherPath, sandboxNulAppPath())
+			if werr := writeIfChanged(startupVbs, []byte(content), 0o600); werr != nil {
 				registerErr = fmt.Errorf("%v; startup fallback: %w", err, werr)
+			} else {
+				safeToDropLegacyCmd = true
 			}
 		}
-	} else if dir := sandboxStartupDir(); dir != "" {
-		// مهاجرت: نسخه‌ی قبلی از پوشه‌ی Startup استفاده می‌کرد.
-		_ = os.Remove(filepath.Join(dir, "MyAI-sandbox-nul.cmd"))
+	} else if startupVbs != "" {
+		// Task کار می‌کند (بی‌پنجره)؛ ورودی Startup لازم نیست.
+		_ = os.Remove(startupVbs)
+		safeToDropLegacyCmd = true
+	}
+	if safeToDropLegacyCmd && startupDir != "" {
+		// مهاجرت < 1.0.3: .cmd قدیمی هنگام هر ورود یک کنسول باز می‌کرد.
+		_ = os.Remove(filepath.Join(startupDir, sandboxLegacyStartupScriptName))
 	}
 
 	out, err := runSandboxHidden("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", launcherPath)
