@@ -4,10 +4,18 @@
 // ویرایشگر، آنتی‌ویروس، ایندکسر یا ابزار بکاپ ممکن است فایل مقصد را
 // لحظه‌ای باز نگه داشته باشند (ERROR_ACCESS_DENIED / SHARING_VIOLATION /
 // LOCK_VIOLATION). این فایل همان rename را با تلاش محدود تکرار می‌کند.
+//
+// نکته‌ی مهم (رفع باگ هم‌زمانی): وقتی چند نویسنده هم‌زمان مقصد یکسانی را
+// replace می‌کنند، MoveFileEx می‌تواند در هر تلاش ERROR_ACCESS_DENIED بدهد و
+// با فاصله‌های ثابت، همه‌ی نویسنده‌ها در یک لحظه دوباره تلاش می‌کنند
+// (thundering herd) و بودجه‌ی تلاش‌ها می‌سوزد. حالا فاصله‌ها نمایی و همراهِ
+// jitter است و کل تلاش‌ها یک بودجه‌ی زمانی دارند — هم در رقابت سنگین
+// (تست هم‌زمانی) و هم در قفلِ گذرای آنتی‌ویروس کار می‌کند.
 package main
 
 import (
 	"errors"
+	"math/rand"
 	"os"
 	"syscall"
 	"time"
@@ -15,15 +23,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// renameRetryDelays فاصله‌ی تلاش‌ها: ۲۵ → ۵۰ → ۱۰۰ → ۲۰۰ → ۴۰۰ میلی‌ثانیه
-// (۶ تلاش در مجموع، حداکثر ~۰.۸ ثانیه).
-var renameRetryDelays = []time.Duration{
-	25 * time.Millisecond,
-	50 * time.Millisecond,
-	100 * time.Millisecond,
-	200 * time.Millisecond,
-	400 * time.Millisecond,
-}
+// renameRetryBudget سقف کل زمان تلاش مجدد برای یک rename.
+const renameRetryBudget = 2 * time.Second
 
 // isTransientRenameError آیا خطای rename گذرا و قابل‌تلاش‌مجدد است؟
 func isTransientRenameError(err error) bool {
@@ -38,18 +39,33 @@ func isTransientRenameError(err error) bool {
 		errors.Is(err, syscall.Errno(5)) // access denied
 }
 
-// renameWithRetry تغییر نام را با تلاش محدود انجام می‌دهد؛ خطای نهایی شامل
-// نام فایل است.
+// renameWithRetry تغییر نام را با تلاش محدود و فاصله‌ی نماییِ jitterدار
+// انجام می‌دهد تا نویسنده‌های هم‌زمان روی هم نیفتند؛ خطای نهایی شامل نام
+// فایل است.
 func renameWithRetry(from, to string) error {
+	deadline := time.Now().Add(renameRetryBudget)
+	delay := 5 * time.Millisecond
 	var err error
-	for attempt := 0; ; attempt++ {
+	for {
 		err = os.Rename(from, to)
 		if err == nil {
 			return nil
 		}
-		if !isTransientRenameError(err) || attempt >= len(renameRetryDelays) {
+		if !isTransientRenameError(err) {
 			return err
 		}
-		time.Sleep(renameRetryDelays[attempt])
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return err
+		}
+		// jitter: نصف تا یک‌ونیمِ تأخیر فعلی — تلاش‌های هم‌زمان پخش می‌شوند.
+		sleep := delay/2 + time.Duration(rand.Int63n(int64(delay)+1))
+		if sleep > remaining {
+			sleep = remaining
+		}
+		time.Sleep(sleep)
+		if delay < 250*time.Millisecond {
+			delay *= 2
+		}
 	}
 }

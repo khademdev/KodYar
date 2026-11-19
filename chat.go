@@ -803,6 +803,10 @@ func (a *App) prepareStream(conv *Conversation, planMode bool, gitLine string) (
 		if gitLine != "" {
 			systemPrompt += "\n" + gitLine + "\n"
 		}
+		// مهارت‌های پروژه (SKILL.md): فقط فهرست فشرده؛ متن کامل با read_file.
+		if block := a.skillsPromptBlockLocked(); block != "" {
+			systemPrompt += "\n\n" + block
+		}
 	}
 	if !a.settings.AgentMode {
 		systemPrompt += "\n\n" + chatToolsPromptBlock(strings.TrimSpace(a.settings.WorkspacePath))

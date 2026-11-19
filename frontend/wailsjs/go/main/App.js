@@ -234,6 +234,10 @@ export function SetEditMode(arg1) {
   return window['go']['main']['App']['SetEditMode'](arg1);
 }
 
+export function SetSubagentModel(arg1) {
+  return window['go']['main']['App']['SetSubagentModel'](arg1);
+}
+
 export function SetMaxAgentRounds(arg1) {
   return window['go']['main']['App']['SetMaxAgentRounds'](arg1);
 }

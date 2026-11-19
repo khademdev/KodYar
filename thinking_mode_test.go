@@ -117,8 +117,10 @@ func TestAgentThinkingStreamsAndStores(t *testing.T) {
 	}
 }
 
-// TestThinkingUIOnlyInAgentMode: نمایش «فکر کردن» در UI هم به حالت ایجنت
-// گره خورده است؛ در چت معمولی فقط «در حال نوشتن…» دیده می‌شود.
+// TestThinkingUIOnlyInAgentMode: نمایش متن «فکر کردن» در UI هم به حالت ایجنت
+// گره خورده است؛ در چت معمولی فاز اولیه «آماده‌سازی…» است و «در حال نوشتن…»
+// فقط با دلتای واقعی متن می‌آید (پیش از این در چت از همان لحظهٔ ارسال
+// «در حال نوشتن» می‌نوشت، حتی وقتی مدل هنوز فکر می‌کرد یا ابزار اجرا می‌شد).
 func TestThinkingUIOnlyInAgentMode(t *testing.T) {
 	data, err := os.ReadFile("frontend/dist/assets/js/app.js")
 	if err != nil {
@@ -133,11 +135,11 @@ func TestThinkingUIOnlyInAgentMode(t *testing.T) {
 		// بلوک فکر زنده فقط در ایجنت
 		`if(thEl&&r.streamThinkBuf&&r.view&&r.view.agentMode){`,
 		// برچسب ردیف استریم فاز-محور است: «فکر کردن» فقط وقتی استدلال واقعاً
-		// می‌آید، «نوشتن» با اولین متن، و فاز اولیه بر اساس حالت.
+		// می‌آید، «نوشتن» با اولین متن، و فاز اولیه در هر دو حالت «آماده‌سازی».
 		`id="stream-label"`,
 		`function setStreamPhase(p){`,
 		`think:"در حال فکر کردن…"`,
-		`(r.view&&r.view.agentMode)?"start":"write"`,
+		`r.streamPhase="start",lbl()`,
 		`setStreamPhase("think")`,
 	}
 	for _, w := range wants {

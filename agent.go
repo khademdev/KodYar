@@ -81,15 +81,42 @@ func propBool(desc string) map[string]interface{} {
 }
 
 func schemaObj(props map[string]interface{}, required []string) map[string]interface{} {
-	if required == nil {
-		// nil در JSON به null تبدیل می‌شود و OpenAI آن را رد می‌کند
-		required = []string{}
-	}
-	return map[string]interface{}{
+	return normalizeParametersSchema(map[string]interface{}{
 		"type":       "object",
 		"properties": props,
 		"required":   required,
+	})
+}
+
+// normalizeParametersSchema شمای پارامترهای یک ابزار را برای OpenAI معتبر
+// می‌کند: type=object و properties/required هرگز حذف یا null نمی‌شوند.
+//
+// باگ واقعی: "properties":null در ابزار git_status (و شمای ناقصِ ابزار MCP)
+// باعث می‌شد سرویس‌دهنده‌های سخت‌گیر کل درخواست را با 400 و پیام مبهم
+// «Request failed.» رد کنند — درست وقتی حالت ایجنت روشن می‌شد.
+func normalizeParametersSchema(schema map[string]interface{}) map[string]interface{} {
+	if schema == nil {
+		schema = map[string]interface{}{}
 	}
+	if t, _ := schema["type"].(string); t == "" {
+		schema["type"] = "object"
+	}
+	if props, ok := schema["properties"].(map[string]interface{}); !ok || props == nil {
+		schema["properties"] = map[string]interface{}{}
+	}
+	switch req := schema["required"].(type) {
+	case []string:
+		if req == nil {
+			schema["required"] = []string{}
+		}
+	case []interface{}:
+		if req == nil {
+			schema["required"] = []string{}
+		}
+	default:
+		schema["required"] = []string{}
+	}
+	return schema
 }
 
 // agentToolDefs توصیف رسمی ابزارها برای پارامتر tools در API سازگار با OpenAI.

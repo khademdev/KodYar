@@ -10,7 +10,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-VERSION="${1:-1.0.6}"  # با آخرین سرفصل CHANGELOG یکی بماند
+VERSION="${1:-1.0.7}"  # با آخرین سرفصل CHANGELOG یکی بماند
 
 echo "==> MyAI ${VERSION}: building windows/amd64 (skipbindings) ..."
 wails build -platform windows/amd64 -skipbindings \

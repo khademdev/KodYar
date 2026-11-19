@@ -17,6 +17,53 @@ func TestFrontendPermissionModalGetsOpenClass(t *testing.T) {
 	}
 }
 
+// TestFrontendThinkingRevealsStreamMessage — رگرسیون: دلتای استدلال باید
+// حباب پیام استریم (#stream-msg) را از حالت hidden بیرون بیاورد. پیش از این
+// دلتاها فقط داخل think-body نوشته می‌شدند ولی والدشان تا اولین دلتای متن
+// پنهان می‌ماند؛ کاربر فقط «در حال فکر کردن…» می‌دید و متن استدلال دیده نمی‌شد.
+func TestFrontendThinkingRevealsStreamMessage(t *testing.T) {
+	raw, err := os.ReadFile("frontend/dist/assets/js/app.js")
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	s := string(raw)
+	idx := strings.Index(s, `setStreamPhase("think")`)
+	if idx < 0 {
+		t.Fatal("app.js: chat:thinking handler (setStreamPhase(\"think\")) not found")
+	}
+	end := idx + 400
+	if end > len(s) {
+		end = len(s)
+	}
+	window := s[idx:end]
+	if !strings.Contains(window, `getElementById("stream-msg")`) || !strings.Contains(window, "hidden=!1") {
+		t.Fatal("chat:thinking handler must unhide #stream-msg, otherwise reasoning text stays invisible behind a hidden bubble")
+	}
+}
+
+// TestFrontendChatPhaseDoesNotClaimWriting — رگرسیون: در حالت چت معمولی،
+// نوار وضعیت پیش از رسیدن اولین متن (و پس از پایان هر ابزار) «در حال نوشتن…»
+// نمی‌گوید؛ فاز فقط با دلتای واقعی متن به write می‌رود. پیش از این حالت چت
+// از همان لحظه‌ی ارسال write می‌شد و کاربر فکر می‌کرد پاسخ در حال نوشته شدن است
+// در حالی که مدل هنوز در حال فکر/اجرای ابزار بود.
+func TestFrontendChatPhaseDoesNotClaimWriting(t *testing.T) {
+	raw, err := os.ReadFile("frontend/dist/assets/js/app.js")
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	s := string(raw)
+	if strings.Contains(s, `?"start":"write"`) {
+		t.Fatal("startStreamClock must not start in the write phase for chat mode (it claims writing before any text)")
+	}
+	if !strings.Contains(s, `r.streamPhase="start",lbl()`) {
+		t.Fatal("startStreamClock must start in the start phase for both modes")
+	}
+	// write فقط باید با دلتای واقعی متن ست شود (یک مورد در chat:delta).
+	if n := strings.Count(s, `setStreamPhase("write")`); n != 1 {
+		t.Fatalf("setStreamPhase(\"write\") must appear exactly once (chat:delta), found %d", n)
+	}
+}
+
 // TestFrontendTodosPatchDefersPastAppJS — رگرسیون: پچ GetConversation در
 // todos.js باید setFromConversation را با setTimeout (macrotask) به تعویق
 // بیندازد تا activeId توسط app.js به‌روز شده باشد؛ در غیر این صورت گارد

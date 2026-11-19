@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -186,6 +187,48 @@ func TestSchemaRequiredNeverNull(t *testing.T) {
 		}
 		if req, ok := m["required"].([]string); !ok || req == nil {
 			t.Fatalf("%s: required must be a non-nil array", d.Function.Name)
+		}
+		// properties:null هم درخواست را نزد سرویس‌دهنده‌های سخت‌گیر (مثل
+		// zro.moonmath.ai با «Request failed.») با 400 رد می‌کند.
+		if props, ok := m["properties"].(map[string]interface{}); !ok || props == nil {
+			t.Fatalf("%s: properties must be a non-nil object", d.Function.Name)
+		}
+		raw, err := json.Marshal(m)
+		if err != nil {
+			t.Fatalf("%s: %v", d.Function.Name, err)
+		}
+		if strings.Contains(string(raw), `"properties":null`) {
+			t.Fatalf("%s: parameters must not serialize properties as null: %s", d.Function.Name, raw)
+		}
+	}
+}
+
+// شمای ناقصِ سرور MCP یا ابزار سفارشی هم باید قبل از ارسال کامل شود.
+func TestNormalizeParametersSchema(t *testing.T) {
+	cases := []map[string]interface{}{
+		nil,
+		{},
+		{"type": "object"},
+		{"type": "object", "properties": nil, "required": nil},
+		{"type": "object", "properties": map[string]interface{}{"a": propStr("a")}},
+	}
+	for _, c := range cases {
+		got := normalizeParametersSchema(c)
+		if got["type"] != "object" {
+			t.Fatalf("type must be object: %#v", got)
+		}
+		if props, ok := got["properties"].(map[string]interface{}); !ok || props == nil {
+			t.Fatalf("properties must be a non-nil object: %#v", got)
+		}
+		if got["required"] == nil {
+			t.Fatalf("required must be a non-nil array: %#v", got)
+		}
+		raw, err := json.Marshal(got)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		if strings.Contains(string(raw), `:null`) {
+			t.Fatalf("schema must not contain null fields: %s", raw)
 		}
 	}
 }

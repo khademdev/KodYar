@@ -551,10 +551,9 @@ func mcpNormalizeSchema(raw json.RawMessage) map[string]interface{} {
 		return schemaObj(map[string]interface{}{}, nil)
 	}
 	delete(schema, "$schema")
-	if t, _ := schema["type"].(string); t != "object" {
-		schema["type"] = "object"
-	}
-	return schema
+	// شمای سرور اغلب فقط {"type":"object"} است؛ properties/required باید
+	// صریح و غیر-null باشند وگرنه کل درخواست ایجنت 400 می‌شود.
+	return normalizeParametersSchema(schema)
 }
 
 // isMCPToolName آیا نام ابزار متعلق به MCP است؟ (mcp_<server>_<tool> —

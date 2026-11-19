@@ -84,6 +84,23 @@ func subagentNoAsk(ctx context.Context) bool {
 	return v
 }
 
+// effectiveSubagentModel مدل مؤثر زیرایجنت را برمی‌گرداند: مدل اختصاصی
+// اگر تنظیم شده باشد، وگرنه مدل اصلی ایجنت.
+func effectiveSubagentModel(mainModel, subModel string) string {
+	if m := strings.TrimSpace(subModel); m != "" {
+		return m
+	}
+	return mainModel
+}
+
+// skillsSuffix بلوک مهارت‌ها را با جداکننده‌ی مناسب به پرامپت زیرایجنت می‌چسباند.
+func skillsSuffix(block string) string {
+	if strings.TrimSpace(block) == "" {
+		return ""
+	}
+	return "\n\n" + block
+}
+
 // ---------------------------------------------------------------- آمار مصرف (Bug 8)
 
 // usageTally جمع آمار توکنِ مصرفیِ زیرکارها (ابزار task) در طول یک نوبتِ گفتگوی
@@ -342,8 +359,9 @@ func (a *App) runSubagent(ctx context.Context, task string) (report string, ok b
 	}
 
 	// اتصال مدل و تنظیمات — کپی زیر قفل، بدون قفل‌ماندن روی I/O (قاعده‌ی
-	// معماری). زیرایجنت همیشه از همان Provider/مدل فعال ایجنت اصلی استفاده
-	// می‌کند؛ tools همیشه فعال است (ابزارهای فقط‌خواندنی).
+	// معماری). زیرایجنت از همان Provider فعال استفاده می‌کند و مدلش یا مدل
+	// اصلی است یا SubagentModel (اگر کاربر تنظیم کرده باشد) — مثلاً کاوش با
+	// مدل ارزان و اجرا با مدل قوی. tools همیشه فعال است (ابزارهای فقط‌خواندنی).
 	a.mu.Lock()
 	provider := a.findProvider(a.settings.Provider)
 	baseURL, model := "", a.settings.Model
@@ -353,6 +371,7 @@ func (a *App) runSubagent(ctx context.Context, task string) (report string, ok b
 			model = provider.Models[0]
 		}
 	}
+	model = effectiveSubagentModel(model, a.settings.SubagentModel)
 	key := ""
 	if provider != nil && !provider.NoKey {
 		key = a.decryptKey(provider.ID)
@@ -361,6 +380,7 @@ func (a *App) runSubagent(ctx context.Context, task string) (report string, ok b
 	maxTokens := a.settings.MaxTokens
 	maxRounds := clampMaxSubagentRounds(a.settings.MaxSubagentRounds)
 	workspace := strings.TrimSpace(a.settings.WorkspacePath)
+	skillsBlock := a.skillsPromptBlockLocked()
 	cw := 0
 	if provider != nil {
 		cw = provider.ContextWindow
@@ -386,7 +406,7 @@ func (a *App) runSubagent(ctx context.Context, task string) (report string, ok b
 	budget := contextBudget(cw, maxTokens)
 	tools := subagentToolDefs()
 	history := []chatMessage{
-		{Role: "system", Content: subagentSystemPrompt(workspace) + a.repoMapSubagentBlock(workspace)},
+		{Role: "system", Content: subagentSystemPrompt(workspace) + a.repoMapSubagentBlock(workspace) + skillsSuffix(skillsBlock)},
 		{Role: "user", Content: task},
 	}
 	counter := &historyTokenCache{}

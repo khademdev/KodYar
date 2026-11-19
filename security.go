@@ -96,6 +96,9 @@ func customToolDefs(tools []CustomTool) []toolDef {
 		if len(params) == 0 {
 			params = schemaObj(map[string]interface{}{}, nil)
 		}
+		// شمای دستی کاربر ممکن است نوع/properties/required نداشته باشد؛
+		// سرویس‌دهنده‌های سخت‌گیر کل درخواست را با 400 رد می‌کنند.
+		params = normalizeParametersSchema(params)
 		out = append(out, toolDef{
 			Type: "function",
 			Function: toolFunctionDef{

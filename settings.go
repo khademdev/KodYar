@@ -120,19 +120,27 @@ type Settings struct {
 	// بازه‌ی مجاز ۳۰..۹۰۰). پنهان است و UI ندارد — فقط برای پایداری/دیباگ.
 	StreamIdleTimeoutSec int `json:"streamIdleTimeoutSec"`
 
-	PlanMode          bool         `json:"planMode"`          // حالت برنامه‌ریزی قبل از اجرا
-	ContextFiles      int          `json:"contextFiles"`      // سقف فایل‌های خودکار افزوده به کانتکست @
-	ProjectRules      string       `json:"projectRules"`      // قوانین پروژه تعریف‌شده از داخل اپ
-	RulesEnabled      bool         `json:"rulesEnabled"`      // خواندن خودکار.myai/rules.md و مشابه
-	MaxTokens         int          `json:"maxTokens"`         // سقف توکن خروجی (۰ = بدون محدودیت)
-	MaxAgentRounds    int          `json:"maxAgentRounds"`    // سقف دورهای اجرای ابزار ایجنت در یک پاسخ (پیش‌فرض ۲۵، محدوده ۵ تا ۲۰۰)
-	MaxSubagentRounds int          `json:"maxSubagentRounds"` // سقف دورهای ابزار زیرایجنتِ task پیش‌فرض ۸، محدوده ۳ تا ۵۰)
-	ToolResultKeep    int          `json:"toolResultKeep"`    // تعداد نتایج ابزارِ اخیر که کامل در تاریخچه می‌مانند
-	MaxConvKB         int          `json:"maxConvKb"`         // سقف حجم فایل گفتگو (کیلوبایت)
-	Theme             string       `json:"theme"`             // dark | light
-	FontSize          int          `json:"fontSize"`          // اندازه فونت UI (۱۲ تا ۱۸)
-	Density           string       `json:"density"`           // compact | normal | relaxed
-	CustomTools       []CustomTool `json:"customTools"`       // ابزارهای سفارشی کاربر
+	PlanMode          bool   `json:"planMode"`          // حالت برنامه‌ریزی قبل از اجرا
+	ContextFiles      int    `json:"contextFiles"`      // سقف فایل‌های خودکار افزوده به کانتکست @
+	ProjectRules      string `json:"projectRules"`      // قوانین پروژه تعریف‌شده از داخل اپ
+	RulesEnabled      bool   `json:"rulesEnabled"`      // خواندن خودکار.myai/rules.md و مشابه
+	MaxTokens         int    `json:"maxTokens"`         // سقف توکن خروجی (۰ = بدون محدودیت)
+	MaxAgentRounds    int    `json:"maxAgentRounds"`    // سقف دورهای اجرای ابزار ایجنت در یک پاسخ (پیش‌فرض ۲۵، محدوده ۵ تا ۲۰۰)
+	MaxSubagentRounds int    `json:"maxSubagentRounds"` // سقف دورهای ابزار زیرایجنتِ task پیش‌فرض ۸، محدوده ۳ تا ۵۰)
+
+	// SubagentModel مدلِ اختیاری برای زیرایجنت task؛ خالی = همان مدل اصلی.
+	// برای «کاوش با مدل ارزان، اجرا با مدل قوی» است و Provider همان Provider فعال است.
+	SubagentModel string `json:"subagentModel,omitempty"`
+
+	// SkillsDisabled خاموش‌کننده‌ی کشف فایل‌های SKILL.md است. فیلد منفی است
+	// تا settings.jsonهای قدیمی (بدون این کلید) پیش‌فرض روشن بمانند.
+	SkillsDisabled bool         `json:"skillsDisabled,omitempty"`
+	ToolResultKeep int          `json:"toolResultKeep"` // تعداد نتایج ابزارِ اخیر که کامل در تاریخچه می‌مانند
+	MaxConvKB      int          `json:"maxConvKb"`      // سقف حجم فایل گفتگو (کیلوبایت)
+	Theme          string       `json:"theme"`          // dark | light
+	FontSize       int          `json:"fontSize"`       // اندازه فونت UI (۱۲ تا ۱۸)
+	Density        string       `json:"density"`        // compact | normal | relaxed
+	CustomTools    []CustomTool `json:"customTools"`    // ابزارهای سفارشی کاربر
 
 	// MCPServers سرورهای MCP (mcpmanager.go) — فیلد اختیاری: فایل‌های قدیمی
 	// بدون این فیلد بی‌خطا بارگذاری می‌شوند. مقادیر Env در حالت خاموش
@@ -1122,6 +1130,15 @@ func (a *App) SetMaxSubagentRounds(rounds int) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.settings.MaxSubagentRounds = clampMaxSubagentRounds(rounds)
+	return a.saveSettings()
+}
+
+// SetSubagentModel مدل اختیاری زیرایجنت را ذخیره می‌کند (خالی = مدل اصلی).
+func (a *App) SetSubagentModel(model string) error {
+	defer a.recoverBound("SetSubagentModel")
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.settings.SubagentModel = strings.TrimSpace(model)
 	return a.saveSettings()
 }
 

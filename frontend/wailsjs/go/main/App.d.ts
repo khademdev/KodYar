@@ -118,6 +118,8 @@ export function SetConfirmFileWrites(arg1:boolean):Promise<void>;
 
 export function SetEditMode(arg1:string):Promise<void>;
 
+export function SetSubagentModel(arg1:string):Promise<void>;
+
 export function SetMaxAgentRounds(arg1:number):Promise<void>;
 
 export function SetMaxSubagentRounds(arg1:number):Promise<void>;
