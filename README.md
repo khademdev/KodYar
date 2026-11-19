@@ -52,7 +52,7 @@ MyAI یک پروژهٔ مستقل و متن‌باز است که بدون اسپ
 
 - **MyAI چیست؟** — یک نگاه سریع
 - **تصاویر برنامه** — چت، خلاصهٔ نوبت، تنظیمات و انتخاب مدل
-- **نسخهٔ ۱.۰.۴** — نکته‌های کلیدی نخستین انتشار عمومی
+- **نسخهٔ ۱.۰.۰** — نکته‌های کلیدی نخستین انتشار عمومی
 - **ویژگی‌ها** — حالت ایجنت و چت
 - **مدل امنیتی** — سندباکس، دروازهٔ دسترسی و محدودیت‌های صادقانه
 - **نصب و اجرا** — باینری آماده یا ساخت از سورس
@@ -92,7 +92,7 @@ MyAI یک اپلیکیشن دسکتاپ **کاملاً native** برای گفت�
   <sub><b>انتخاب‌گر مدل</b> — گروه‌بندی‌شده بر اساس Provider، با جستجو و انتخاب سریع</sub>
 </p>
 
-## نسخهٔ ۱.۰.۴ — نخستین انتشار عمومی
+## نسخهٔ ۱.۰.۰ — نخستین انتشار عمومی
 
 این نخستین انتشار عمومی MyAI است؛ هر چیزی که در بخش «ویژگی‌ها» می‌آید در همین نسخه کار می‌کند.
 چند نکتهٔ کلیدی این نسخه:
@@ -134,10 +134,10 @@ MyAI یک اپلیکیشن دسکتاپ **کاملاً native** برای گفت�
   نهایی ادامه می‌یابد (حداکثر ۲۵ دور برای جلوگیری از حلقه‌ی بی‌پایان)
 - **کارت‌های فعالیت ابزار** — هر خواندن/نوشتن/اجرا به‌صورت کارت مستقل با نام ابزار، خلاصه‌ی آرگومان،
   وضعیت موفق/خطا، زمان اجرا و نتیجه‌ی قابل باز/بسته شدن نمایش داده می‌شود
-- **نوار «گزارش زنده»** — سطح همیشه‌روی کار ایجنت: هر عملیات یک جمله‌ی فارسی
+- **نوار «گزارش زنده»** — سطح همیشه‌رو کار ایجنت: هر عملیات یک جمله‌ی فارسی
   («در حال خواندن `agent.go`»، «فایل `x` ویرایش شد»، «حذف `y` ناموفق بود — دلیل») با نشانگر
   در حال انجام/موفق/ناموفق و زمان اجرا؛ در پایان نوبت خودکار جمع می‌شود و شمارنده‌ی «۱۲ عملیات»
-  می‌ماند. هر خط، برچسب وظیفه‌ی متناطر («وظیفهٔ ۲ از ۵») را از پنل «برنامهٔ کار» دارد و
+  می‌ماند. هر خط، برچسب وظیفه‌ی متناظر («وظیفهٔ ۲ از ۵») را از پنل «برنامهٔ کار» دارد و
   `todo_write` به یک خط جمع‌شده («برنامهٔ کار به‌روزرسانی شد — ۲ از ۵») تبدیل می‌شود تا فهرست
   کارها دو بار نمایش داده نشود. روشن/خاموش‌کردنش در تب «مدل و رفتار» است و ذخیره می‌شود
 - **پنل «برنامهٔ کار»** — چک‌لیست `todo_write` با پیشرفت «۲ از ۵»؛ پیش‌فرض جمع‌شده است تا با
@@ -175,7 +175,7 @@ MyAI یک اپلیکیشن دسکتاپ **کاملاً native** برای گفت�
   - **پوشه‌ی کاری (مسیر پروژه)** — **تایپ مستقیم مسیر** (مثلاً `C:\Projects\MyApp`) یا انتخاب با
     دیالوگ سیستم‌عامل؛ اگر مسیر وجود نداشته باشد هنگام ذخیره **به‌صورت خودکار ساخته می‌شود** و
     خطاها همراه با علت واقعی نمایش داده می‌شوند + سوییچ «اجازه اجرای دستور»
-- **سوییچ «حالت ایجنت» در چت‌باکس** — هماهنگ با تنظیمات؛ «اجرا دستور» فقط در تنظیمات (تب پوشه‌ی کاری) است و اجرای دستور فقط در
+- **سوییچ «حالت ایجنت» در چت‌باکس** — هماهنگ با تنظیمات؛ «اجرای دستور» فقط در تنظیمات (تب پوشه‌ی کاری) است و اجرای دستور فقط در
   پوشه‌ی کاری و فقط با اجازه انجام می‌شود
 - **نشانگر مصرف توکن** — پیلِ «کانتکست» در نوار بالا: دایرهٔ درصد + کسر خوانا
   («۱۲هزار از ۲۰۰هزار») و برچسب مشخص که نشان می‌دهد عدد مربوط به «پنجرهٔ کانتکست همین
@@ -222,7 +222,7 @@ MyAI یک اپلیکیشن دسکتاپ **کاملاً native** برای گفت�
 - **Commands are gated, with an opt-in Windows sandbox.** Command execution passes a shell-aware parser (uncertainty → ask), a structural allow-list (git/go/npm with explicit flags) and sensitive-token/protected-path checks. In Settings → Folder you can enable the command sandbox: each command then runs inside a real **AppContainer** (dedicated SID, targeted ACLs, Job Object) — read/write only in the workspace and an isolated temp home, the user profile is inaccessible, and network access follows the "allow network" switch. If it is on and cannot start, the command is **not run** (fail-closed). Turning it off in Settings removes the ACEs it added for its sandbox SID (tracked in a local grant cache), so no extra access is left behind. It is **on by default** on Windows. The NUL-device grant needs Administrator once: a button in Settings → Folder applies it after a single UAC prompt and registers a SYSTEM `ONSTART` task that re-applies it silently at every boot (the old per-user task and the Startup-folder entry are removed in the same run). A real probe inside the AppContainer measures whether the grant is in effect, and both the settings tab and command errors state plainly that go/git cannot run until it is. On Linux the same switch uses **bubblewrap** (bwrap): a private user/pid/net/ipc/uts namespace, the whole filesystem read-only except the workspace and an isolated temporary home, `/tmp` as a private tmpfs, a cleared environment with an allowlist (no API keys) and no capabilities; network follows the "allow network" switch. If bwrap is not installed the command is **not run** and the error says so (fail-closed). MCP servers use the same bwrap isolation with real stdio pipes. macOS has no OS-level isolation yet and uses the gated path; the UI states this honestly.
 - **Auto-allowed test/build commands execute code the agent may have just written.** `go test`, `npm test` and similar are auto-allowed because they look harmless — yet they run whatever the agent just wrote. The real safety net is the end-of-turn review: read the "real turn summary" card and confirm the Diff preview for protected paths. The revert/restore buttons were removed from the UI in this release; work on a git branch and commit before heavy turns.
 - **Edit modes** — "review each change" shows a diff modal for every write; "auto" only asks for protected paths and heavy deletes and reports everything else in the turn summary.
-- **Verification discipline & token cap** — a final answer without a successful build/test since the last file change triggers a one-time verification nudge; «سقف توکن هر نوبت» (max tokens per turn) counts all rounds plus sub-agents and stops the turn gracefully.
+- **Verification discipline & token cap** — a final answer without a successful build/test since the last file change triggers a one-time verification nudge; the per-turn token cap (max tokens per turn) counts all rounds plus sub-agents and stops the turn gracefully.
 - **Untrusted content** — `web_fetch` and MCP results reach the model inside an `untrusted` envelope (data, never instructions); the SSRF guard re-checks every redirect hop; web_fetch and web_search permissions are stored **per host** only — never tool-wide. web_search (DuckDuckGo HTML, no API key) returns titles, URLs and snippets inside a `<search_results untrusted="true">` envelope with the same SSRF guard, and every source carries its full URL so the model can cite it. MCP servers are your trusted local processes but run with a minimal environment (never the app's API keys) and every tool call asks.
 - **Your data stays on your machine** — API keys are AES-GCM encrypted with an OS-keyring master key; MCP env vars are encrypted and masked in the UI; nothing leaves the device except your own provider requests.
 - **Recommended workflow** — work on a git branch, choose the edit mode deliberately, read the turn summary card after every turn, and when in doubt inspect the changes with git (`diff`/`checkout`) before continuing.
@@ -280,10 +280,10 @@ wails build -platform windows/amd64 -skipbindings -ldflags "-s -w -X main.versio
 ```
 
 > نکته‌ی مهم: خروجی ویندوز (`MyAI.exe`) کاملاً خالص Go است و برای کامپایل متقاطع به ابزار
-> اضافه‌ای نیاز ندارد. خروجی لینوکس به بسته‌های توسعه‌ی `libwebkit2gtk-4.0-dev` روی ماشین
-> build نیاز دارد (بینه‌ی لینوکس باید روی همان لینوکس ساخته شود).
+> اضافه‌ای نیاز ندارد. خروجی لینوکس به بسته‌های توسعه‌ی `libwebkit2gtk-4.1-dev` روی ماشین
+> build نیاز دارد (باینریِ لینوکس باید روی همان لینوکس ساخته شود).
 
-> پوشه‌ی `build/bin` محل خروجی کامپایل شماست؛ بینه‌ی آماده‌ی ویندوز در همین بسته تحویل شده است.
+> پوشه‌ی `build/bin` محل خروجی کامپایل شماست؛ باینریِ آماده‌ی ویندوز در همین بسته تحویل شده است.
 
 ### 🖥️ پیش‌نمایش سریع UI در مرورگر (اختیاری)
 
@@ -328,7 +328,7 @@ myai/
 ├── commands.go              # اجرای دستور در پوشه‌ی کاری (با اجازه‌ی صریح)
 ├── crypto.go                # رمزنگاری AES-GCM کلیدهای API
 ├── helpers.go               # ابزارهای کوچک
-├── *_test.go                # ۲۶۲ تست Go در ۳۱ فایل (go test ./...)
+├── *_test.go                # ۷۷۷ تست Go در ۱۱۷ فایل (go test ./...)
 ├── go.mod / go.sum
 ├── wails.json               # پیکربندی Wails (بدون مرحله build فرانت‌اند)
 ├── build/appicon.png        # آیکون اپلیکیشن
