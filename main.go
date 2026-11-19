@@ -26,7 +26,7 @@ var assets embed.FS
 //
 // عدد باید با آخرین سرفصل CHANGELOG یکی بماند (تست TestVersionMatchesChangelog
 // همین را تضمین می‌کند).
-var version = "1.0.7"
+var version = "1.0.0"
 
 func main() {
 	app := NewApp()
