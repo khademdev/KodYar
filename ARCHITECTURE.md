@@ -290,11 +290,10 @@ failing-before/passing-after tests):
   after `streamIdleTimeoutSec` seconds of silence (`Settings.StreamIdleTimeoutSec`,
   default 180, clamp 30–900, editable in the «مدل و رفتار» tab; counting starts
   only after `Arm()` — i.e. once the response headers arrived, so a slow/queued
-  provider is never mistaken for a stalled stream, and a watchdog cancel during
+  provider is never mistaken for a stalled stream — and a watchdog cancel during
   connection setup goes through the pre-output retry policy instead of surfacing
-  a raw `context canceled`
-  default 120, clamp 30–900; package vars injectable in tests; timer and
-  goroutine always stopped). A stall **before any output** is a retryable
+  a raw `context canceled`. Package vars are injectable in tests; the timer and
+  the goroutine are always stopped. A stall **before any output** is a retryable
   transient failure under the existing retry policy (Persian retry
   notice); **after** deltas/tool-call deltas were streamed it never
   auto-retries (duplicated side effects) — the partial answer is saved
@@ -306,7 +305,8 @@ failing-before/passing-after tests):
   target directory (`os.CreateTemp`-style; the startup sweep recognizes
   both name styles); on Windows the final rename retries transient
   `ACCESS_DENIED`/`SHARING_VIOLATION`/`LOCK_VIOLATION` (`renameWithRetry`,
-  6 attempts, 25 ms → 400 ms) and then fails naming the file. Conversations
+  jittered exponential backoff inside a 2 s budget) and then fails naming the
+  file. Conversations
   and `changes.json` go through `atomicWriteFileWithBackup` — a
   one-generation `.bak` (rename-based, crash-safe ordering) before every
   replacement; on load failure the loader tries `.bak`, then **salvages**

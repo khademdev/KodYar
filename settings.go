@@ -116,7 +116,7 @@ type Settings struct {
 	// MaxTurnTokens سقف مصرف توکن هر نوبت (۵.۳؛ ۰ = خاموش).
 	MaxTurnTokens int64 `json:"maxTurnTokens,omitempty"`
 
-	// StreamIdleTimeoutSec مهلت بیکاری استریم مدل (ثانیه؛ ۰ = پیش‌فرض ۱۲۰،
+	// StreamIdleTimeoutSec مهلت بیکاری استریم مدل (ثانیه؛ ۰ = پیش‌فرض ۱۸۰،
 	// بازه‌ی مجاز ۳۰..۹۰۰). پنهان است و UI ندارد — فقط برای پایداری/دیباگ.
 	StreamIdleTimeoutSec int `json:"streamIdleTimeoutSec"`
 
