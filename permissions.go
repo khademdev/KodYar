@@ -84,7 +84,7 @@ func toolDefaultDecision(tool string, confirmWrites bool) permDecision {
 	switch tool {
 	case "list_dir", "read_file", "search_files", "glob", "find_symbol", "find_references",
 		"create_dir", "process_output", "process_stop", "process_list",
-		"git_status", "git_diff", "git_log", "git_show":
+		"git_status", "git_diff", "git_log", "git_show", "diagnostics":
 		return permAllow
 	case "write_file", "edit_file", "apply_patch", "move_path", "delete_path":
 		if confirmWrites {

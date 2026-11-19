@@ -130,6 +130,9 @@ type toolArgSpec struct {
 // (شمای خودشان دست کاربر است) و به execCustomTool واگذار می‌شوند.
 var toolArgSpecs = map[string][]toolArgSpec{
 	"list_dir": {},
+	"diagnostics": {
+		{key: "path", typ: "string"}, // خالی = ریشهٔ workspace
+	},
 	"read_file": {
 		{key: "path", typ: "string", required: true, nonEmpty: true},
 		{key: "start_line", typ: "integer"},

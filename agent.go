@@ -311,6 +311,18 @@ func agentToolDefs() []toolDef {
 		{
 			Type: "function",
 			Function: toolFunctionDef{
+				Name: "diagnostics",
+				Description: "Type/compile errors for Go (gopls) and TypeScript/JavaScript (typescript-language-server) from the language server — read-only and fast. " +
+					"Call it right after editing or creating a file, before running a build. Returns up to 10 files (default: the workspace root), errors as 'path:line:col: message (source)' and a warning count. " +
+					"If it reports that a language server is not installed, fall back to build/test with run_command.",
+				Parameters: schemaObj(map[string]interface{}{
+					"path": propStr("Relative file or directory to check (default '.' = workspace root)."),
+				}, nil),
+			},
+		},
+		{
+			Type: "function",
+			Function: toolFunctionDef{
 				Name: "run_command",
 				Description: "Execute a shell command inside the workspace directory (on Windows: cmd). " +
 					"Use it for build/test/git/package managers. Requires the user's «allow commands» switch; " +
@@ -548,7 +560,7 @@ func agentSystemPromptForOS(workspace, goos string) string {
 		" desktop app on the user's machine (similar to OpenCode / Claude Code).\n\n")
 	b.WriteString("Workspace directory (file tools are relative to it and confined to it; run_command is permission-gated but NOT sandboxed — a command can touch the whole machine, so state exactly what a command will do before running it):\n")
 	b.WriteString(workspace + "\n\n")
-	b.WriteString("Available tools: list_dir, read_file, write_file, edit_file, apply_patch, move_path, delete_path, create_dir, search_files, glob, find_symbol, find_references, run_command, process_output, process_stop, process_list, git_status, git_diff, git_log, git_show, task, todo_write, web_search, web_fetch.\n\n")
+	b.WriteString("Available tools: list_dir, read_file, write_file, edit_file, apply_patch, move_path, delete_path, create_dir, search_files, glob, find_symbol, find_references, run_command, process_output, process_stop, process_list, git_status, git_diff, git_log, git_show, diagnostics, task, todo_write, web_search, web_fetch.\n\n")
 	b.WriteString("Operating rules:\n")
 	b.WriteString("1. Behave like a real agent: explore with list_dir / search_files / glob, read the relevant files, then create or edit them with write_file / edit_file. Do not ask the user to paste file contents. " +
 		"Narrow text searches with search_files' include (e.g. '*.go' or 'src/**/*.ts') and context (surrounding lines) instead of reading whole files; " +
@@ -556,7 +568,7 @@ func agentSystemPromptForOS(workspace, goos string) string {
 	b.WriteString("2. Read a file before changing it (read-before-write is enforced: write_file refuses to overwrite an existing file you have not read in this conversation, and refuses any file whose content changed on disk since your last read — in both cases call read_file again instead of overwriting content you have not seen). edit_file needs an exact, unique old_string copied from the current file content (mind indentation and line endings). If the exact text is not found, it retries with tolerant matching (line endings, trailing whitespace, and — only for a unique match — indentation) and reports which strategy matched; prefer exact matches. For several changes to the SAME file, pass the multi-edit form edits: [{old_string, new_string, replace_all?}, ...] (max 20): edits apply sequentially and atomically — if any edit fails, nothing is written.\n")
 	b.WriteString("2b. For structural or multi-file edits use apply_patch with a unified diff (`--- a/x` / `+++ b/x` / `@@ -a,b +c,d @@`, 3 context lines). Its hunks are validated against the real file before writing; an unmatched or ambiguous hunk aborts the whole patch. Prefer it over many edit_file calls on big files: it needs line numbers and context, not a byte-exact copy of whole blocks. Use dry_run=true when unsure whether the hunk still applies after other edits.\n")
 	b.WriteString("3. " + plat.shellUse + ". Commands are checked by a permission gate and usually need the user's approval; they are NOT sandboxed — never run a command whose effect you cannot describe precisely. For dev servers / watchers / long builds use run_command with background=true, then read progress with process_output and stop it with process_stop (always stop what you started before finishing a task). If command execution is disabled by the user, tell them to enable «اجازه اجرای دستور» in the app; never pretend a command ran. " + plat.hints + "\n")
-	b.WriteString("4. After changing code, verify it (build/compile/test) with run_command and fix what breaks, as long as rounds remain. " +
+	b.WriteString("4. After changing code, verify it. FIRST, for every file you just created or edited, call diagnostics with that file's path (Go uses gopls, TypeScript/JavaScript uses typescript-language-server) and fix the reported errors — it is cheap and catches breakage before a build. If diagnostics says the language server is not installed (or reports nothing usable), fall back to build/compile/test with run_command and fix what breaks, as long as rounds remain. " +
 		"Write a large file in complete pieces (create it with write_file, then extend it with edit_file) instead of one giant payload; if a result says your response was truncated, split the payload. " +
 		"GUI/interactive programs (pygame, tkinter, a game waiting for clicks or keys) never exit on their own: never run them expecting a clean exit and never treat the timeout or the crash-on-close as a failing test — verify their logic with a syntax/import check or a short bounded run, then ask the user to try the window.\n")
 	b.WriteString("5. Never invent file contents or results: base every statement on real tool output. If a tool returns an error, analyze it and try a different approach.\n")
@@ -910,6 +922,8 @@ func (a *App) execToolCtx(ctx context.Context, name, argsJSON string) (string, b
 		})
 	case "glob":
 		return a.toolGlob(ctx, gs("pattern"), gs("path"))
+	case diagToolName:
+		return a.toolDiagnostics(ctx, gs("path"))
 	case "find_symbol":
 		return a.toolFindSymbol(gs("query"), gs("kind"), gi("limit"))
 	case "find_references":

@@ -260,6 +260,15 @@ func newE2E(t *testing.T, steps ...scenarioStep) *e2eEnv {
 	t.Helper()
 	model := newScriptedModel(t, steps...)
 	a := chatAppOnServer(t, model.URL())
+	env := initE2E(t, a)
+	env.model = model
+	return env
+}
+
+// initE2E بقیهٔ سیم‌کشی محیط را روی اپی که از قبل ساخته شده انجام می‌دهد
+// (اجرای زندهٔ ارزیابی هم از همین مسیر استفاده می‌کند تا رفتار ایجنت یکسان بماند).
+func initE2E(t *testing.T, a *App) *e2eEnv {
+	t.Helper()
 	a.mu.Lock()
 	a.settings.AgentMode = true
 	a.settings.AllowCommands = true
@@ -267,7 +276,7 @@ func newE2E(t *testing.T, steps ...scenarioStep) *e2eEnv {
 	a.settings.MaxAgentRounds = 20
 	a.mu.Unlock()
 
-	env := &e2eEnv{t: t, app: a, model: model, decide: permRespondAllow}
+	env := &e2eEnv{t: t, app: a, decide: permRespondAllow}
 	// ctx غیرnil لازم است تا مودال‌ها قابل «پاسخ دادن» باشند؛ uiReady
 	// false می‌ماند، پس هیچ رویدادی به Wails نمی‌رود (eventEmit جایگزین).
 	a.ctx = context.Background()
@@ -335,12 +344,17 @@ func (e *e2eEnv) readFile(rel string) string {
 
 // send یک پیام کاربر می‌فرستد و تا پایان کامل نوبت صبر می‌کند.
 func (e *e2eEnv) send(text string) *Conversation {
+	return e.sendWithin(text, 30*time.Second)
+}
+
+// sendWithin مثل send با مهلت دلخواه برای نوبت (اجرای زنده با مدل واقعی).
+func (e *e2eEnv) sendWithin(text string, limit time.Duration) *Conversation {
 	e.t.Helper()
 	conv, err := e.app.SendMessage(e.convID, text, nil)
 	if err != nil {
 		e.t.Fatalf("SendMessage: %v", err)
 	}
-	waitStreamDone(e.t, e.app)
+	waitStreamDoneWithin(e.t, e.app, limit)
 	out, err := e.app.loadConversationForTest(conv.ID)
 	if err != nil {
 		e.t.Fatalf("load: %v", err)

@@ -123,7 +123,7 @@ a.checkpointMu, a.readStore.mu, a.factsCache.mu  (leaf locks — Mission 3)
    returns a process id), `process_output/process_stop/process_list`
    (incremental log tail, tree kill, status — `processes.go`),
    `git_status/git_diff/git_log/git_show`, `task`, `todo_write`,
-   `web_fetch`) plus custom user tools
+   `web_fetch`, `diagnostics`) plus custom user tools
    and `mcp_<server>_<tool>` tools from enabled MCP servers
    (`mcpmanager.go`; lazy parallel start with a 15 s budget, backoff
    1s/2s/4s, give-up after 3 consecutive failures until settings are
@@ -143,6 +143,17 @@ a.checkpointMu, a.readStore.mu, a.factsCache.mu  (leaf locks — Mission 3)
    output in an untrusted `<fetched_content>` envelope, and asks
    permission per URL. `todo_write` persists its checklist on the
    conversation (`todos` field, fork-copied) and emits `chat:todos`.
+   `diagnostics` (`diagtool.go`) is read-only and talks LSP to a
+   per-language server (`lsp.go`: gopls for Go, typescript-language-server
+   for TS/JS; one lazily started process per language, killed by
+   `diagMgr.stopAll()` during shutdown, console window hidden): initialize,
+   `textDocument/didOpen`, collect `publishDiagnostics`, reply `null` to
+   server-to-client requests, then report errors as
+   `path:line:col: message (source)` plus a warning count. Bounded to 10
+   files, 512 KB per file, 300 chars per message, 15 s per file and a 45 s
+   total budget; no code actions, and a missing server returns an install
+   hint instead of a silent fallback (the prompt then falls back to
+   build/test).
 3. Mutating tools flow through `writeFileWithConfirm` etc.: build new
    content in memory → diff → `requestFileConfirm` (event `agent:confirm`,
    waits on channel/ctx/3-min timeout; frontend answers via bound

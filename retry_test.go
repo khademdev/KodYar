@@ -116,6 +116,13 @@ func hasAssistantWith(content string) func(*Conversation) bool {
 // دیسک‌نویسیِ دیرهنگام تداخل نداشته باشند.
 func waitStreamDone(t *testing.T, a *App) {
 	t.Helper()
+	waitStreamDoneWithin(t, a, 30*time.Second)
+}
+
+// waitStreamDoneWithin مثل waitStreamDone با مهلت دلخواه؛ اجرای ارزیابی با
+// مدل واقعی به یک نوبت طولانی‌تر از ۳۰ ثانیه نیاز دارد.
+func waitStreamDoneWithin(t *testing.T, a *App, limit time.Duration) {
+	t.Helper()
 	// SendMessage پیش از ثبت دسته برمی‌گردد؛ اگر بلافاصله g را nil ببینیم
 	// و برگردیم، تست تمام می‌شود و گوروتین استریم بعداً در پوشه‌ی موقت
 	// (که t.TempDir دارد پاک می‌شود) می‌نویسد → «directory is not empty».
@@ -131,8 +138,8 @@ func waitStreamDone(t *testing.T, a *App) {
 			// سناریوهای e2e داخل نوبت واقعاً `go test ./...` اجرا می‌کنند؛ با
 			// کش سرد یا دیسک کند این بیش از ۵ ثانیه طول می‌کشد و تست سالم را
 			// کاذب fail می‌کرد. این سقف فقط «هنگ نکردن» را می‌سنجد، نه سرعت.
-			case <-time.After(30 * time.Second):
-				t.Fatal("stream goroutine did not exit in time")
+			case <-time.After(limit):
+				t.Fatalf("stream goroutine did not exit in time (%s)", limit)
 			}
 			return
 		}

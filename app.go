@@ -225,6 +225,9 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 	// کشتن فرایندهای پس‌زمینه‌ی همین نشست (dev server/watch) — خروج تمیز.
 	a.stopAllBackgroundProcesses()
+	// بستن سرورهای زبان (gopls/typescript-language-server) — start-once در
+	// طول عمر برنامه، kill هنگام خروج.
+	diagMgr.stopAll()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.settings != nil {
