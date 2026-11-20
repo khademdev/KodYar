@@ -238,7 +238,10 @@ func sandboxGrantACE(sid, path, perm string, recursive bool) error {
 	// بدون /C /Q: شکست واقعی باید کد خروج غیرصفر بدهد (fail-closed)، نه
 	// این‌که بی‌صدا رد شود و دستور بعداً با «Access is denied» مرموز بماند.
 	args := []string{path, "/grant", "*" + sid + ":" + acl}
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	// سقف کوتاه‌تر: روی رانرهای CI یک icacls کند/گیرکرده کل هزینه‌ی
+	// «گرم‌کردن مجوزها» را چند دقیقه بالا می‌برد، در حالی که شکست یک مسیر
+	// نباید بقیه را متوقف کند. شکست کش می‌شود (sandboxGrantFailed).
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "icacls", args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: flagNoWindow}

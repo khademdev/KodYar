@@ -73,6 +73,12 @@ func TestMCPRunsInsideAppContainer(t *testing.T) {
 	// خواندن/عبور مسیرهای PATH را یک‌بار می‌گیرد (icacls برای هر مسیر)؛
 	// روی رانر سرد ویندوز همین مرحله ده‌ها ثانیه طول می‌کشد و بودجه‌ی
 	// ۹۰ثانیه‌ای پیش از پاسخ initialize سر می‌رسید.
+	// گرم‌کردن مجوزهای سندباکس (اولین تماس در هر فرایند) را عمداً قبل از
+	// شروع مهلت انجام می‌دهیم: این هزینهٔ یک‌بارهٔ آماده‌سازی است، نه بخشی
+	// از «راه‌اندازی سرور MCP»؛ قبلاً همین کار بودجهٔ تست را می‌خورد.
+	if sidStr, _, serr := sandboxIdentity(); serr == nil {
+		sandboxEnsureToolAccess(sidStr)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	c, err := startMCPClient(ctx, app, cfg, nil, nil)
