@@ -133,6 +133,20 @@ func TestSandboxEnvironmentIsolated(t *testing.T) {
 	}
 }
 
+// TestSandboxTraversePermAccepted رگرسیون فرم حق «عبور»: icacls حق X را فقط
+// به شکل "(X)" می‌پذیرد؛ فرم "X" با کد ۸۷ رد می‌شد و آن‌وقت هیچ‌یک از
+// traverseهای سندباکس (مسیر ابزارها مثل Go) باز نمی‌شد.
+func TestSandboxTraversePermAccepted(t *testing.T) {
+	if !sandboxSupported() {
+		t.Skip("sandbox not supported on this platform")
+	}
+	dir := t.TempDir()
+	// SID = Authenticated Users؛ فقط برای آزمودن پذیرش سینتکس icacls.
+	if err := sandboxGrantACE("S-1-5-11", dir, sandboxPermTraverse, false); err != nil {
+		t.Fatalf("icacls rejected the traverse right %q: %v", sandboxPermTraverse, err)
+	}
+}
+
 // utf16BlockToString برای assert کردن بلوک env (جداشده با NUL) در تست.
 func utf16BlockToString(u []uint16) []byte {
 	b := make([]byte, 0, len(u))

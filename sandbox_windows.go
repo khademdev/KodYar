@@ -308,6 +308,12 @@ func sandboxHome() (string, error) {
 	return home, nil
 }
 
+// sandboxPermTraverse حق «عبور» (بدون خواندن/لیست). icacls این حق را فقط
+// به شکل پرانتزی می‌پذیرد: "*SID:(X)". فرم بدون پرانتز "*SID:X" با کد ۸۷
+// («Invalid parameter») رد می‌شود — همین باعث می‌شد همهٔ traverseهای سندباکس
+// بی‌صدا شکست بخورند و go داخل AppContainer به GOROOT نرسد.
+const sandboxPermTraverse = "(X)"
+
 // sandboxGrantTraverse به SID سندباکس حق «عبور» (X، بدون خواندن/لیست)
 // روی همه‌ی والدهای path می‌دهد. بدون این ACE، توکن AppContainer (که عضو
 // Users نیست و SeChangeNotifyPrivilege هم ندارد) نمی‌تواند از
@@ -325,7 +331,7 @@ func sandboxGrantTraverseErrs(sid, path string) []string {
 	dir := filepath.Dir(filepath.Clean(path))
 	for {
 		if st, err := os.Stat(dir); err == nil && st.IsDir() {
-			if gerr := sandboxGrantACE(sid, dir, "X", false); gerr != nil {
+			if gerr := sandboxGrantACE(sid, dir, sandboxPermTraverse, false); gerr != nil {
 				problems = append(problems, gerr.Error())
 			}
 		}
