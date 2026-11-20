@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -79,10 +80,14 @@ type Settings struct {
 	ShowActivity bool              `json:"showActivity"`
 	APIKeys      map[string]string `json:"apiKeys"`
 	SystemPrompt string            `json:"systemPrompt"`
-	Temperature  float64           `json:"temperature"`
-	MaxHistory   int               `json:"maxHistory"`
-	TokenLimit   int               `json:"tokenLimit"`
-	TokensUsed   int64             `json:"tokensUsed"` // مجموع کل (سازگاری با نسخه‌های قبل)
+	// BrandPromptMigrated مهاجرت یک‌بارهٔ نام برند داخل «دستور سیستمی»
+	// ذخیره‌شده را ثبت می‌کند (MyAI → KodYar). بدون این پرچم، پرامپت
+	// ذخیره‌شدهٔ نسخه‌های قبل مدل را وادار می‌کرد خودش را MyAI معرفی کند.
+	BrandPromptMigrated bool    `json:"brandPromptMigrated,omitempty"`
+	Temperature         float64 `json:"temperature"`
+	MaxHistory          int     `json:"maxHistory"`
+	TokenLimit          int     `json:"tokenLimit"`
+	TokensUsed          int64   `json:"tokensUsed"` // مجموع کل (سازگاری با نسخه‌های قبل)
 	// TokensByProvider مصرف تجمعی هر Provider (کلید = شناسه Provider).
 	// با تعویض API، عدد Provider دیگر قاطی نمی‌شود.
 	TokensByProvider map[string]int64 `json:"tokensByProvider,omitempty"`
@@ -432,6 +437,17 @@ func (a *App) loadSettings() error {
 	}
 	if s.SystemPrompt == "" {
 		s.SystemPrompt = promptForEnvironment(s.Environment)
+	}
+	// مهاجرت یک‌بارهٔ نام برند در «دستور سیستمی» ذخیره‌شده: پرامپتی که پیش
+	// از تغییر نام ذخیره شده هنوز «You are MyAI» را به مدل می‌گوید، پس مدل
+	// وقتی از اسمش پرسیده می‌شد «MyAI» جواب می‌داد. متن دست‌نویس کاربر
+	// حفظ می‌شود و فقط خودِ نام عوض می‌شود.
+	if !s.BrandPromptMigrated {
+		s.BrandPromptMigrated = true
+		if rewritten, changed := rewriteLegacyBrandPrompt(s.SystemPrompt); changed {
+			s.SystemPrompt = rewritten
+			_ = a.saveSettings()
+		}
 	}
 	if s.WorkspacePath == "" {
 		s.WorkspacePath = defaultWorkspacePath()
@@ -1079,6 +1095,70 @@ func (a *App) GetEnvironmentPresets() []map[string]string {
 		{"id": "general", "title": "عمومی", "desc": "پاسخ‌های متعادل و دوستانه"},
 		{"id": "developer", "title": "توسعه‌دهنده", "desc": "تمرکز روی کد و دیباگ"},
 	}
+}
+
+// legacyBrandPromptName نام برند در پرامپت‌های ذخیره‌شده پیش از تغییر نام
+// است؛ فقط برای مهاجرت خوانده می‌شود.
+const legacyBrandPromptName = "MyAI"
+
+// rewriteLegacyBrandPrompt نام قدیمی برند را در پرامپت سیستمی به نام فعلی
+// برمی‌گرداند و می‌گوید آیا چیزی عوض شد.
+func rewriteLegacyBrandPrompt(p string) (string, bool) {
+	if p == "" {
+		return p, false
+	}
+	out := rewriteBrandToken(p, legacyBrandPromptName, appDirName)
+	out = rewriteBrandToken(out, "MyAi", appDirName)
+	out = rewriteBrandToken(out, "MYAI", appDirName)
+	return out, out != p
+}
+
+// rewriteBrandToken تنها تطبیق‌های «واژه‌ی کامل» را عوض می‌کند. کاراکترهای
+// چسبیده (حرف، رقم، _ - / \\) یعنی بخشی از یک مسیر یا شناسه است (مثل
+// MyAI-1.0.6 یا پوشه‌ی MyAI\settings.json) و دست‌نخورده می‌ماند.
+func rewriteBrandToken(s, old, new string) string {
+	if s == "" || !strings.Contains(s, old) {
+		return s
+	}
+	var b strings.Builder
+	for {
+		i := strings.Index(s, old)
+		if i < 0 {
+			b.WriteString(s)
+			return b.String()
+		}
+		end := i + len(old)
+		standalone := true
+		if i > 0 {
+			if r, _ := utf8.DecodeLastRuneInString(s[:i]); brandAttachedRune(r) {
+				standalone = false
+			}
+		}
+		if end < len(s) {
+			if r, _ := utf8.DecodeRuneInString(s[end:]); brandAttachedRune(r) {
+				standalone = false
+			}
+		}
+		b.WriteString(s[:i])
+		if standalone {
+			b.WriteString(new)
+		} else {
+			b.WriteString(old)
+		}
+		s = s[end:]
+	}
+}
+
+// brandAttachedRune یعنی این کاراکتر بخشی از یک مسیر/شناسه است.
+func brandAttachedRune(r rune) bool {
+	if unicode.IsLetter(r) || unicode.IsDigit(r) {
+		return true
+	}
+	switch r {
+	case '_', '-', '/', '\\':
+		return true
+	}
+	return false
 }
 
 // promptForEnvironment پرامپت سیستم برای هر محیط.
