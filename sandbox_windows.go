@@ -315,17 +315,26 @@ func sandboxHome() (string, error) {
 // شکست می‌خورد، حتی dir ساده. خودِ پوشه‌ی کاری با M در sandboxGrantACE
 // پوشش داده می‌شود.
 func sandboxGrantTraverse(sid, path string) {
+	_ = sandboxGrantTraverseErrs(sid, path)
+}
+
+// sandboxGrantTraverseErrs همان کار را می‌کند ولی خطاهای icacls را برمی‌گرداند
+// تا تشخیص (تست/لاگ) بداند کدام سطح از مسیر باز نشد.
+func sandboxGrantTraverseErrs(sid, path string) []string {
+	var problems []string
 	dir := filepath.Dir(filepath.Clean(path))
 	for {
 		if st, err := os.Stat(dir); err == nil && st.IsDir() {
-			_ = sandboxGrantACE(sid, dir, "X", false)
+			if gerr := sandboxGrantACE(sid, dir, "X", false); gerr != nil {
+				problems = append(problems, gerr.Error())
+			}
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir || filepath.Dir(parent) == parent {
 			// به ریشه‌ی درایو نرسیده‌ایم که ACLش معمولاً با دسترسی کاربر
 			// قابل تغییر نیست (TrustedInstaller/مالک دیگر)؛ تلاش برای
 			// اعطای ACE روی ریشه فقط یک icacls شکست‌خورنده‌ی اضافه است.
-			return
+			return problems
 		}
 		dir = parent
 	}
@@ -379,15 +388,7 @@ func sandboxEnsureToolAccess(sid string) {
 	// AppContainer خوانا باشد (مثل hostedtoolcache رانرهای CI) و حلقهٔ بالا
 	// زودتر رد شود، ولی خود GOROOT (src/pkg) همچنان ممنوع بماند؛ آن‌وقت go
 	// با «cannot find GOROOT directory» می‌میرد.
-	if root := sandboxGoRoot(); root != "" {
-		if !isSystemDir(root) && !dirAppContainerReadable(root) {
-			_ = sandboxGrantACE(sid, root, "RX", true)
-		}
-		// حق «عبور» روی والدهای GOROOT — بدون آن، نصب‌هایی که خارج از
-		// Program Files هستند (مثل C:\hostedtoolcache رانرهای CI) اصلاً
-		// قابل stat نیستند و go با «cannot find GOROOT directory» می‌میرد.
-		sandboxGrantTraverse(sid, filepath.Join(root, "bin", "go.exe"))
-	}
+	_, _ = sandboxGoAccess(sid)
 	if gm := strings.TrimSpace(os.Getenv("GOMODCACHE")); gm != "" {
 		_ = sandboxGrantACE(sid, gm, "RX", true)
 		_ = sandboxGrantACE(sid, filepath.Join(gm, "cache"), "M", true)
@@ -484,6 +485,56 @@ func sandboxGoRoot() string {
 		}
 	})
 	return sandboxGoRootCached
+}
+
+// sandboxGoAccess دسترسی سندباکس به درخت نصب Go را «گرم» می‌کند: خواندن/اجرای
+// خود GOROOT و حق عبور روی والدهایش. مسیر GOROOT و فهرست مشکلات (خالی =
+// همه‌چیز اعطا شد) را برمی‌گرداند. تست زنجیرهٔ git+go از همین تابع استفاده
+// می‌کند تا اگر go باز هم به GOROOT نرسید، دلیل دقیق دیده شود.
+func sandboxGoAccess(sid string) (string, []string) {
+	root := sandboxGoRoot()
+	if root == "" {
+		return "", []string{"GOROOT not found: no GOROOT in the environment, no go.exe with a src/runtime layout on PATH, and `go env GOROOT` failed"}
+	}
+	var problems []string
+	// بدون معافیت: ACE را صریح می‌نویسیم. بررسی «قابل خواندن» فقط یک icacls
+	// اضافی است و در ابهام می‌تواند مجوزنبودن را از چشم ما پنهان کند؛
+	// نوشتن ACE تکراری بی‌خطر است (sandboxGrantACE کش می‌کند).
+	if err := sandboxGrantACE(sid, root, "RX", true); err != nil {
+		problems = append(problems, err.Error())
+	}
+	problems = append(problems, sandboxGrantTraverseErrs(sid, filepath.Join(root, "bin", "go.exe"))...)
+	return root, problems
+}
+
+// sandboxPathACL گزارش کوتاهی از ACL یک مسیر برای پیام تشخیصی (فقط خطوط
+// مربوط به SID سندباکس یا ALL APPLICATION PACKAGES).
+func sandboxPathACL(path, sid string) string {
+	if path == "" {
+		return "(no path)"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "icacls", path)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: flagNoWindow}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Sprintf("icacls %s: %v (%s)", path, err, strings.TrimSpace(string(out)))
+	}
+	var lines []string
+	for _, line := range strings.Split(string(out), "\n") {
+		l := strings.TrimSpace(strings.TrimRight(line, "\r"))
+		if l == "" {
+			continue
+		}
+		if strings.Contains(l, sid) || strings.Contains(l, "APPLICATION PACKAGES") {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) == 0 {
+		return fmt.Sprintf("icacls %s: no ACE for the sandbox SID or ALL APPLICATION PACKAGES", path)
+	}
+	return strings.Join(lines, " | ")
 }
 
 // ---------------------------------------------------------------- ساخت فرایند

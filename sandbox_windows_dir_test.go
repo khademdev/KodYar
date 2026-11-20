@@ -64,8 +64,21 @@ func TestSandboxCompositeExternalChildren(t *testing.T) {
 		t.Skip("sandbox not supported on this platform")
 	}
 	pol, ws := sandboxTestPolicy(t)
+
+	// مجوزهای درخت Go را از قبل «گرم» می‌کنیم: GOROOT را پیدا، ACE خواندن روی
+	// خودش و حق عبور روی والدهایش را اعطا می‌کنیم. اگر بعد از این هم go داخل
+	// AppContainer به GOROOT نرسید، پیام شکست دقیقاً می‌گوید کدام مسیر و کدام
+	// خطای icacls مانع بوده — نه فقط «go version» ناموفق.
+	sidStr, _, sidErr := sandboxIdentity()
+	goRoot, goProblems := "", []string{}
+	if sidErr == nil {
+		goRoot, goProblems = sandboxGoAccess(sidStr)
+	} else {
+		goProblems = append(goProblems, "sandbox identity: "+sidErr.Error())
+	}
+
 	out, code, err := runSandboxedShell(context.Background(), ws,
-		"git --version && go version", 120*time.Second, nil, pol)
+		"git --version && go version", 180*time.Second, nil, pol)
 	// پیش‌نیاز محیطی مستند: git/Go داخل AppContainer به \Device\Null نیاز
 	// دارند؛ اگر ACE آن روی این بویت ثبت نشده باشد، git با «could not open
 	// '/dev/null' … Permission denied» می‌میرد. این کمبودِ محیط است، نه باگ
@@ -75,14 +88,17 @@ func TestSandboxCompositeExternalChildren(t *testing.T) {
 	if strings.Contains(out, "could not open '/dev/null'") && strings.Contains(out, "Permission denied") {
 		t.Skip("git cannot open \\Device\\Null inside AppContainer on this boot — run scripts/grant-sandbox-nul.ps1 (environment prerequisite, not a code defect)")
 	}
-	// نصب Go روی رانرهای GitHub در C:\hostedtoolcache است، نه Program Files؛
-	// توکن AppContainer به آن پوشه دسترسی ندارد و go با «cannot find GOROOT
-	// directory» می‌میرد — همان محدودیتی که TestSandboxDirInComposite هم به
-	// همین دلیل عمداً go را انتخاب نکرده. سندباکس GOROOT را ست و حق عبور/خواندن
-	// را برای نصب‌های معمولی اعطا می‌کند؛ روی ماشین توسعه همین تست مسیر کامل
-	// (git + go داخل یک زنجیره) را می‌سنجد.
+	// شكست دسترسی به GOROOT باید با شاهد دیده شود: مسیر، خطاهای گرم‌کردن،
+	// existence و ACL واقعی. بدون این‌ها فقط «go version» ناموفق دیده می‌شد.
 	if strings.Contains(out, "cannot find GOROOT directory") {
-		t.Skip("go cannot reach its GOROOT inside AppContainer on this runner — the Go install lives outside Program Files (environment prerequisite, not a code defect)")
+		st, statErr := os.Stat(goRoot)
+		t.Fatalf("go cannot reach GOROOT inside the AppContainer\n"+
+			"  GOROOT: %q (exists=%v err=%v)\n"+
+			"  warm-up problems: %v\n"+
+			"  GOROOT ACL: %s\n"+
+			"  sandbox output: %q",
+			goRoot, statErr == nil && st.IsDir(), statErr, goProblems,
+			sandboxPathACL(goRoot, sidStr), out)
 	}
 	if err != nil || code != 0 || !strings.Contains(out, "git version") || !strings.Contains(out, "go version") {
 		t.Fatalf("composite command failed: code=%d err=%v out=%q", code, err, out)
