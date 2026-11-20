@@ -126,6 +126,11 @@ func TestSandboxEnvironmentIsolated(t *testing.T) {
 			t.Fatalf("sandbox environment missing %q", want)
 		}
 	}
+	// GOROOT باید در بلوک باشد — بدون آن نسخه‌ی trimmed go داخل
+	// AppContainer با «GOROOT is not set» می‌میرد (تست دستورهای مرکب).
+	if root := sandboxGoRoot(); root != "" && !strings.Contains(block, "GOROOT="+root) {
+		t.Fatalf("sandbox environment must carry GOROOT=%q", root)
+	}
 }
 
 // utf16BlockToString برای assert کردن بلوک env (جداشده با NUL) در تست.

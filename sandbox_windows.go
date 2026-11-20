@@ -414,6 +414,14 @@ func sandboxEnvironment(home string, allowNetwork bool) []uint16 {
 	for k, v := range overrides {
 		merged[strings.ToUpper(k)] = v
 	}
+	// GOROOT اگر در محیط والد نباشد باید پیدا شود: نسخه‌های «trimmed» go
+	// مسیر نصب را از خودِ باینری حدس نمی‌زنند و داخل AppContainer با
+	// «cannot find GOROOT directory … GOROOT is not set» می‌میرند.
+	if strings.TrimSpace(merged["GOROOT"]) == "" {
+		if root := sandboxGoRoot(); root != "" {
+			merged["GOROOT"] = root
+		}
+	}
 	keys := make([]string, 0, len(merged))
 	for k := range merged {
 		keys = append(keys, k)
@@ -428,6 +436,41 @@ func sandboxEnvironment(home string, allowNetwork bool) []uint16 {
 	block := strings.Join(s, "\x00") + "\x00"
 	u := utf16.Encode([]rune(block))
 	return append(u, 0)
+}
+
+// sandboxGoRootOnce/sandboxGoRootCached نتیجهٔ کشف GOROOT را نگه می‌دارند تا
+// هر اجرای سندباکس یک بار دیگر به دیسک/PATH نگاه نکند.
+var (
+	sandboxGoRootOnce   sync.Once
+	sandboxGoRootCached string
+)
+
+// sandboxGoRoot مسیر GOROOT را برمی‌گرداند یا "" اگر پیدا نشد. اول از محیط
+// والد، بعد از چیدمان استاندارد beside go.exe (…\bin\go.exe → …\src\runtime)،
+// و در آخر با پرسیدن از خودِ go (شیم‌ها/نصب‌های غیراستاندارد).
+func sandboxGoRoot() string {
+	sandboxGoRootOnce.Do(func() {
+		if v := strings.TrimSpace(os.Getenv("GOROOT")); v != "" {
+			sandboxGoRootCached = v
+			return
+		}
+		bin, err := exec.LookPath("go")
+		if err != nil {
+			return
+		}
+		root := filepath.Dir(filepath.Dir(bin))
+		if st, serr := os.Stat(filepath.Join(root, "src", "runtime")); serr == nil && st.IsDir() {
+			sandboxGoRootCached = root
+			return
+		}
+		cctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		out, oerr := exec.CommandContext(cctx, bin, "env", "GOROOT").Output()
+		if oerr == nil {
+			sandboxGoRootCached = strings.TrimSpace(string(out))
+		}
+	})
+	return sandboxGoRootCached
 }
 
 // ---------------------------------------------------------------- ساخت فرایند
