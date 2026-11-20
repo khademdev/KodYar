@@ -76,6 +76,12 @@ jobs:
           done
           exit 1
 
+      # خروجی کامل زنجیرهٔ git + go داخل AppContainer — مدرک اجرای واقعی،
+      # چون مرحلهٔ بالا بدون -v فقط شکست‌ها را چاپ می‌کند.
+      - name: Sandbox git+go chain (verbose proof)
+        shell: bash
+        run: go test -race -count=1 -timeout 10m -v -run 'TestSandboxCompositeExternalChildren' .
+
       # کامپایل واقعی اپ ویندوزی (WebView2 — بدون نیاز به پکیج سیستمی)
       - name: Desktop compile check (production)
         run: go build -tags production ./...

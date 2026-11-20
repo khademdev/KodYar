@@ -5,8 +5,8 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -60,6 +60,38 @@ func TestSandboxLaunchTargetBuiltins(t *testing.T) {
 	}
 }
 
+// sandboxLocalGOROOT یک GOROOT قابل‌دسترس برای AppContainer می‌سازد: کپیِ
+// bin/go.exe داخل پوشه‌ی کاری، جایی که SID سندباکس دسترسی کامل دارد.
+// go برای `go version` فقط وجود پوشه‌ی GOROOT را لازم دارد (هنگام بالا آمدن
+// آن را stat می‌کند)، پس همین برای اثبات رسیدنِ go به GOROOT کافی است.
+func sandboxLocalGOROOT(t *testing.T, ws, hostRoot string) string {
+	t.Helper()
+	src := ""
+	if hostRoot != "" {
+		src = filepath.Join(hostRoot, "bin", "go.exe")
+	}
+	if st, err := os.Stat(src); err != nil || st.IsDir() {
+		if p, lerr := exec.LookPath("go"); lerr == nil {
+			src = p
+		} else {
+			t.Fatalf("no go.exe to copy for a workspace GOROOT (host GOROOT %q): %v", hostRoot, lerr)
+		}
+	}
+	root := filepath.Join(ws, "goroot")
+	bin := filepath.Join(root, "bin")
+	if err := os.MkdirAll(bin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatalf("read %s: %v", src, err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "go.exe"), data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
 func TestSandboxCompositeExternalChildren(t *testing.T) {
 	if !sandboxSupported() {
 		t.Skip("sandbox not supported on this platform")
@@ -89,22 +121,27 @@ func TestSandboxCompositeExternalChildren(t *testing.T) {
 	if strings.Contains(out, "could not open '/dev/null'") && strings.Contains(out, "Permission denied") {
 		t.Skip("git cannot open \\Device\\Null inside AppContainer on this boot — run scripts/grant-sandbox-nul.ps1 (environment prerequisite, not a code defect)")
 	}
-	// شكست دسترسی به GOROOT باید با شاهد دیده شود: مسیر، خطاهای گرم‌کردن،
-	// existence و ACL واقعی. بدون این‌ها فقط «go version» ناموفق دیده می‌شد.
-	//
-	// اگر ACE روی یکی از والدهای GOROOT رد شده باشد، مشکل محیط است (پوشه‌ای
-	// خارج از کنترل برنامه) و پیام skip همان مسیر و همان خطای icacls را
-	// نام می‌برد؛ هر حالت دیگری (مجوزها داده شده ولی go باز هم نمی‌رسد)
-	// باگ است و تست قرمز می‌شود.
+	// اگر ACE روی والدهای GOROOT رد شود (رانرهای CI: نصب Go در
+	// C:\hostedtoolcache است و ویندوز اجازه‌ی تغییر ACL آن را نمی‌دهد)،
+	// همان GOROOT را داخل پوشه‌ی کاری — جایی که SID سندباکس دسترسی کامل
+	// دارد — بازسازی می‌کنیم و GOROOT/PATH را به آن می‌دهیم. این آماده‌سازی
+	// تست است و رفتار سندباکس برای کاربر هیچ تغییری نمی‌کند.
 	if strings.Contains(out, "cannot find GOROOT directory") {
-		st, statErr := os.Stat(goRoot)
-		path := fmt.Sprintf("GOROOT=%q exists=%v statErr=%v | warm-up: %v | ACL: %s | sandbox: %q",
-			goRoot, statErr == nil && st.IsDir(), statErr, goProblems,
-			sandboxPathACL(goRoot, sidStr), out)
-		if len(goProblems) > 0 {
-			t.Skipf("sandbox ACLs on the way to GOROOT were refused by this machine (%s); the git+go chain still ran, but go cannot open its GOROOT — environment limitation, see icacls status above", path)
+		local := sandboxLocalGOROOT(t, ws, goRoot)
+		t.Setenv("GOROOT", local)
+		t.Setenv("PATH", filepath.Join(local, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
+		t.Logf("host GOROOT %q is unreachable from the AppContainer (%v); retrying with the workspace copy at %q", goRoot, goProblems, local)
+		out, code, err = runSandboxedShell(context.Background(), ws,
+			"git --version && go version", 180*time.Second, nil, pol)
+		if strings.Contains(out, "cannot find GOROOT directory") {
+			st, statErr := os.Stat(local)
+			t.Fatalf("go cannot reach even the workspace GOROOT inside the AppContainer\n"+
+				"  workspace GOROOT: %q (exists=%v err=%v)\n"+
+				"  host GOROOT: %q (warm-up: %v | ACL: %s)\n"+
+				"  sandbox output: %q",
+				local, statErr == nil && st.IsDir(), statErr,
+				goRoot, goProblems, sandboxPathACL(goRoot, sidStr), out)
 		}
-		t.Fatalf("go cannot reach GOROOT inside the AppContainer although every ACL was granted: %s", path)
 	}
 	if err != nil || code != 0 || !strings.Contains(out, "git version") || !strings.Contains(out, "go version") {
 		t.Fatalf("composite command failed: code=%d err=%v out=%q", code, err, out)
