@@ -97,12 +97,12 @@ var (
 
 // uiRuntimeDotCalls نام‌های غیر App — توابع JS/Wails-runtime با فراخوانی نقطه‌ای.
 var uiRuntimeDotCalls = map[string]bool{
-	"DateTimeFormat":    true, // Intl.DateTimeFormat
+	"DateTimeFormat":      true, // Intl.DateTimeFormat
 	"KodYarResetStreamUI": true, // هوک داخلی فرانت‌اند
-	"EventsEmit":        true, // window.runtime.*
-	"EventsOff":         true,
-	"EventsOn":          true,
-	"BrowserOpenURL":    true, // wails runtime
+	"EventsEmit":          true, // window.runtime.*
+	"EventsOff":           true,
+	"EventsOn":            true,
+	"BrowserOpenURL":      true, // wails runtime
 }
 
 func TestUIContract(t *testing.T) {

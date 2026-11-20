@@ -49,16 +49,16 @@ func sandboxMCPEnvironment(env []string, home string, allowNetwork bool) []uint1
 		}
 	}
 	overrides := map[string]string{
-		"TEMP":                 filepath.Join(home, "tmp"),
-		"TMP":                  filepath.Join(home, "tmp"),
-		"TMPDIR":               filepath.Join(home, "tmp"),
-		"HOME":                 home,
-		"USERPROFILE":          home,
-		"LOCALAPPDATA":         filepath.Join(home, "AppData", "Local"),
-		"APPDATA":              filepath.Join(home, "AppData", "Roaming"),
-		"GOPATH":               filepath.Join(home, "go"),
-		"GOCACHE":              filepath.Join(home, "go", "cache"),
-		"npm_config_cache":     filepath.Join(home, "npm-cache"),
+		"TEMP":                   filepath.Join(home, "tmp"),
+		"TMP":                    filepath.Join(home, "tmp"),
+		"TMPDIR":                 filepath.Join(home, "tmp"),
+		"HOME":                   home,
+		"USERPROFILE":            home,
+		"LOCALAPPDATA":           filepath.Join(home, "AppData", "Local"),
+		"APPDATA":                filepath.Join(home, "AppData", "Roaming"),
+		"GOPATH":                 filepath.Join(home, "go"),
+		"GOCACHE":                filepath.Join(home, "go", "cache"),
+		"npm_config_cache":       filepath.Join(home, "npm-cache"),
 		"KODYAR_SANDBOX":         "1",
 		"KODYAR_SANDBOX_NETWORK": netFlag,
 	}

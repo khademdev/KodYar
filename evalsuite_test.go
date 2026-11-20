@@ -798,7 +798,7 @@ func TestEvalLiveEnvConfig(t *testing.T) {
 	envs := map[string]string{
 		"KODYAR_EVAL_BASE_URL": "http://127.0.0.1:9/v1",
 		"KODYAR_EVAL_MODEL":    "m",
-		"OPENAI_API_KEY":     "sk-fallback",
+		"OPENAI_API_KEY":       "sk-fallback",
 	}
 	get := func(k string) string { return envs[k] }
 	cfg, err := evalLiveConfigFrom(get)

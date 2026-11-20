@@ -401,7 +401,7 @@ func sandboxEnvironment(home string, allowNetwork bool) []uint16 {
 		"npm_config_cache": filepath.Join(home, "npm-cache"),
 		"PIP_CACHE_DIR":    filepath.Join(home, "pip-cache"), // جلوگیری از دانلود خودکار toolchain (شبکه ممکن است بسته باشد)؛
 		// نصب محلی Go همان است که خارج از سندباکس کار می‌کند.
-		"GOTOOLCHAIN":          "local",
+		"GOTOOLCHAIN":            "local",
 		"KODYAR_SANDBOX":         "1",
 		"KODYAR_SANDBOX_NETWORK": netFlag,
 	}
