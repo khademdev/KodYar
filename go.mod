@@ -1,4 +1,4 @@
-module github.com/khademdev/MyAi
+module github.com/khademdev/KodYar
 
 go 1.26.0
 

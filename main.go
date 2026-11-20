@@ -1,4 +1,4 @@
-// MyAI — دستیار هوشمند کدنویسی (اپلیکیشن دسکتاپ native)
+// KodYar — دستیار هوشمند کدنویسی (اپلیکیشن دسکتاپ native)
 //
 // ساخته‌شده با Wails v2 (Go + WebView سیستمی؛ بدون Electron و بدون وابستگی
 // به مرورگر خارجی). رابط کاربری کاملاً فارسی و راست‌به‌چپ است و از
@@ -32,7 +32,7 @@ func main() {
 	app := NewApp()
 
 	// مسیر دادهٔ WebView2 را داخل همان پوشه‌ی config قرار می‌دهیم تا
-	// Wails پوشه‌ی جداگانه‌ی %APPDATA%\MyAI.exe نسازد و کش کنار settings بماند.
+	// Wails پوشه‌ی جداگانه‌ی %APPDATA%\KodYar.exe نسازد و کش کنار settings بماند.
 	webviewDataPath := ""
 	if cfg, err := computeConfigDir(); err == nil {
 		webviewDataPath = filepath.Join(cfg, "webview")
@@ -40,7 +40,7 @@ func main() {
 	}
 
 	err := wails.Run(&options.App{
-		Title:     "MyAI — دستیار هوشمند کدنویسی",
+		Title:     "KodYar — دستیار هوشمند کدنویسی",
 		Width:     1280,
 		Height:    832,
 		MinWidth:  980,
@@ -71,13 +71,13 @@ func main() {
 			WindowIsTranslucent:  false,
 			DisableWindowIcon:    false,
 			Theme:                windows.Dark,
-			// مسیر سفارشی تا %APPDATA%\MyAI.exe ساخته نشود
+			// مسیر سفارشی تا %APPDATA%\KodYar.exe ساخته نشود
 			WebviewUserDataPath: webviewDataPath,
 		},
 	})
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "MyAI: %v\n", err)
+		fmt.Fprintf(os.Stderr, "KodYar: %v\n", err)
 		os.Exit(1)
 	}
 

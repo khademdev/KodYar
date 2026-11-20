@@ -1,4 +1,4 @@
-/* MyAI — سوییچ‌های سندباکس در تنظیمات → تب پوشه.
+/* KodYar — سوییچ‌های سندباکس در تنظیمات → تب پوشه.
  *
  * سندباکس اجرای دستور در بک‌اند (sandbox_windows.go) با AppContainer ویندوز
  * پیاده شده است: فرایند داخل یک کانتینر سیستمی اجرا می‌شود، فقط در پوشه‌ی
@@ -19,7 +19,7 @@
     return (window.go && window.go.main && window.go.main.App) || null;
   }
   function view() {
-    return (window.MyAIState && window.MyAIState.view) || null;
+    return (window.KodYarState && window.KodYarState.view) || null;
   }
   function toast(text, kind) {
     if (typeof window.toast === "function") window.toast(text, kind);
@@ -236,7 +236,7 @@
   document.addEventListener("DOMContentLoaded", function () {
     bind();
     wrap("renderAll", window);
-    wrap("openSettings", window.MyAIModals);
+    wrap("openSettings", window.KodYarModals);
     setTimeout(sync, 300);
   });
 })();

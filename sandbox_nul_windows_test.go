@@ -23,7 +23,7 @@ func TestSandboxNulEnableScriptIsComplete(t *testing.T) {
 	}
 	for _, want := range []string{
 		"/Create", "/SC ONSTART", "/RU SYSTEM", "/RL HIGHEST", "/TR", "/F",
-		"/Delete", "MyAI-sandbox-nul.vbs", "MyAI-sandbox-nul.cmd",
+		"/Delete", "KodYar-sandbox-nul.vbs", "KodYar-sandbox-nul.cmd",
 		"nul-grant.json", "ConvertTo-Json", "-WindowStyle Hidden", "Test-Path",
 	} {
 		if !strings.Contains(sandboxNulEnableScript, want) {
@@ -39,7 +39,7 @@ func TestSandboxNulEnableScriptIsComplete(t *testing.T) {
 func TestSandboxNulGrantStateRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	okPath := filepath.Join(dir, "ok.json")
-	if err := os.WriteFile(okPath, []byte(`{"ok":true,"at":"2026-11-18T10:00:00Z","task":"MyAI Sandbox NUL (System)"}`), 0o600); err != nil {
+	if err := os.WriteFile(okPath, []byte(`{"ok":true,"at":"2026-11-18T10:00:00Z","task":"KodYar Sandbox NUL (System)"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	st, found := readNulGrantState(okPath)
@@ -100,7 +100,7 @@ func TestSandboxNulDeniedHintOnlyWhenUseful(t *testing.T) {
 }
 
 // پروب باید واقعاً داخل AppContainer اجرا شود و نتیجهٔ قطعی بدهد؛ اگر مجوز
-// فعال است، MYAI_EXPECT_NUL_GRANTED=1 این را هم تأیید می‌کند (برای سنجش
+// فعال است، KODYAR_EXPECT_NUL_GRANTED=1 این را هم تأیید می‌کند (برای سنجش
 // دستی روی ماشینی که یک‌بار فعال‌سازی انجام شده).
 func TestSandboxNulProbeReportsRealState(t *testing.T) {
 	if !sandboxSupported() {
@@ -115,7 +115,7 @@ func TestSandboxNulProbeReportsRealState(t *testing.T) {
 	if again != granted {
 		t.Fatalf("probe must be deterministic within a boot: %v then %v", granted, again)
 	}
-	if os.Getenv("MYAI_EXPECT_NUL_GRANTED") == "1" && !granted {
+	if os.Getenv("KODYAR_EXPECT_NUL_GRANTED") == "1" && !granted {
 		t.Fatalf("expected the NUL grant to be in effect, probe said: %s", detail)
 	}
 	invalidateSandboxNulProbe()
@@ -126,10 +126,10 @@ func TestSandboxNulProbeReportsRealState(t *testing.T) {
 // «open NUL: Access is denied» می‌میرد). پیش‌فرض Skip است چون ماشین بدون
 // مجوز شکست می‌خورد:
 //
-//	MYAI_EXPECT_NUL_GRANTED=1 go test -run TestSandboxGoWorksAfterNulGrant -v .
+//	KODYAR_EXPECT_NUL_GRANTED=1 go test -run TestSandboxGoWorksAfterNulGrant -v .
 func TestSandboxGoWorksAfterNulGrant(t *testing.T) {
-	if os.Getenv("MYAI_EXPECT_NUL_GRANTED") != "1" {
-		t.Skip("set MYAI_EXPECT_NUL_GRANTED=1 after enabling the NUL grant")
+	if os.Getenv("KODYAR_EXPECT_NUL_GRANTED") != "1" {
+		t.Skip("set KODYAR_EXPECT_NUL_GRANTED=1 after enabling the NUL grant")
 	}
 	if !sandboxSupported() {
 		t.Skip("sandbox not supported on this platform")

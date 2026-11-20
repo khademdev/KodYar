@@ -1,4 +1,4 @@
-// MyAI — زیرایجنت: ابزار task برای سپردن زیرکارهای خودکفا به
+// KodYar — زیرایجنت: ابزار task برای سپردن زیرکارهای خودکفا به
 // یک ایجنتِ فقط‌خواندنی با کانتکست تازه.
 //
 // طراحی:
@@ -200,7 +200,7 @@ func subagentToolDefs() []toolDef {
 // گزارش نهایی باید ساختارمند و مختصر باشد تا والد بتواند مستقیم استفاده کند.
 func subagentSystemPrompt(workspace string) string {
 	var b strings.Builder
-	b.WriteString("You are MyAI's read-only sub-agent. You were spawned by the main agent to complete ONE self-contained exploration or analysis task, with a fresh context.\n\n")
+	b.WriteString("You are KodYar's read-only sub-agent. You were spawned by the main agent to complete ONE self-contained exploration or analysis task, with a fresh context.\n\n")
 	b.WriteString("Workspace directory (read-only tools are relative to it and CANNOT access anything outside it):\n")
 	b.WriteString(workspace + "\n\n")
 	b.WriteString("Available tools: list_dir, read_file, search_files, glob, find_symbol, find_references, git_status, git_diff, git_log, git_show, run_command (verification only).\n\n")

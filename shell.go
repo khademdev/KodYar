@@ -1,4 +1,4 @@
-// اجراکننده‌ی یکپارچه‌ی shell — تنها مسیر اجرای دستور در MyAI.
+// اجراکننده‌ی یکپارچه‌ی shell — تنها مسیر اجرای دستور در KodYar.
 //
 // همه‌ی سه نقطه‌ی اجرای دستور (App.RunCommand، toolRunCommand ایجنت و
 // execCustomTool) از runShell عبور می‌کنند تا:

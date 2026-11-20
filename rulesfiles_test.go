@@ -1,5 +1,5 @@
-// تست‌های فایل‌های دستورالعمل — زنجیره‌ی.myai/rules.md → AGENTS.md
-// → CLAUDE.md →.cursorrules →.myairules و کش mtime.
+// تست‌های فایل‌های دستورالعمل — زنجیره‌ی.kodyar/rules.md → AGENTS.md
+// → CLAUDE.md →.cursorrules →.kodyarrules و کش mtime.
 package main
 
 import (
@@ -56,15 +56,15 @@ func TestRulesCandidatesChain(t *testing.T) {
 		t.Fatalf(".cursorrules must remain as legacy fallback: %s", block)
 	}
 
-	// فایل اختصاصی MyAI از همه بالاتر است
-	os.MkdirAll(filepath.Join(ws, ".myai"), 0o755)
-	os.WriteFile(filepath.Join(ws, ".myai", "rules.md"), []byte("myai rules"), 0o644)
+	// فایل اختصاصی KodYar از همه بالاتر است
+	os.MkdirAll(filepath.Join(ws, ".kodyar"), 0o755)
+	os.WriteFile(filepath.Join(ws, ".kodyar", "rules.md"), []byte("kodyar rules"), 0o644)
 	block = rulesBlockOf(a)
-	if !strings.Contains(block, "myai rules") || strings.Contains(block, "cursor rules") {
-		t.Fatalf(".myai/rules.md must have the highest priority: %s", block)
+	if !strings.Contains(block, "kodyar rules") || strings.Contains(block, "cursor rules") {
+		t.Fatalf(".kodyar/rules.md must have the highest priority: %s", block)
 	}
-	if info := a.GetRulesInfo(); info.FilePath != ".myai/rules.md" {
-		t.Fatalf("GetRulesInfo must reflect .myai/rules.md: %+v", info)
+	if info := a.GetRulesInfo(); info.FilePath != ".kodyar/rules.md" {
+		t.Fatalf("GetRulesInfo must reflect .kodyar/rules.md: %+v", info)
 	}
 }
 
@@ -72,7 +72,7 @@ func TestRulesMtimeCache(t *testing.T) {
 	a := newTestApp(t)
 	ws := a.settings.WorkspacePath
 	a.settings.RulesEnabled = true
-	rp := filepath.Join(ws, ".myai", "rules.md")
+	rp := filepath.Join(ws, ".kodyar", "rules.md")
 	os.MkdirAll(filepath.Dir(rp), 0o755)
 	os.WriteFile(rp, []byte("v1 rules"), 0o644)
 
@@ -109,8 +109,8 @@ func TestRulesMtimeCache(t *testing.T) {
 
 	// تغییر workspace → کش (که به ws قدیمی گره خورده) نباید مقدار کهنه بدهد
 	ws2 := t.TempDir()
-	os.MkdirAll(filepath.Join(ws2, ".myai"), 0o755)
-	os.WriteFile(filepath.Join(ws2, ".myai", "rules.md"), []byte("other ws"), 0o644)
+	os.MkdirAll(filepath.Join(ws2, ".kodyar"), 0o755)
+	os.WriteFile(filepath.Join(ws2, ".kodyar", "rules.md"), []byte("other ws"), 0o644)
 	a.mu.Lock()
 	a.settings.WorkspacePath = ws2
 	a.mu.Unlock()
@@ -143,8 +143,8 @@ func TestGetRulesInfoDefaults(t *testing.T) {
 	a := newTestApp(t)
 	a.settings.RulesEnabled = true
 	info := a.GetRulesInfo()
-	if info.FileExists || info.FilePath != ".myai/rules.md" {
-		t.Fatalf("default candidate path must be .myai/rules.md: %+v", info)
+	if info.FileExists || info.FilePath != ".kodyar/rules.md" {
+		t.Fatalf("default candidate path must be .kodyar/rules.md: %+v", info)
 	}
 	if info.FileContent != "" {
 		t.Fatalf("no file must give empty content: %+v", info)

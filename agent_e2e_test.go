@@ -676,7 +676,7 @@ func TestTokenCapCountsSubagentUsage(t *testing.T) {
 	)
 	// زیرایجنت: مرحله‌ی مخصوص خودش (system prompt متفاوت)
 	env.model.route = func(req chatRequest) *scenarioStep {
-		if len(req.Messages) > 0 && strings.Contains(historyContentString(req.Messages[0].Content), "You are MyAI's read-only sub-agent") {
+		if len(req.Messages) > 0 && strings.Contains(historyContentString(req.Messages[0].Content), "You are KodYar's read-only sub-agent") {
 			return &scenarioStep{Text: "گزارش زیرایجنت.", Usage: &sseUsage{PromptTokens: 5000, CompletionTokens: 10}}
 		}
 		return nil

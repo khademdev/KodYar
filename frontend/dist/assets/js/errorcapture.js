@@ -1,4 +1,4 @@
-/* MyAI — ثبت خطاهای مهارنشدهٔ فرانت‌اند در «لاگ خطاها».
+/* KodYar — ثبت خطاهای مهارنشدهٔ فرانت‌اند در «لاگ خطاها».
  *
  * مشکل: هر خطای JS یا Promise رد‌شده فقط در کنسول WebView2 می‌ماند و
  * برنامه‌نویس (و کاربر) هیچ ردی از آن در errors.log نداشت.
@@ -6,7 +6,7 @@
  * این ماژول سه منبع را می‌گیرد:
  *   ۱) window.onerror (خطاهای اجرا + خطای اسکریپت‌های بارگذاری‌نشده)
  *   ۲) unhandledrejection (Promise بدون catch)
- *   ۳) MyAIErrors.report(...) برای نقاطی که خودمان catch می‌کنیم
+ *   ۳) KodYarErrors.report(...) برای نقاطی که خودمان catch می‌کنیم
  *
  * و همه را به ReportFrontendError در بک‌اند می‌فرستد (که با همان مُهر زمانی
  * در errors.log می‌نویسد). محافظت‌ها: حذف تکراری‌ها (۱۰ ثانیه)، سقف ۴۰
@@ -76,7 +76,7 @@
         Promise.resolve(be.ReportFrontendError(str(kind), message, stack)).catch(function () {});
       }
       if (window.console && typeof console.warn === "function") {
-        console.warn("[myai " + kind + "] " + message);
+        console.warn("[kodyar " + kind + "] " + message);
       }
       return true;
     } catch (e) {
@@ -120,7 +120,7 @@
   });
 
   // ۳) API دستی برای نقاطی که خودمان خطا را می‌گیریم ولی می‌خواهیم ثبت شود.
-  window.MyAIErrors = {
+  window.KodYarErrors = {
     report: report,
     sent: function () { return sentCount; }
   };

@@ -1,4 +1,4 @@
-// MyAI — جمع/باز کردن نوار کناری.
+// KodYar — جمع/باز کردن نوار کناری.
 //
 // - دکمه‌ی toggle در ابتدای نوار بالا تزریق می‌شود (بدون تغییر app.js).
 // - وضعیت در localStorage می‌ماند و کلاس اولیه در <head> پیش از رندر
@@ -9,7 +9,7 @@
 (function () {
 	"use strict";
 
-	var KEY = "myai.sidebarCollapsed";
+	var KEY = "kodyar.sidebarCollapsed";
 	var root = document.documentElement;
 
 	function isCollapsed() {
@@ -21,8 +21,8 @@
 		var toggle = document.getElementById("sidebar-toggle");
 
 		// پاپ‌اور مدل/محیط اگر باز است، با جمع شدن سایدبار بسته شود.
-		if (collapsed && window.MyAIPopovers && typeof window.MyAIPopovers.closePopovers === "function") {
-			try { window.MyAIPopovers.closePopovers(); } catch (e) { /* noop */ }
+		if (collapsed && window.KodYarPopovers && typeof window.KodYarPopovers.closePopovers === "function") {
+			try { window.KodYarPopovers.closePopovers(); } catch (e) { /* noop */ }
 		}
 
 		// اگر فوکوس داخل سایدبار است، قبل از inert شدن به دکمه منتقل شود.

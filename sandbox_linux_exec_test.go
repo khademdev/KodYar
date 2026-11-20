@@ -63,15 +63,15 @@ func TestLinuxSandboxRealBwrapRunsAndIsolates(t *testing.T) {
 
 	// خانه‌ی ایزوله است (نه HOME میزبان).
 	hostHome, _ := os.UserHomeDir()
-	out, code, err = runSandboxedShell(ctx, ws, `printf '%s' "$HOME"; printf '\nmyai-sandbox=%s' "$MYAI_SANDBOX"`, 20*time.Second, nil, pol)
+	out, code, err = runSandboxedShell(ctx, ws, `printf '%s' "$HOME"; printf '\nkodyar-sandbox=%s' "$KODYAR_SANDBOX"`, 20*time.Second, nil, pol)
 	if err != nil || code != 0 {
 		t.Fatalf("sandboxed env probe failed: code=%d err=%v out=%q", code, err, out)
 	}
 	if strings.TrimSpace(hostHome) != "" && strings.Contains(out, hostHome) {
 		t.Fatalf("HOME leaked from the host into the sandbox: %q", out)
 	}
-	if !strings.Contains(out, "myai-sandbox-home-") || !strings.Contains(out, "myai-sandbox=1") {
-		t.Fatalf("sandbox must use an isolated home and set MYAI_SANDBOX=1: %q", out)
+	if !strings.Contains(out, "kodyar-sandbox-home-") || !strings.Contains(out, "kodyar-sandbox=1") {
+		t.Fatalf("sandbox must use an isolated home and set KODYAR_SANDBOX=1: %q", out)
 	}
 
 	// نوشتن داخل پوشه‌ی کاری مجاز است.
@@ -83,7 +83,7 @@ func TestLinuxSandboxRealBwrapRunsAndIsolates(t *testing.T) {
 	}
 
 	// نوشتن بیرون از پوشه‌ی کاری رد می‌شود (کل ریشه فقط-خواندنی است).
-	escape := filepath.Join("/", "myai-sandbox-escape-"+filepath.Base(ws)+".txt")
+	escape := filepath.Join("/", "kodyar-sandbox-escape-"+filepath.Base(ws)+".txt")
 	out, code, err = runSandboxedShell(ctx, ws, "echo escaped > "+escape+" 2>&1", 20*time.Second, nil, pol)
 	if err == nil && code == 0 {
 		t.Fatalf("writing outside the workspace must be denied, got code=0 out=%q", out)

@@ -37,7 +37,7 @@ func startSandboxedMCPProcess(exe string, args []string, dir string, env []strin
 	if st, serr := os.Stat(dir); serr != nil || !st.IsDir() {
 		return nil, &os.PathError{Op: "sandbox mcp", Path: dir, Err: os.ErrNotExist}
 	}
-	home, err := os.MkdirTemp("", "myai-mcp-home-")
+	home, err := os.MkdirTemp("", "kodyar-mcp-home-")
 	if err != nil {
 		return nil, err
 	}

@@ -1,7 +1,7 @@
-/* MyAI — حالت گفتگو و پوشه‌ی کاری، داخل چت‌باکس.
+/* KodYar — حالت گفتگو و پوشه‌ی کاری، داخل چت‌باکس.
  *
  * - تعیین حالت گفتگو («ایجنت» یا «چت») از سایدبار/نوار بالا به چت‌باکس منتقل
- *   شده است؛ همین دکمه وضعیت MyAIState.view.agentMode را عوض می‌کند و از طریق
+ *   شده است؛ همین دکمه وضعیت KodYarState.view.agentMode را عوض می‌کند و از طریق
  *   SetAgentMode ذخیره می‌شود (اگر ذخیره شکست بخورد، وضعیت برمی‌گردد).
  * - مسیر پروژه دیگر در نوار بالای صفحه نیست: دکمه‌ی پوشه در چت‌باکس مسیر فعلی
  *   را در tooltip نشان می‌دهد و تب «پوشه‌ی کاری» تنظیمات را باز می‌کند.
@@ -17,7 +17,7 @@
     return (window.go && window.go.main && window.go.main.App) || null;
   }
   function view() {
-    return (window.MyAIState && window.MyAIState.view) || null;
+    return (window.KodYarState && window.KodYarState.view) || null;
   }
   function toast(text, kind) {
     if (typeof window.toast === "function") window.toast(text, kind);
@@ -92,7 +92,7 @@
       .then(function () {
         toast(
           next
-            ? "حالت ایجنت فعال شد — MyAI می‌تواند فایل‌های پروژه را بخواند و ویرایش کند"
+            ? "حالت ایجنت فعال شد — KodYar می‌تواند فایل‌های پروژه را بخواند و ویرایش کند"
             : "حالت چت معمولی فعال شد",
           next ? "ok" : "info"
         );
@@ -106,8 +106,8 @@
   }
 
   function openWorkspace() {
-    if (window.MyAIModals && window.MyAIModals.openSettings) {
-      window.MyAIModals.openSettings("folder");
+    if (window.KodYarModals && window.KodYarModals.openSettings) {
+      window.KodYarModals.openSettings("folder");
     }
   }
 
@@ -129,7 +129,7 @@
     sync();
   }
 
-  window.MyAIComposer = { sync: sync, toggle: toggleMode };
+  window.KodYarComposer = { sync: sync, toggle: toggleMode };
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);

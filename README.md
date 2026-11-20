@@ -1,39 +1,35 @@
 <div align="center" dir="rtl">
 
-<img src="build/appicon.png" alt="MyAI" width="110" />
+<img src="build/appicon.png" alt="KodYar" width="110" />
 
-# MyAI
+# KodYar
 
 **دستیار هوشمند کدنویسی ایجنتی — اپلیکیشن دسکتاپ بومی (Native)**
 
 بدون Electron · رابط ۱۰۰٪ فارسی و راست‌به‌چپ · سندباکس واقعی ویندوز · چندمدلی
 
 <p>
-  <a href="https://github.com/khademdev/MyAi/releases/latest"><img src="https://img.shields.io/github/v/release/khademdev/MyAi?style=for-the-badge&label=release&color=7c5cff" alt="Release" /></a>
+  <a href="https://github.com/khademdev/KodYar/releases/latest"><img src="https://img.shields.io/github/v/release/khademdev/KodYar?style=for-the-badge&label=release&color=7c5cff" alt="Release" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-3ddc97?style=for-the-badge" alt="License: MIT" /></a>
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-4c8dff?style=for-the-badge" alt="Platforms" />
   <img src="https://img.shields.io/badge/Go-1.26-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go 1.26" />
   <img src="https://img.shields.io/badge/Wails-v2.10.1-DF0000?style=for-the-badge" alt="Wails v2" />
 </p>
 <p>
-  <a href="https://github.com/khademdev/MyAi/stargazers"><img src="https://img.shields.io/github/stars/khademdev/MyAi?style=for-the-badge&logo=github&color=ffcc4d" alt="Stars" /></a>
-  <a href="https://github.com/khademdev/MyAi/releases"><img src="https://img.shields.io/github/downloads/khademdev/MyAi/total?style=for-the-badge&color=2ea44f" alt="Downloads" /></a>
+  <a href="https://github.com/khademdev/KodYar/stargazers"><img src="https://img.shields.io/github/stars/khademdev/KodYar?style=for-the-badge&logo=github&color=ffcc4d" alt="Stars" /></a>
+  <a href="https://github.com/khademdev/KodYar/releases"><img src="https://img.shields.io/github/downloads/khademdev/KodYar/total?style=for-the-badge&color=2ea44f" alt="Downloads" /></a>
   <a href="https://www.coffeebede.com/khademdev"><img src="https://img.shields.io/badge/SUPPORT%20THE%20PROJECT-CoffeeBede-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="حمایت از پروژه" /></a>
 </p>
 
-**[⬇️ دانلود آخرین نسخه](https://github.com/khademdev/MyAi/releases/latest)** · **[☕ حمایت از پروژه](https://www.coffeebede.com/khademdev)** · **[تغییرات نسخه‌ها](CHANGELOG.md)**
+**[⬇️ دانلود آخرین نسخه](https://github.com/khademdev/KodYar/releases/latest)** · **[☕ حمایت از پروژه](https://www.coffeebede.com/khademdev)** · **[تغییرات نسخه‌ها](CHANGELOG.md)**
 
 </div>
-
-<p align="center">
-  <img src="docs/screenshots/chat.png" alt="حالت ایجنت MyAI — اجرای ابزارها، کد Go و پاسخ استریمی" width="920" />
-</p>
 
 <div dir="rtl">
 
 ## ❤️ حمایت از پروژه
 
-MyAI یک پروژهٔ مستقل و متن‌باز است که بدون اسپانسر و در وقت آزاد توسعه داده می‌شود.
+KodYar یک پروژهٔ مستقل و متن‌باز است که بدون اسپانسر و در وقت آزاد توسعه داده می‌شود.
 اگر این ابزار برایتان مفید بود، با یک قهوه از ادامهٔ راهش حمایت کنید:
 
 <p align="center">
@@ -50,8 +46,7 @@ MyAI یک پروژهٔ مستقل و متن‌باز است که بدون اسپ
 
 ## در این صفحه
 
-- **MyAI چیست؟** — یک نگاه سریع
-- **تصاویر برنامه** — چت، خلاصهٔ نوبت، تنظیمات و انتخاب مدل
+- **KodYar چیست؟** — یک نگاه سریع
 - **نسخهٔ ۱.۰.۱** — عیب‌یابی کد با زبان‌سرور و هارنس ارزیابی ایجنت
 - **نسخهٔ ۱.۰.۰** — نکته‌های کلیدی نخستین انتشار عمومی
 - **ویژگی‌ها** — حالت ایجنت و چت
@@ -60,9 +55,9 @@ MyAI یک پروژهٔ مستقل و متن‌باز است که بدون اسپ
 - **ساختار پروژه، داده‌ها، میان‌برها و MCP**
 - **مستندات، مجوز و حمایت از پروژه**
 
-## MyAI چیست؟
+## KodYar چیست؟
 
-MyAI یک اپلیکیشن دسکتاپ **کاملاً native** برای گفتگو با مدل‌های هوش مصنوعی و **کار ایجنتی روی پروژه‌ها**ست؛
+KodYar یک اپلیکیشن دسکتاپ **کاملاً native** برای گفتگو با مدل‌های هوش مصنوعی و **کار ایجنتی روی پروژه‌ها**ست؛
 ساخته‌شده با **Wails v2 (Go + WebView سیستمی)** — بدون Electron، بدون وابستگی به مرورگر خارجی
 و با مصرف حداقلی منابع. رابط کاربری **۱۰۰٪ فارسی و راست‌به‌چپ** است و ظاهر آن مطابق mockupهای طراحی
 (تم تاریک مدرن با اکسنت بنفش) پیاده‌سازی شده است.
@@ -72,26 +67,6 @@ MyAI یک اپلیکیشن دسکتاپ **کاملاً native** برای گفت�
 - 💬 **چت چندمدلی** — هر سرویس سازگار با API نوع OpenAI؛ کشف خودکار مدل‌ها و پنجرهٔ کانتکست
 - 🇮🇷 **رابط فارسی راست‌به‌چپ** — گزارش زندهٔ کارها، برنامهٔ کار، دایرهٔ مصرف توکن و خلاصهٔ واقعی هر نوبت
 - 🔒 **داده روی دستگاه شما** — کلیدها با AES-GCM رمز می‌شوند و هیچ چیزی جز درخواست خودتان به Provider بیرون نمی‌رود
-
-## تصاویر برنامه
-
-<p align="center">
-  <img src="docs/screenshots/turn-summary.png" alt="خلاصهٔ واقعی نوبت — فایل‌های تغییرکرده، دستورهای اجراشده و راستی‌آزمایی" width="880" />
-  <br />
-  <sub><b>خلاصهٔ واقعی هر نوبت</b> — فایل‌های تغییرکرده، دستورهای اجراشده، خروجی راستی‌آزمایی و گزارش زندهٔ عملیات</sub>
-</p>
-
-<p align="center">
-  <img src="docs/screenshots/settings.png" alt="تنظیمات پوشهٔ کاری و سندباکس دستورها" width="880" />
-  <br />
-  <sub><b>تنظیمات → پوشهٔ کاری</b> — مسیر پروژه، اجازهٔ اجرای دستور و سندباکس ایزوله‌سازی ویندوز</sub>
-</p>
-
-<p align="center">
-  <img src="docs/screenshots/models.png" alt="انتخاب‌گر مدل گروه‌بندی‌شده بر اساس Provider" width="880" />
-  <br />
-  <sub><b>انتخاب‌گر مدل</b> — گروه‌بندی‌شده بر اساس Provider، با جستجو و انتخاب سریع</sub>
-</p>
 
 ## نسخهٔ ۱.۰.۱ — عیب‌یابی کد با زبان‌سرور و هارنس ارزیابی
 
@@ -109,7 +84,7 @@ MyAI یک اپلیکیشن دسکتاپ **کاملاً native** برای گفت�
 
 ## نسخهٔ ۱.۰.۰ — نخستین انتشار عمومی
 
-این نخستین انتشار عمومی MyAI است؛ هر چیزی که در بخش «ویژگی‌ها» می‌آید در همین نسخه کار می‌کند.
+این نخستین انتشار عمومی KodYar است؛ هر چیزی که در بخش «ویژگی‌ها» می‌آید در همین نسخه کار می‌کند.
 چند نکتهٔ کلیدی این نسخه:
 
 - **ایجنت واقعی روی پروژه** — ابزارهای خواندن/نوشتن/ویرایش اتمیک/`apply_patch`، جستجو و ایندکس نمادها، ابزارهای `git_*`،
@@ -251,7 +226,7 @@ MyAI یک اپلیکیشن دسکتاپ **کاملاً native** برای گفت�
 
 ### ⬇️ سریع‌ترین راه — باینری آماده
 
-از صفحهٔ [Releases](https://github.com/khademdev/MyAi/releases/latest) فایل `MyAI.exe` را دانلود و اجرا کنید
+از صفحهٔ [Releases](https://github.com/khademdev/KodYar/releases/latest) فایل `KodYar.exe` را دانلود و اجرا کنید
 (ویندوز ۱۰/۱۱، بدون نیاز به نصب — WebView2 روی ویندوز ۱۱ و اکثر ویندوزهای ۱۰ از قبل نصب است).
 
 ### 🛠️ ساخت از سورس
@@ -277,8 +252,8 @@ MyAI یک اپلیکیشن دسکتاپ **کاملاً native** برای گفت�
 برای اطمینان از آماده بودن محیط: `wails doctor`
 
 ```bash
-git clone https://github.com/khademdev/MyAi.git
-cd MyAi
+git clone https://github.com/khademdev/KodYar.git
+cd KodYar
 
 # حالت توسعه (hot-reload)
 wails dev
@@ -290,12 +265,12 @@ wails build
 wails build -platform windows/amd64 -skipbindings -ldflags "-s -w -X main.version=1.0.1"
 
 # خروجی این‌جا ساخته می‌شود:
-#   ویندوز: build/bin/MyAI.exe
-#   مک:     build/bin/MyAI.app
-#   لینوکس: build/bin/MyAI
+#   ویندوز: build/bin/KodYar.exe
+#   مک:     build/bin/KodYar.app
+#   لینوکس: build/bin/KodYar
 ```
 
-> نکته‌ی مهم: خروجی ویندوز (`MyAI.exe`) کاملاً خالص Go است و برای کامپایل متقاطع به ابزار
+> نکته‌ی مهم: خروجی ویندوز (`KodYar.exe`) کاملاً خالص Go است و برای کامپایل متقاطع به ابزار
 > اضافه‌ای نیاز ندارد. خروجی لینوکس به بسته‌های توسعه‌ی `libwebkit2gtk-4.1-dev` روی ماشین
 > build نیاز دارد (باینریِ لینوکس باید روی همان لینوکس ساخته شود).
 
@@ -313,12 +288,11 @@ python3 -m http.server 8899
 ```
 
 داخل Wails واقعی، لایه‌ی Mock به‌صورت خودکار غیرفعال می‌شود و به بک‌اند Go وصل می‌شوید.
-تصاویر همین README هم با همین حالت (و دادهٔ نمونه) گرفته شده‌اند.
 
 ## ساختار پروژه
 
 ```
-myai/
+kodyar/
 ├── main.go                  # نقطه‌ی ورود Wails (پنجره، AssetServer، Bind)
 ├── app.go                   # هسته‌ی App + دیالوگ انتخاب پوشه
 ├── settings.go              # تنظیمات + ذخیره‌سازی + نمای عمومی برای فرانت‌اند
@@ -352,7 +326,7 @@ myai/
 ├── go.mod / go.sum
 ├── wails.json               # پیکربندی Wails (بدون مرحله build فرانت‌اند)
 ├── build/appicon.png        # آیکون اپلیکیشن
-├── build/bin/               # خروجی کامپایل (MyAI.exe و …)
+├── build/bin/               # خروجی کامپایل (KodYar.exe و …)
 └── frontend/dist/           # رابط کاربری (بدون نیاز به npm؛ مستقیم embed می‌شود)
     ├── index.html
     └── assets/
@@ -368,9 +342,9 @@ myai/
 
 | سیستم‌عامل | مسیر |
 |---|---|
-| ویندوز | `%AppData%\MyAI` |
-| مک | `~/Library/Application Support/MyAI` |
-| لینوکس | `~/.config/MyAI` |
+| ویندوز | `%AppData%\KodYar` |
+| مک | `~/Library/Application Support/KodYar` |
+| لینوکس | `~/.config/KodYar` |
 
 - `settings.json` — تنظیمات، Providerها و کلیدهای API (**رمزنگاری‌شده** با AES-GCM بر پایه‌ی
   مشخصات ماشین)
@@ -420,7 +394,6 @@ pipe واقعی هستند، پس JSON-RPC خط‌به‌خط و ابزارها�
 | [CHANGELOG.md](CHANGELOG.md) | تاریخچهٔ کامل تغییرات نسخه‌ها |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | معماری زیرسیستم‌ها و تصمیم‌های طراحی |
 | [BUGFIXES.md](BUGFIXES.md) | فهرست باگ‌های رفع‌شده و علت ریشه‌ای |
-| [docs/screenshots](docs/screenshots) | تصاویر برنامه (همین README) |
 
 ## مجوز / License
 
@@ -431,7 +404,7 @@ pipe واقعی هستند، پس JSON-RPC خط‌به‌خط و ابزارها�
 **توسعه‌دهنده و ارتباط:** Meysam Khadem Shams — [@khademdev](https://github.com/khademdev) · [meysam76shams@gmail.com](mailto:meysam76shams@gmail.com)
 
 <p align="center">
-  اگر MyAI به کارتان آمد، یک ⭐ به مخزن و یک ☕ در
+  اگر KodYar به کارتان آمد، یک ⭐ به مخزن و یک ☕ در
   <a href="https://www.coffeebede.com/khademdev">CoffeeBede</a>
   بهترین تشکر است.
 </p>

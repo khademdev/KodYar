@@ -8,26 +8,26 @@
 //
 // اجرا (حالت نمایش‌نامه‌ای، آفلاین و قطعی):
 //
-//	MYAI_EVAL=1 go test -run TestAgentEvalSuite -v .
+//	KODYAR_EVAL=1 go test -run TestAgentEvalSuite -v .
 //
 // اجرا با مدل واقعی (کیفیت مدل سنجیده شود، نه فیلم‌نامه):
 //
-//	MYAI_EVAL=1 MYAI_EVAL_LIVE=1 \
-//	  MYAI_EVAL_BASE_URL=https://api.example.com/v1 \
-//	  MYAI_EVAL_MODEL=gpt-4.1-mini MYAI_EVAL_API_KEY=... \
+//	KODYAR_EVAL=1 KODYAR_EVAL_LIVE=1 \
+//	  KODYAR_EVAL_BASE_URL=https://api.example.com/v1 \
+//	  KODYAR_EVAL_MODEL=gpt-4.1-mini KODYAR_EVAL_API_KEY=... \
 //	  go test -run TestAgentEvalSuite -v -timeout 60m .
 //
-// MYAI_EVAL_BASE_URL و MYAI_EVAL_MODEL اجباری‌اند؛ کلید از MYAI_EVAL_API_KEY
+// KODYAR_EVAL_BASE_URL و KODYAR_EVAL_MODEL اجباری‌اند؛ کلید از KODYAR_EVAL_API_KEY
 // خوانده می‌شود و اگر نبود از OPENAI_API_KEY (سرویس محلی بدون کلید: خالی
-// بگذارید). مهلت هر نوبت با MYAI_EVAL_TURN_TIMEOUT_SEC (پیش‌فرض ۶۰۰) و
-// مسیر گزارش با MYAI_EVAL_OUT تعیین می‌شود. سناریوهای صرفاً فیلم‌نامه‌ای
+// بگذارید). مهلت هر نوبت با KODYAR_EVAL_TURN_TIMEOUT_SEC (پیش‌فرض ۶۰۰) و
+// مسیر گزارش با KODYAR_EVAL_OUT تعیین می‌شود. سناریوهای صرفاً فیلم‌نامه‌ای
 // (MockOnly) در حالت زنده با پیام skip کنار گذاشته می‌شوند.
 //
 // مقایسهٔ دو گزارش JSON:
 //
-//	MYAI_EVAL_COMPARE=old.json,new.json go test -run TestAgentEvalCompare -v .
+//	KODYAR_EVAL_COMPARE=old.json,new.json go test -run TestAgentEvalCompare -v .
 //
-// حالت پیش‌فرض (بدون MYAI_EVAL) این تست سریع skip می‌شود تا CI عادی سبک
+// حالت پیش‌فرض (بدون KODYAR_EVAL) این تست سریع skip می‌شود تا CI عادی سبک
 // بماند؛ تست TestAgentEvalScenariosAreWellFormed و تست مقایسهٔ گزارش‌ها
 // همیشه اجرا می‌شوند.
 //
@@ -363,31 +363,31 @@ func (c *evalLiveConfig) timeout() time.Duration {
 }
 
 // evalLiveConfigFrom تنظیمات حالت زنده را از یک تابع خواندنِ محیط می‌سازد؛
-// nil یعنی حالت نمایش‌نامه‌ای. فعال‌سازی با MYAI_EVAL_LIVE=1 یا صرفاً با
+// nil یعنی حالت نمایش‌نامه‌ای. فعال‌سازی با KODYAR_EVAL_LIVE=1 یا صرفاً با
 // تعریف BASE_URL/MODEL.
 func evalLiveConfigFrom(get func(string) string) (*evalLiveConfig, error) {
-	base := strings.TrimSpace(get("MYAI_EVAL_BASE_URL"))
-	model := strings.TrimSpace(get("MYAI_EVAL_MODEL"))
-	enabled := strings.TrimSpace(get("MYAI_EVAL_LIVE")) != ""
+	base := strings.TrimSpace(get("KODYAR_EVAL_BASE_URL"))
+	model := strings.TrimSpace(get("KODYAR_EVAL_MODEL"))
+	enabled := strings.TrimSpace(get("KODYAR_EVAL_LIVE")) != ""
 	if !enabled && base == "" && model == "" {
 		return nil, nil
 	}
 	if base == "" || model == "" {
-		return nil, fmt.Errorf("live eval needs both MYAI_EVAL_BASE_URL and MYAI_EVAL_MODEL (base=%q model=%q)", base, model)
+		return nil, fmt.Errorf("live eval needs both KODYAR_EVAL_BASE_URL and KODYAR_EVAL_MODEL (base=%q model=%q)", base, model)
 	}
 	cfg := &evalLiveConfig{
 		BaseURL:    base,
 		Model:      model,
-		APIKey:     strings.TrimSpace(get("MYAI_EVAL_API_KEY")),
+		APIKey:     strings.TrimSpace(get("KODYAR_EVAL_API_KEY")),
 		TimeoutSec: 600,
 	}
 	if cfg.APIKey == "" {
 		cfg.APIKey = strings.TrimSpace(get("OPENAI_API_KEY"))
 	}
-	if v := strings.TrimSpace(get("MYAI_EVAL_TURN_TIMEOUT_SEC")); v != "" {
+	if v := strings.TrimSpace(get("KODYAR_EVAL_TURN_TIMEOUT_SEC")); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n <= 0 {
-			return nil, fmt.Errorf("MYAI_EVAL_TURN_TIMEOUT_SEC must be a positive number of seconds, got %q", v)
+			return nil, fmt.Errorf("KODYAR_EVAL_TURN_TIMEOUT_SEC must be a positive number of seconds, got %q", v)
 		}
 		cfg.TimeoutSec = n
 	}
@@ -442,10 +442,10 @@ func evalModeLabel(live *evalLiveConfig) (mode, model string) {
 	return "live", live.Model
 }
 
-// TestAgentEvalSuite هارنس اصلی — با MYAI_EVAL=1 اجرا می‌شود.
+// TestAgentEvalSuite هارنس اصلی — با KODYAR_EVAL=1 اجرا می‌شود.
 func TestAgentEvalSuite(t *testing.T) {
-	if os.Getenv("MYAI_EVAL") == "" {
-		t.Skip("agent eval suite skipped: set MYAI_EVAL=1 to run")
+	if os.Getenv("KODYAR_EVAL") == "" {
+		t.Skip("agent eval suite skipped: set KODYAR_EVAL=1 to run")
 	}
 	live := evalLiveFromEnv(t)
 	mode, model := evalModeLabel(live)
@@ -479,7 +479,7 @@ func TestAgentEvalSuite(t *testing.T) {
 
 	report := formatEvalReport(rows, mode)
 	t.Log("\n" + report)
-	if out := strings.TrimSpace(os.Getenv("MYAI_EVAL_OUT")); out != "" {
+	if out := strings.TrimSpace(os.Getenv("KODYAR_EVAL_OUT")); out != "" {
 		if err := writeEvalJSON(out, rows, mode, model); err != nil {
 			t.Errorf("write report: %v", err)
 		} else {
@@ -786,7 +786,7 @@ func TestEvalLiveEnvConfig(t *testing.T) {
 	}
 
 	onlyModel := func(k string) string {
-		if k == "MYAI_EVAL_MODEL" {
+		if k == "KODYAR_EVAL_MODEL" {
 			return "m"
 		}
 		return ""
@@ -796,8 +796,8 @@ func TestEvalLiveEnvConfig(t *testing.T) {
 	}
 
 	envs := map[string]string{
-		"MYAI_EVAL_BASE_URL": "http://127.0.0.1:9/v1",
-		"MYAI_EVAL_MODEL":    "m",
+		"KODYAR_EVAL_BASE_URL": "http://127.0.0.1:9/v1",
+		"KODYAR_EVAL_MODEL":    "m",
 		"OPENAI_API_KEY":     "sk-fallback",
 	}
 	get := func(k string) string { return envs[k] }
@@ -812,23 +812,23 @@ func TestEvalLiveEnvConfig(t *testing.T) {
 		t.Fatalf("default turn timeout must be 600s, got %d", cfg.TimeoutSec)
 	}
 
-	envs["MYAI_EVAL_API_KEY"] = "sk-direct"
-	envs["MYAI_EVAL_TURN_TIMEOUT_SEC"] = "42"
+	envs["KODYAR_EVAL_API_KEY"] = "sk-direct"
+	envs["KODYAR_EVAL_TURN_TIMEOUT_SEC"] = "42"
 	cfg, err = evalLiveConfigFrom(get)
 	if err != nil || cfg.APIKey != "sk-direct" || cfg.TimeoutSec != 42 {
 		t.Fatalf("explicit key/timeout must win: cfg=%+v err=%v", cfg, err)
 	}
 
-	envs["MYAI_EVAL_TURN_TIMEOUT_SEC"] = "abc"
+	envs["KODYAR_EVAL_TURN_TIMEOUT_SEC"] = "abc"
 	if _, err := evalLiveConfigFrom(get); err == nil {
 		t.Fatal("a non-numeric timeout must be rejected")
 	}
 
 	// سرویس محلی (Ollama/LM Studio) بدون کلید هم باید کار کند.
-	delete(envs, "MYAI_EVAL_API_KEY")
+	delete(envs, "KODYAR_EVAL_API_KEY")
 	delete(envs, "OPENAI_API_KEY")
-	delete(envs, "MYAI_EVAL_TURN_TIMEOUT_SEC")
-	envs["MYAI_EVAL_LIVE"] = "1"
+	delete(envs, "KODYAR_EVAL_TURN_TIMEOUT_SEC")
+	envs["KODYAR_EVAL_LIVE"] = "1"
 	cfg, err = evalLiveConfigFrom(get)
 	if err != nil || cfg == nil || cfg.APIKey != "" {
 		t.Fatalf("a keyless local server must be allowed: cfg=%+v err=%v", cfg, err)

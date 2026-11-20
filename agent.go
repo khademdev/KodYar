@@ -1,4 +1,4 @@
-// حالت ایجنت MyAI — ابزارهایی که مدل می‌تواند برای کار روی پروژه فراخوانی کند.
+// حالت ایجنت KodYar — ابزارهایی که مدل می‌تواند برای کار روی پروژه فراخوانی کند.
 //
 // هدف: رفتار مشابه ابزارهای کدنویسی ایجنتی (مثل OpenCode) — مدل می‌تواند
 // فهرست فایل‌ها را ببیند، فایل بخواند، فایل بسازد/ویرایش کند، جستجو کند و
@@ -556,7 +556,7 @@ func shellInfoForOS(goos string) shellPlatformInfo {
 func agentSystemPromptForOS(workspace, goos string) string {
 	plat := shellInfoForOS(goos)
 	var b strings.Builder
-	b.WriteString("You are MyAI, an autonomous coding agent running as a native " + plat.osLabel +
+	b.WriteString("You are KodYar, an autonomous coding agent running as a native " + plat.osLabel +
 		" desktop app on the user's machine (similar to OpenCode / Claude Code).\n\n")
 	b.WriteString("Workspace directory (file tools are relative to it and confined to it; run_command is permission-gated but NOT sandboxed — a command can touch the whole machine, so state exactly what a command will do before running it):\n")
 	b.WriteString(workspace + "\n\n")

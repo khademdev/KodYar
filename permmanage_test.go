@@ -117,7 +117,7 @@ func TestSetToolPermissionValidation(t *testing.T) {
 // بنشیند و پس از بارگذاری دوباره برقرار باشد.
 func TestSetToolPermissionPersists(t *testing.T) {
 	dir := t.TempDir()
-	os.Setenv("MYAI_CONFIG_DIR", dir)
+	os.Setenv("KODYAR_CONFIG_DIR", dir)
 	a := NewApp()
 	if err := a.loadSettings(); err != nil {
 		t.Fatal(err)
@@ -198,7 +198,7 @@ func TestRemoveCommandRuleLifecycle(t *testing.T) {
 // TestRemoveCommandRulePersists حذف باید روی دیسک بنشیند.
 func TestRemoveCommandRulePersists(t *testing.T) {
 	dir := t.TempDir()
-	os.Setenv("MYAI_CONFIG_DIR", dir)
+	os.Setenv("KODYAR_CONFIG_DIR", dir)
 	a := NewApp()
 	if err := a.loadSettings(); err != nil {
 		t.Fatal(err)

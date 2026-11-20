@@ -1,4 +1,4 @@
-# .github/workflows/release.yml — انتشار خودکار نسخه‌ی ویندوزی MyAI.
+# .github/workflows/release.yml — انتشار خودکار نسخه‌ی ویندوزی KodYar.
 #
 # با پوش‌شدن هر تگ `v*` (مثل `v1.0.0`) این workflow باینری ویندوز را
 # می‌سازد و به همان Release در GitHub پیوست می‌کند. نسخه از خود تگ خوانده
@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   windows-release:
-    name: Build MyAI.exe and publish the release
+    name: Build KodYar.exe and publish the release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -42,7 +42,7 @@ jobs:
       - name: Wails build (windows/amd64, skipbindings)
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          echo "building MyAI ${VERSION}"
+          echo "building KodYar ${VERSION}"
           wails build -platform windows/amd64 -skipbindings \
             -ldflags "-s -w -H windowsgui -X main.version=${VERSION}"
 
@@ -50,7 +50,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" build/bin/MyAI.exe \
-            --title "MyAI $GITHUB_REF_NAME" \
+          gh release create "$GITHUB_REF_NAME" build/bin/KodYar.exe \
+            --title "KodYar $GITHUB_REF_NAME" \
             --generate-notes \
             --verify-tag

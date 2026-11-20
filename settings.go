@@ -1,9 +1,9 @@
-// لایه‌ی تنظیمات MyAI.
+// لایه‌ی تنظیمات KodYar.
 //
 // تنظیمات و کلیدهای API در پوشه‌ی استاندارد پیکربندی کاربر ذخیره می‌شوند:
-// - ویندوز: %AppData%\MyAI
-// - مک: ~/Library/Application Support/MyAI
-// - لینوکس: ~/.config/MyAI
+// - ویندوز: %AppData%\KodYar
+// - مک: ~/Library/Application Support/KodYar
+// - لینوکس: ~/.config/KodYar
 //
 // عملکرد: مسیر configDir یک‌بار در طول عمر برنامه محاسبه و cache می‌شود
 // (sync.Once) تا در هر فراخوانی از os.MkdirAll و syscall تکراری جلوگیری شود.
@@ -17,6 +17,14 @@ import (
 	"strings"
 	"time"
 	"unicode"
+)
+
+const (
+	// appDirName نام پوشه‌ی داده‌ی برنامه است.
+	appDirName = "KodYar"
+	// legacyAppDirName نام پوشه در نسخه‌های پیش از تغییر برند است؛ فقط برای
+	// خواندن/مهاجرت دادهٔ قدیمی و سازگاری فایل‌های پروژه به کار می‌رود.
+	legacyAppDirName = "MyAI"
 )
 
 // Provider یک سرویس‌دهنده‌ی سازگار با OpenAI را توصیف می‌کند.
@@ -123,7 +131,7 @@ type Settings struct {
 	PlanMode          bool   `json:"planMode"`          // حالت برنامه‌ریزی قبل از اجرا
 	ContextFiles      int    `json:"contextFiles"`      // سقف فایل‌های خودکار افزوده به کانتکست @
 	ProjectRules      string `json:"projectRules"`      // قوانین پروژه تعریف‌شده از داخل اپ
-	RulesEnabled      bool   `json:"rulesEnabled"`      // خواندن خودکار.myai/rules.md و مشابه
+	RulesEnabled      bool   `json:"rulesEnabled"`      // خواندن خودکار.kodyar/rules.md و مشابه
 	MaxTokens         int    `json:"maxTokens"`         // سقف توکن خروجی (۰ = بدون محدودیت)
 	MaxAgentRounds    int    `json:"maxAgentRounds"`    // سقف دورهای اجرای ابزار ایجنت در یک پاسخ (پیش‌فرض ۲۵، محدوده ۵ تا ۲۰۰)
 	MaxSubagentRounds int    `json:"maxSubagentRounds"` // سقف دورهای ابزار زیرایجنتِ task پیش‌فرض ۸، محدوده ۳ تا ۵۰)
@@ -233,7 +241,7 @@ func defaultSettings() *Settings {
 // computeConfigDir پوشه‌ی تنظیمات را محاسبه و در صورت نیاز می‌سازد.
 // جدا از a.configDir است تا بتوان آن را پشت sync.Once cache کرد.
 func computeConfigDir() (string, error) {
-	if dir := os.Getenv("MYAI_CONFIG_DIR"); dir != "" {
+	if dir := os.Getenv("KODYAR_CONFIG_DIR"); dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return "", err
 		}
@@ -244,7 +252,29 @@ func computeConfigDir() (string, error) {
 		home, _ := os.UserHomeDir()
 		base = filepath.Join(home, ".config")
 	}
-	dir := filepath.Join(base, "MyAI")
+	return resolveConfigDir(base)
+}
+
+// resolveConfigDir پوشه‌ی داده را زیر base مشخص و در صورت نیاز می‌سازد.
+// اگر پوشه‌ی نام جدید نباشد و پوشه‌ی نام قدیمی وجود داشته باشد، یک‌بار
+// به نام جدید منتقل می‌شود تا تنظیمات، گفتگوها و کلیدهای رمزشده‌ی
+// نسخه‌های پیشین از دست نروند. اگر پوشه‌ی جدید از قبل باشد هیچ چیزی
+// جابه‌جا نمی‌شود.
+func resolveConfigDir(base string) (string, error) {
+	dir := filepath.Join(base, appDirName)
+	if _, statErr := os.Stat(dir); os.IsNotExist(statErr) {
+		legacy := filepath.Join(base, legacyAppDirName)
+		if _, lerr := os.Stat(legacy); lerr == nil {
+			if rerr := os.Rename(legacy, dir); rerr != nil {
+				// اگر تغییر نام ممکن نبود (فایل قفل‌شده)، همان پوشه‌ی قدیمی
+				// ادامه می‌دهد — داده گم نمی‌شود.
+				if mkErr := os.MkdirAll(legacy, 0o755); mkErr != nil {
+					return "", mkErr
+				}
+				return legacy, nil
+			}
+		}
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
@@ -1055,9 +1085,9 @@ func (a *App) GetEnvironmentPresets() []map[string]string {
 func promptForEnvironment(env string) string {
 	switch env {
 	case "developer":
-		return "You are MyAI, an expert senior software engineer. Answer in Persian (Farsi). Be concise and practical. Always format code in fenced code blocks with the language tag."
+		return "You are KodYar, an expert senior software engineer. Answer in Persian (Farsi). Be concise and practical. Always format code in fenced code blocks with the language tag."
 	default:
-		return "You are MyAI, a concise and helpful AI assistant for coding and questions. Answer in Persian (Farsi). Use Markdown for formatting."
+		return "You are KodYar, a concise and helpful AI assistant for coding and questions. Answer in Persian (Farsi). Use Markdown for formatting."
 	}
 }
 

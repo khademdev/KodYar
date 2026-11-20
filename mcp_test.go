@@ -555,7 +555,7 @@ func TestMCPChildEnvAllowList(t *testing.T) {
 	}
 	// env فرایند تست را دستکاری می‌کنیم و پس برمی‌گردانیم
 	old := map[string]*string{}
-	for _, k := range append(append([]string{}, required...), "MYAI_TEST_SECRET_KEY", "OPENAI_API_KEY") {
+	for _, k := range append(append([]string{}, required...), "KODYAR_TEST_SECRET_KEY", "OPENAI_API_KEY") {
 		if v, ok := os.LookupEnv(k); ok {
 			vv := v
 			old[k] = &vv
@@ -575,7 +575,7 @@ func TestMCPChildEnvAllowList(t *testing.T) {
 	for _, k := range required {
 		os.Setenv(k, "v-"+k)
 	}
-	os.Setenv("MYAI_TEST_SECRET_KEY", "sk-should-never-leak")
+	os.Setenv("KODYAR_TEST_SECRET_KEY", "sk-should-never-leak")
 	os.Setenv("OPENAI_API_KEY", "sk-should-never-leak")
 
 	env, err := mcpChildEnv(nil)
@@ -605,7 +605,7 @@ func TestMCPChildEnvAllowList(t *testing.T) {
 			t.Errorf("%s forwarded with a wrong value: %q vs %q", k, v, want)
 		}
 	}
-	for _, k := range []string{"myai_test_secret_key", "openai_api_key"} {
+	for _, k := range []string{"kodyar_test_secret_key", "openai_api_key"} {
 		if _, ok := got[k]; ok {
 			t.Errorf("%s must never reach an MCP child process", k)
 		}

@@ -1,4 +1,4 @@
-// MyAI — پنل «برنامهٔ کار» (ابزار todo_write؛ پیش‌تر «کارهای ایجنت»).
+// KodYar — پنل «برنامهٔ کار» (ابزار todo_write؛ پیش‌تر «کارهای ایجنت»).
 //
 // چک‌لیست جمع‌وجمع‌شونده‌ای که بالای composer نمایش داده می‌شود و وضعیت
 // کارهای اعلام‌شدهٔ ایجنت را زنده نشان می‌دهد. وقتی فهرست خالی است، پنل
@@ -19,11 +19,11 @@
 // ساختگی منتشر می‌کند؛ همهٔ مسیرها دفاعی نوشته شده‌اند تا بدون بک‌اند
 // هم خطا ندهند. همهٔ متن‌ها با textContent درج می‌شوند (نه innerHTML) و
 // متن هر آیتم dir="auto" دارد تا متن انگلیسی/فارسی هرکدام درست نمایش
-// داده شوند. اعداد فارسی با MyAIUtils.fa (هماهنگ با بقیهٔ UI).
+// داده شوند. اعداد فارسی با KodYarUtils.fa (هماهنگ با بقیهٔ UI).
 (function () {
 	"use strict";
 
-	var utils = window.MyAIUtils || {};
+	var utils = window.KodYarUtils || {};
 	var $ = utils.$ || function (sel) { return document.querySelector(sel); };
 	var fa = utils.fa || function (n) { return String(n).replace(/\d/g, function (d) { return "۰۱۲۳۴۵۶۷۸۹"[d]; }); };
 
@@ -155,7 +155,7 @@
 	}
 
 	function activeId() {
-		var st = window.MyAIState;
+		var st = window.KodYarState;
 		return st && st.activeId ? String(st.activeId) : "";
 	}
 
@@ -211,7 +211,7 @@
 		// بازکردن گفتگو: نتیجهٔ GetConversation را می‌بینیم و todos را
 		// بازگردانی می‌کنیم. نکتهٔ ترتیب: این پچ «قبل از» app.js نصب
 		// می‌شود، پس .then ما زودتر از .then خودِ app.js اجرا می‌شود —
-		// یعنی هنوز MyAIState.activeId روی شناسهٔ گفتگوی قبلی است و
+		// یعنی هنوز KodYarState.activeId روی شناسهٔ گفتگوی قبلی است و
 		// گارد «فقط گفتگوی فعال» گفتگوی تازه را رد می‌کند. تأخیر به
 		// یک macrotask (setTimeout 0) تضمین می‌کند activeId توسط
 		// app.js به‌روز شده باشد؛ پاسخ‌های واقعاً کهنه (تعویض سریع
@@ -263,7 +263,7 @@
 	}
 
 	// API عمومی برای تست/دیباگ و استفادهٔ سایر ماژول‌ها
-	window.MyAITodos = {
+	window.KodYarTodos = {
 		setFromConversation: setFromConversation,
 		clear: clearAll,
 		render: render,

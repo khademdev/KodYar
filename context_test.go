@@ -28,23 +28,23 @@ func TestRulesFromFile(t *testing.T) {
 		t.Fatalf("empty workspace must give no rules, got: %s", block)
 	}
 
-	// فایل اختصاصی MyAI
-	os.MkdirAll(filepath.Join(ws, ".myai"), 0o755)
-	os.WriteFile(filepath.Join(ws, ".myai", "rules.md"), []byte("همیشه پاسخ‌ها کوتاه باشد."), 0o644)
+	// فایل اختصاصی KodYar
+	os.MkdirAll(filepath.Join(ws, ".kodyar"), 0o755)
+	os.WriteFile(filepath.Join(ws, ".kodyar", "rules.md"), []byte("همیشه پاسخ‌ها کوتاه باشد."), 0o644)
 
 	block := rulesBlockOf(a)
 	if !strings.Contains(block, "همیشه پاسخ‌ها کوتاه باشد.") {
 		t.Fatalf("rules block missing content: %s", block)
 	}
-	if !strings.Contains(block, "<project_rules") || !strings.Contains(block, ".myai/rules.md") {
+	if !strings.Contains(block, "<project_rules") || !strings.Contains(block, ".kodyar/rules.md") {
 		t.Fatalf("rules block format wrong: %s", block)
 	}
 
-	// اولویت:.myai/rules.md بالاتر از.cursorrules
+	// اولویت:.kodyar/rules.md بالاتر از.cursorrules
 	os.WriteFile(filepath.Join(ws, ".cursorrules"), []byte("cursor rules"), 0o644)
 	block = rulesBlockOf(a)
 	if strings.Contains(block, "cursor rules") {
-		t.Fatal(".myai/rules.md must take priority over .cursorrules")
+		t.Fatal(".kodyar/rules.md must take priority over .cursorrules")
 	}
 
 	// خاموش بودن سوییچ → فایل خوانده نمی‌شود
@@ -77,7 +77,7 @@ func TestSetProjectRulesAndToggle(t *testing.T) {
 		t.Fatal("SetRulesEnabled did not save")
 	}
 	// ماندگاری روی دیسک
-	os.Setenv("MYAI_CONFIG_DIR", a.mustConfigDir())
+	os.Setenv("KODYAR_CONFIG_DIR", a.mustConfigDir())
 	a2 := NewApp()
 	_ = a2.loadSettings()
 	if a2.settings.ProjectRules != "قانون تست" || a2.settings.RulesEnabled {

@@ -1,4 +1,4 @@
-/* MyAI — دیالوگ تأیید تغییر فایل (Diff Preview) و رندر Diff.
+/* KodYar — دیالوگ تأیید تغییر فایل (Diff Preview) و رندر Diff.
  *
  * پنل «تغییرات فایل» و همه‌ی مسیرهای «برگرداندن تغییر» از پروژه حذف شده‌اند؛
  * این فایل فقط دو چیز را نگه می‌دارد:
@@ -11,7 +11,7 @@
 (function () {
   "use strict";
 
-  var U = window.MyAIUtils;
+  var U = window.KodYarUtils;
   var $ = U.$;
   var fa = U.fa;
   var esc = U.esc;
@@ -166,8 +166,8 @@
     var copy = $("#diff-copy");
     if (copy)
       copy.addEventListener("click", function () {
-        if (current && window.MyAIMD) {
-          window.MyAIMD.copyText(current.diff || "").then(function () {
+        if (current && window.KodYarMD) {
+          window.KodYarMD.copyText(current.diff || "").then(function () {
             window.toast("متن Diff کپی شد");
           });
         }
@@ -215,7 +215,7 @@
     return false;
   }
 
-  window.MyAIChanges = {
+  window.KodYarChanges = {
     bind: bind,
     onAgentConfirm: function (data) {
       if (data && data.change) showConfirm(data.change);

@@ -27,7 +27,7 @@ func TestSetAppearance(t *testing.T) {
 	}
 	// ماندگاری روی دیسک
 	a2 := NewApp()
-	os.Setenv("MYAI_CONFIG_DIR", a.mustConfigDir())
+	os.Setenv("KODYAR_CONFIG_DIR", a.mustConfigDir())
 	if err := a2.loadSettings(); err != nil {
 		t.Fatal(err)
 	}

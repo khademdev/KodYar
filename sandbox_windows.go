@@ -36,7 +36,7 @@ import (
 )
 
 const (
-	sandboxProfileName = "MyAI.Sandbox.v1"
+	sandboxProfileName = "KodYar.Sandbox.v1"
 
 	// مقادیر مستند Win32 (در x/sys ثابت نیستند).
 	attrHandleList           = 0x00020002 // PROC_THREAD_ATTRIBUTE_HANDLE_LIST
@@ -110,7 +110,7 @@ func createSandboxIdentity() (string, *windows.SID, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	desc, _ := windows.UTF16PtrFromString("MyAI command sandbox (AppContainer)")
+	desc, _ := windows.UTF16PtrFromString("KodYar command sandbox (AppContainer)")
 	// هر دو تابع userenv یک PSID (اشاره‌گر به ساختار SID) برمی‌گردانند، نه رشته.
 	var sid *windows.SID
 	hr, _, _ := procCreateProfile.Call(
@@ -165,7 +165,7 @@ func sandboxCacheDir() string {
 	if err != nil || strings.TrimSpace(base) == "" {
 		base = os.TempDir()
 	}
-	return filepath.Join(base, "MyAI", "sandbox")
+	return filepath.Join(base, "KodYar", "sandbox")
 }
 
 func grantKey(path, perm string) string {
@@ -288,7 +288,7 @@ func sandboxHome() (string, error) {
 	if err != nil || strings.TrimSpace(base) == "" {
 		return "", errors.New("sandbox home: user cache directory unavailable")
 	}
-	home := filepath.Join(base, "MyAI", "Sandbox", "home")
+	home := filepath.Join(base, "KodYar", "Sandbox", "home")
 	subs := []string{
 		"", "tmp", filepath.Join("AppData", "Local"), filepath.Join("AppData", "Roaming"),
 		"go", filepath.Join("go", "cache"), filepath.Join("go", "pkg", "mod"),
@@ -402,8 +402,8 @@ func sandboxEnvironment(home string, allowNetwork bool) []uint16 {
 		"PIP_CACHE_DIR":    filepath.Join(home, "pip-cache"), // جلوگیری از دانلود خودکار toolchain (شبکه ممکن است بسته باشد)؛
 		// نصب محلی Go همان است که خارج از سندباکس کار می‌کند.
 		"GOTOOLCHAIN":          "local",
-		"MYAI_SANDBOX":         "1",
-		"MYAI_SANDBOX_NETWORK": netFlag,
+		"KODYAR_SANDBOX":         "1",
+		"KODYAR_SANDBOX_NETWORK": netFlag,
 	}
 	merged := map[string]string{}
 	for _, kv := range os.Environ() {

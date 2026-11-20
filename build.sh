@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ساخت بستهٔ ویندوزی MyAI (کامپایل متقاطع خالص Go — بدون نیاز به MinGW).
+# ساخت بستهٔ ویندوزی KodYar (کامپایل متقاطع خالص Go — بدون نیاز به MinGW).
 #
 # توجه: این فایل در بایگانی zip پروژه وجود نداشت و از تاریخچهٔ git هم
 # قابل بازیابی نبود؛ این نسخه بازسازی‌شده بر اساس دستور ساخت مستند در
@@ -12,8 +12,8 @@ cd "$(dirname "$0")"
 
 VERSION="${1:-1.0.1}"  # با آخرین سرفصل CHANGELOG یکی بماند
 
-echo "==> MyAI ${VERSION}: building windows/amd64 (skipbindings) ..."
+echo "==> KodYar ${VERSION}: building windows/amd64 (skipbindings) ..."
 wails build -platform windows/amd64 -skipbindings \
     -ldflags "-s -w -H windowsgui -X main.version=${VERSION}"
 
-echo "==> done: build/bin/MyAI.exe"
+echo "==> done: build/bin/KodYar.exe"

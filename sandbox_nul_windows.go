@@ -40,11 +40,11 @@ var sandboxNulEnableScript string
 
 const (
 	// sandboxNulSystemTaskName نام Task سیستمی که در هر بوت ACE را برمی‌گرداند.
-	sandboxNulSystemTaskName = "MyAI Sandbox NUL (System)"
+	sandboxNulSystemTaskName = "KodYar Sandbox NUL (System)"
 	// sandboxNulStateName فایل وضعیت نوشته‌شده توسط helper مرتفع.
 	sandboxNulStateName = "nul-grant.json"
 	// sandboxNulProbeCommand تنها آزمون معتبر: نوشتن روی NUL مثل go/git.
-	sandboxNulProbeCommand = `echo myai-nul-probe>NUL`
+	sandboxNulProbeCommand = `echo kodyar-nul-probe>NUL`
 )
 
 // nulGrantState وضعیت آخرین اجرای helper مرتفع.
@@ -97,7 +97,7 @@ func probeSandboxNul() (bool, string) {
 		nulProbeMu.Unlock()
 	}()
 
-	ws, err := os.MkdirTemp("", "myai-nul-probe-")
+	ws, err := os.MkdirTemp("", "kodyar-nul-probe-")
 	if err != nil {
 		return false, "ساخت پوشهٔ بررسی ناموفق بود: " + err.Error()
 	}

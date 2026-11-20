@@ -1,7 +1,7 @@
 // تزریق کانتکست پروژه به گفتگو — قوانین پروژه (Project Rules) و ارجاع @mention.
 //
 // دو مسئولیت مستقل اما هم‌خانواده:
-// 1. Project Rules: قوانین ثابت پروژه از فایل (.myai/rules.md و سازگارها)
+// 1. Project Rules: قوانین ثابت پروژه از فایل (.kodyar/rules.md و سازگارها)
 // + قوانین تعریف‌شده از تنظیمات؛ هر دو به system prompt الصاق می‌شوند.
 // 2. @mention: توکن‌های @path و @folder/ در پیام کاربر به محتوای واقعی فایل
 // تبدیل می‌شوند و به‌صورت بلوک کانتکست به همان پیام الصاق می‌گردند
@@ -32,13 +32,16 @@ const (
 )
 
 // ruleFileCandidates فایل‌های قوانین پروژه به ترتیب اولویت.
-// اولویت: فایل اختصاصی MyAI، سپس سازگاری با ابزارهای رایج.
+// اولویت: فایل اختصاصی KodYar، سپس سازگاری با ابزارهای رایج.
 var ruleFileCandidates = []string{
-	filepath.Join(".myai", "rules.md"),
+	filepath.Join(".kodyar", "rules.md"),
 	"AGENTS.md",
 	"CLAUDE.md",
 	".cursorrules",
-	".myairules",
+	".kodyarrules",
+	// سازگاری با پروژه‌هایی که فایل قوانین را با نام قدیمی ساخته‌اند.
+	filepath.Join(legacyAppDirName, "rules.md"),
+	"." + legacyAppDirName + "rules",
 }
 
 // rulesFileCache کش خواندن فایل قوانین: کلید = (workspace، مسیر،
@@ -199,7 +202,7 @@ func (a *App) GetRulesInfo() RulesInfo {
 	userRules := a.settings.ProjectRules
 	a.mu.Unlock()
 	if !found {
-		fileRel = filepath.ToSlash(filepath.Join(".myai", "rules.md"))
+		fileRel = filepath.ToSlash(filepath.Join(".kodyar", "rules.md"))
 	}
 	return RulesInfo{
 		Enabled:     enabled,

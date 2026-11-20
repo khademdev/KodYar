@@ -462,7 +462,7 @@ func TestMaxAgentRoundsClampAndSettingsLifecycle(t *testing.T) {
 
 	// فایل تنظیمات «قدیمی» بدون فیلد جدید → پیش‌فرض ۲۵ (سازگاری)
 	dir := t.TempDir()
-	os.Setenv("MYAI_CONFIG_DIR", dir)
+	os.Setenv("KODYAR_CONFIG_DIR", dir)
 	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"provider":"x","model":"m","temperature":0.7}`), 0o600); err != nil {
 		t.Fatal(err)
 	}

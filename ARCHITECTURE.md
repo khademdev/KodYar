@@ -1,4 +1,4 @@
-# MyAI — Architecture Reference
+# KodYar — Architecture Reference
 
 Wails v2 desktop coding agent (Go + system WebView, Persian/RTL UI).
 Single `package main` (~29.7k lines of production code + ~28k lines of tests);
@@ -257,7 +257,7 @@ a.checkpointMu, a.readStore.mu, a.factsCache.mu  (leaf locks — Mission 3)
   file-changing tool or a non-allow-listed command — a checkpoint commit is
   created from a temporary index that is filled **filter-free** (Mission 4
   pipeline — see the next section) and referenced as
-  `refs/myai/checkpoints/<convID>-<turnID>`; ≤20 refs per
+  `refs/kodyar/checkpoints/<convID>-<turnID>`; ≤20 refs per
   workspace are kept, 10 s budget, any failure skips with one Persian
   notice (turn never blocks; non-git workspaces silently rely on the
   file-tool revert only). `PreviewCheckpointRestore(convID, turnID)` lists
@@ -432,9 +432,9 @@ and the sub-agent itself is fully silent.
 
 ## Data on disk
 
-Config dir = `os.UserConfigDir()/MyAI` (Win `%AppData%\MyAI`, macOS
-`~/Library/Application Support/MyAI`, Linux `~/.config/MyAI`); override with
-`MYAI_CONFIG_DIR`; WebView profile in `config/webview`. Contents:
+Config dir = `os.UserConfigDir()/KodYar` (Win `%AppData%\KodYar`, macOS
+`~/Library/Application Support/KodYar`, Linux `~/.config/KodYar`); override with
+`KODYAR_CONFIG_DIR`; WebView profile in `config/webview`. Contents:
 
 - `settings.json` — providers, workspace, switches, permission rules +
   tool overrides + sensitive globs (`permissions` section), MCP servers
@@ -455,8 +455,8 @@ Config dir = `os.UserConfigDir()/MyAI` (Win `%AppData%\MyAI`, macOS
   or >500 MB total).
 - `errors.log` — user-visible error log (≤128KB, tail-kept rotation).
 
-Workspace (user-chosen): rule files `.myai/rules.md` → `AGENTS.md` →
-`CLAUDE.md` → `.cursorrules` → `.myairules` (first match wins; ≤12KB
+Workspace (user-chosen): rule files `.kodyar/rules.md` → `AGENTS.md` →
+`CLAUDE.md` → `.cursorrules` → `.kodyarrules` (first match wins; ≤12KB
 injected into the system prompt, UTF-8-safe cut; content cached by
 (workspace, path, size, mtime) under `a.mu` — `rulesCache`, Step 5 — so
 unchanged rule files are not re-read each turn). All model-supplied paths go

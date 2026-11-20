@@ -17,12 +17,12 @@ import (
 // نه نقص کد).
 func newPanicTestApp(t *testing.T) *App {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "myai-panic-")
+	dir, err := os.MkdirTemp("", "kodyar-panic-")
 	if err != nil {
 		t.Fatalf("temp dir: %v", err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	t.Setenv("MYAI_CONFIG_DIR", dir)
+	t.Setenv("KODYAR_CONFIG_DIR", dir)
 	resetErrorLogPath()
 	a := NewApp()
 	a.settings = defaultSettings()

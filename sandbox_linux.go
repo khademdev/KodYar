@@ -55,7 +55,7 @@ func runSandboxedShell(ctx context.Context, dir, command string, timeout time.Du
 	}
 	defer cancel()
 
-	home, err := os.MkdirTemp("", "myai-sandbox-home-")
+	home, err := os.MkdirTemp("", "kodyar-sandbox-home-")
 	if err != nil {
 		return "", -1, fmt.Errorf("linux sandbox: isolated home: %w", err)
 	}

@@ -36,7 +36,7 @@ type sandboxMCPProcess struct {
 }
 
 // sandboxMCPEnvironment محیط سرور MCP را با overrides سندباکس می‌سازد
-// (TEMP/HOME/LOCALAPPDATA ایزوله و MYAI_SANDBOX=1).
+// (TEMP/HOME/LOCALAPPDATA ایزوله و KODYAR_SANDBOX=1).
 func sandboxMCPEnvironment(env []string, home string, allowNetwork bool) []uint16 {
 	netFlag := "1"
 	if !allowNetwork {
@@ -59,8 +59,8 @@ func sandboxMCPEnvironment(env []string, home string, allowNetwork bool) []uint1
 		"GOPATH":               filepath.Join(home, "go"),
 		"GOCACHE":              filepath.Join(home, "go", "cache"),
 		"npm_config_cache":     filepath.Join(home, "npm-cache"),
-		"MYAI_SANDBOX":         "1",
-		"MYAI_SANDBOX_NETWORK": netFlag,
+		"KODYAR_SANDBOX":         "1",
+		"KODYAR_SANDBOX_NETWORK": netFlag,
 	}
 	for k, v := range overrides {
 		merged[strings.ToUpper(k)] = v

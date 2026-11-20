@@ -32,7 +32,7 @@ func (l fileLogger) write(level, message string) {
 	}
 	if level == "error" || level == "fatal" {
 		// برای اجرای ترمینالی/دیباگ هم قابل مشاهده بماند.
-		fmt.Fprintf(os.Stderr, "MyAI %s: %s\n", level, message)
+		fmt.Fprintf(os.Stderr, "KodYar %s: %s\n", level, message)
 	}
 }
 

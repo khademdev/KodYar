@@ -1,4 +1,4 @@
-/* MyAI — برچسب مسیر در کارت‌های ابزار گفتگو (pathlabel.js)
+/* KodYar — برچسب مسیر در کارت‌های ابزار گفتگو (pathlabel.js)
  *
  * مشکل: ابزارهای مسیرمحور وقتی ریشه‌ی پوشه‌ی کاری را هدف می‌گیرند آرگومانشان
  * «.» است و کارت ابزار عیناً «.» نشان می‌داد؛ کاربر نام پوشه/آدرس را
@@ -29,7 +29,7 @@
 	var kept = 0;
 
 	function workspace() {
-		var st = window.MyAIState;
+		var st = window.KodYarState;
 		return st && st.view && typeof st.view.workspace === "string" ? st.view.workspace.trim() : "";
 	}
 

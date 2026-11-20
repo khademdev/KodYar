@@ -1,4 +1,4 @@
-# دسترسی دستگاه NUL برای SID سندباکس MyAI
+# دسترسی دستگاه NUL برای SID سندباکس KodYar
 # ----------------------------------------
 # توکن AppContainer به \Device\Null دسترسی ندارد و همین باعث می‌شود
 # `go test` / `go vet` / `git` داخل سندباکس با «open NUL: Access is denied»
@@ -15,7 +15,7 @@
 # اجرا کنید. برای تغییر DACL یک شیء کرنل معمولاً به Administrator نیاز است.
 #
 # اجرا:  powershell -ExecutionPolicy Bypass -File scripts\grant-sandbox-nul.ps1
-param([string]$ProfileName = "MyAI.Sandbox.v1")
+param([string]$ProfileName = "KodYar.Sandbox.v1")
 
 $ErrorActionPreference = "Stop"
 

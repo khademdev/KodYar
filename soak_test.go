@@ -3,7 +3,7 @@
 // soak حلقه‌ی (نوشتن → برگرداندن → چک‌پوینت/بازگردانی → فشرده‌سازی → Stop)
 // را چند بار روی هارنس سرتاسری تکرار می‌کند و پس از گرم‌شدن رشد گوروتین،
 // heap، توصیف‌کننده‌های فایل و ورودی‌های پوشه‌ی config را می‌سنجد. حالت
-// طولانی با MYAI_SOAK_ITERATIONS فعال می‌شود؛ در گیت عادی ≤۲۰ ثانیه است.
+// طولانی با KODYAR_SOAK_ITERATIONS فعال می‌شود؛ در گیت عادی ≤۲۰ ثانیه است.
 //
 // TestFaultInjectionEndStates سناریوهای خرابی (انفجار 429/5xx، SSE خراب،
 // panic ابزار، دیسک پر، سکون استریم، کرش/هنگ MCP، git ناموجود/هنگ) را روی
@@ -89,7 +89,7 @@ func TestSoakAgentLoop(t *testing.T) {
 		t.Skip("git is not installed")
 	}
 	iterations := 5
-	if v := os.Getenv("MYAI_SOAK_ITERATIONS"); v != "" {
+	if v := os.Getenv("KODYAR_SOAK_ITERATIONS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			iterations = n
 		}

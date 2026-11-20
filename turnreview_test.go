@@ -40,7 +40,7 @@ func TestEditModeMigration(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(tc.json), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			os.Setenv("MYAI_CONFIG_DIR", dir)
+			os.Setenv("KODYAR_CONFIG_DIR", dir)
 			a := NewApp()
 			if err := a.loadSettings(); err != nil {
 				t.Fatal(err)
@@ -90,7 +90,7 @@ func TestSetEditMode(t *testing.T) {
 	}
 	// ماندگاری روی دیسک
 	a2 := NewApp()
-	os.Setenv("MYAI_CONFIG_DIR", a.mustConfigDir())
+	os.Setenv("KODYAR_CONFIG_DIR", a.mustConfigDir())
 	if err := a2.loadSettings(); err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestPathMatchesProtectedGlobs(t *testing.T) {
 		{".git/config", true},
 		{".git/hooks/pre-commit", true},
 		{".github/workflows/ci.yml", true},
-		{".myai/rules.md", true},
+		{".kodyar/rules.md", true},
 		{".vscode/settings.json", true},
 		{".env", true},
 		{".env.local", true},
@@ -647,7 +647,7 @@ func TestOldChangesWithoutTurnID(t *testing.T) {
 		t.Fatal(err)
 	}
 	a2 := NewApp()
-	os.Setenv("MYAI_CONFIG_DIR", dir)
+	os.Setenv("KODYAR_CONFIG_DIR", dir)
 	a2.initChangesStore()
 	list := a2.loadChanges()
 	if len(list) != 1 || list[0].TurnID != 0 {

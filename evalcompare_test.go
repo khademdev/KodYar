@@ -7,9 +7,9 @@
 //
 // اجرا:
 //
-//	MYAI_EVAL_COMPARE=old.json,new.json go test -run TestAgentEvalCompare -v .
+//	KODYAR_EVAL_COMPARE=old.json,new.json go test -run TestAgentEvalCompare -v .
 //
-// گزارش‌ها را با MYAI_EVAL_OUT بسازید (نگاه کنید به evalsuite_test.go).
+// گزارش‌ها را با KODYAR_EVAL_OUT بسازید (نگاه کنید به evalsuite_test.go).
 // TestEvalCompareReports همیشه اجرا می‌شود و ریاضیِ تفاضل را با دادهٔ ساختگی
 // می‌سنجد تا این ابزار خودش بی‌تست نماند.
 package main
@@ -184,16 +184,16 @@ func passWord(ok bool) string {
 	return "FAIL"
 }
 
-// TestAgentEvalCompare با MYAI_EVAL_COMPARE="old.json,new.json" دو گزارش را
+// TestAgentEvalCompare با KODYAR_EVAL_COMPARE="old.json,new.json" دو گزارش را
 // مقایسه می‌کند (بدون آن skip).
 func TestAgentEvalCompare(t *testing.T) {
-	raw := strings.TrimSpace(os.Getenv("MYAI_EVAL_COMPARE"))
+	raw := strings.TrimSpace(os.Getenv("KODYAR_EVAL_COMPARE"))
 	if raw == "" {
-		t.Skip("report comparison skipped: set MYAI_EVAL_COMPARE=old.json,new.json")
+		t.Skip("report comparison skipped: set KODYAR_EVAL_COMPARE=old.json,new.json")
 	}
 	parts := strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ';' })
 	if len(parts) != 2 {
-		t.Fatalf("MYAI_EVAL_COMPARE needs exactly two paths (A,B), got %q", raw)
+		t.Fatalf("KODYAR_EVAL_COMPARE needs exactly two paths (A,B), got %q", raw)
 	}
 	a, err := readEvalReport(strings.TrimSpace(parts[0]))
 	if err != nil {

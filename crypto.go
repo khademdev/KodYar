@@ -1,7 +1,7 @@
 // رمزنگاری کلیدهای API — AES-GCM با کلید اصلی ذخیره‌شده در Keyring سیستم‌عامل.
 //
 // ساختار (v2): کلید اصلی تصادفی ۳۲ بایتی در Credential Manager ویندوز /
-// Keychain مک / Secret Service لینوکس (سرویس «MyAI»، کاربر «settings-key»)
+// Keychain مک / Secret Service لینوکس (سرویس «KodYar»، کاربر «settings-key»)
 // نگه‌داری می‌شود و برای AES-GCM به کار می‌رود. متن رمزشده با پیشوند «v2:»
 // از نسخه‌ی قدیمی (مشتق از نام کاربر+میزبان) متمایز می‌شود.
 //
@@ -34,11 +34,17 @@ import (
 )
 
 const (
-	cryptoSalt     = "MyAI::v1::local-secret" // فقط مسیر legacy
-	cryptoV2Prefix = "v2:"                    // نشانگر فرمت جدید
-	keyringService = "MyAI"
+	cryptoSalt     = "KodYar::v1::local-secret" // فقط مسیر legacy
+	cryptoV2Prefix = "v2:"                      // نشانگر فرمت جدید
+	keyringService = "KodYar"
 	keyringUser    = "settings-key"
 	masterKeyLen   = 32
+
+	// این دو فقط برای سازگاری با نسخه‌های پیش از تغییر برند (نام قدیمی
+	// سرویس Keyring و نمک کلید مشتق‌شده) هستند و هرگز نباید عوض شوند؛
+	// تغییرشان یعنی کلیدهای API و تنظیمات رمزشده‌ی کاربران قدیمی باز نمی‌شوند.
+	legacyKeyringService = "MyAI"
+	legacyCryptoSalt     = "MyAI::v1::local-secret"
 )
 
 // secretStore اینترفیس Keyring — برای تزریق در تست‌ها.
@@ -79,6 +85,14 @@ var activeCrypto = newMasterKeyState()
 // Keyring خطا داد → حالت legacy (کلید مشتق قدیمی).
 func (m *masterKeyState) resolveOnce() {
 	enc, err := keyringBackend.Get(keyringService, keyringUser)
+	if err != nil && errors.Is(err, keyring.ErrNotFound) {
+		// مهاجرت یک‌باره: کلید اصلی نسخه‌های قدیمی زیر نام سرویس قدیمی
+		// ذخیره شده است؛ همان مقدار را زیر نام جدید کپی می‌کنیم.
+		if oldEnc, oerr := keyringBackend.Get(legacyKeyringService, keyringUser); oerr == nil && oldEnc != "" {
+			enc, err = oldEnc, nil
+			_ = keyringBackend.Set(keyringService, keyringUser, oldEnc)
+		}
+	}
 	if err == nil && enc != "" {
 		if raw, derr := base64.StdEncoding.DecodeString(enc); derr == nil && len(raw) == masterKeyLen {
 			m.key = raw
@@ -138,7 +152,7 @@ func deriveKey() []byte {
 		userName = cu.Username
 	}
 	host, _ := os.Hostname()
-	seed := strings.Join([]string{userName, host, cryptoSalt}, "|")
+	seed := strings.Join([]string{userName, host, legacyCryptoSalt}, "|")
 	sum := sha256.Sum256([]byte(seed))
 	return sum[:]
 }

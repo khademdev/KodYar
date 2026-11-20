@@ -39,7 +39,7 @@ func TestParseSkillMetaFallbackHeadingAndText(t *testing.T) {
 
 func TestDiscoverSkillsPriorityAndDedupe(t *testing.T) {
 	ws := t.TempDir()
-	writeSkill(t, ws, ".myai/skills/release/SKILL.md", "---\nname: release\ndescription: myai version\n---\n")
+	writeSkill(t, ws, ".kodyar/skills/release/SKILL.md", "---\nname: release\ndescription: kodyar version\n---\n")
 	writeSkill(t, ws, ".claude/skills/release/SKILL.md", "---\nname: release\ndescription: claude version\n---\n")
 	writeSkill(t, ws, ".claude/skills/review/SKILL.md", "---\nname: review\ndescription: review changes\n---\n")
 	// پوشه‌ی بدون فایل مهارت نباید وارد فهرست شود
@@ -59,10 +59,10 @@ func TestDiscoverSkillsPriorityAndDedupe(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("skills = %+v, want 2", got)
 	}
-	if got[0].Name != "release" || got[0].Description != "myai version" {
+	if got[0].Name != "release" || got[0].Description != "kodyar version" {
 		t.Fatalf("priority root must win: %+v", got[0])
 	}
-	if got[0].Path != ".myai/skills/release/SKILL.md" {
+	if got[0].Path != ".kodyar/skills/release/SKILL.md" {
 		t.Fatalf("path must be slash-relative: %q", got[0].Path)
 	}
 }

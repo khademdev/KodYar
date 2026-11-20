@@ -208,7 +208,7 @@ type mcpClient struct {
 
 var (
 	// mcpBaseEnvKeys متغیرهای پایه‌ای که هر سرور MCP (معمولاً یک فرایند
-	// Node/Python) برای اجرا لازم دارد. هیچ کلید API یا تنظیمات MyAI اینجا نیست.
+	// Node/Python) برای اجرا لازم دارد. هیچ کلید API یا تنظیمات KodYar اینجا نیست.
 	mcpBaseEnvKeys = []string{
 		"PATH", "SystemRoot", "windir", "TEMP", "TMP", "HOME", "USERPROFILE",
 		"USER", "USERNAME", "LANG", "LC_ALL", "LC_CTYPE", "COMSPEC", "PATHEXT",
@@ -404,7 +404,7 @@ func (c *mcpClient) initialize(ctx context.Context) error {
 	params := map[string]interface{}{
 		"protocolVersion": mcpProtocolVersion,
 		"capabilities":    map[string]interface{}{},
-		"clientInfo":      map[string]string{"name": "MyAI", "version": version},
+		"clientInfo":      map[string]string{"name": "KodYar", "version": version},
 	}
 	var res mcpInitializeResult
 	if err := c.call(ctx, "initialize", params, &res); err != nil {
@@ -696,7 +696,7 @@ func (c *mcpClient) handleServerRequest(msg jsonRPCMessage) {
 	default:
 		_ = c.reply(msg.ID, nil, &jsonRPCError{
 			Code:    -32601, // Method not found
-			Message: "MyAI MCP client does not support this server request: " + msg.Method,
+			Message: "KodYar MCP client does not support this server request: " + msg.Method,
 		})
 	}
 }

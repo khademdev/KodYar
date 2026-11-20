@@ -38,8 +38,8 @@ func sandboxLinuxEnvVars(env []string, home string, allowNetwork bool) []string 
 	}
 	merged["HOME"] = home
 	merged["TMPDIR"] = strings.TrimRight(home, "/") + "/tmp"
-	merged["MYAI_SANDBOX"] = "1"
-	merged["MYAI_SANDBOX_NETWORK"] = netFlag
+	merged["KODYAR_SANDBOX"] = "1"
+	merged["KODYAR_SANDBOX_NETWORK"] = netFlag
 	keys := make([]string, 0, len(merged))
 	for k := range merged {
 		keys = append(keys, k)

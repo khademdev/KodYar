@@ -13,7 +13,7 @@
 //   - هیچ کلید API، توکن یا مقدار env داخل بسته نمی‌رود (پاک‌سازی ساختاری + الگویی).
 //   - محتوای گفتگوها، فایل‌های پروژه و diffها هرگز جمع نمی‌شوند.
 //   - لاگ‌ها فقط «انتهای» فایل و کران‌دار (۶۴KB) کپی می‌شوند.
-//   - مسیر خروجی: <configDir>/diagnostics/MyAI-diag-<timestamp>.zip
+//   - مسیر خروجی: <configDir>/diagnostics/KodYar-diag-<timestamp>.zip
 package main
 
 import (
@@ -131,7 +131,7 @@ func (a *App) diagnosticInfoText() string {
 
 	cfgDir, _ := a.configDir()
 	var b strings.Builder
-	fmt.Fprintf(&b, "MyAI diagnostic bundle\n")
+	fmt.Fprintf(&b, "KodYar diagnostic bundle\n")
 	fmt.Fprintf(&b, "generated_at: %s\n", time.Now().Format(time.RFC3339))
 	fmt.Fprintf(&b, "version: %s\n", version)
 	fmt.Fprintf(&b, "go_version: %s\n", runtime.Version())
@@ -163,7 +163,7 @@ func wsOrNone(v string) string {
 // diagnosticReadmeText توضیح فارسی محتوای بسته (برای کاربر/پشتیبانی).
 func diagnosticReadmeText() string {
 	var b strings.Builder
-	b.WriteString("بستهٔ عیب‌یابی MyAI\n==================\n\n")
+	b.WriteString("بستهٔ عیب‌یابی KodYar\n==================\n\n")
 	b.WriteString("این فایل برای بررسی مشکل ساخته شده و هیچ راز یا محتوای گفتگویی ندارد:\n\n")
 	b.WriteString("- info.txt: نسخه، سیستم‌عامل، معماری، مسیر پوشهٔ کاری/تنظیمات، شمارش گفتگوها و وضعیت سوییچ‌ها\n")
 	b.WriteString("- settings.redacted.json: تنظیمات برنامه با کلیدهای API و مقادیر env پاک‌شده\n")
@@ -186,7 +186,7 @@ func (a *App) ExportDiagnosticBundle() (string, error) {
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return "", fmt.Errorf("ساخت پوشهٔ بستهٔ عیب‌یابی ناموفق بود: %w", err)
 	}
-	name := "MyAI-diag-" + time.Now().Format("20060102-150405") + ".zip"
+	name := "KodYar-diag-" + time.Now().Format("20060102-150405") + ".zip"
 	path := filepath.Join(outDir, name)
 
 	f, err := os.Create(path)
@@ -225,7 +225,7 @@ func (a *App) ExportDiagnosticBundle() (string, error) {
 			}
 		}
 	}
-	for _, cand := range []string{"app.log", "myai.log"} {
+	for _, cand := range []string{"app.log", "kodyar.log"} {
 		if data := tailBytes(filepath.Join(dir, cand), diagnosticLogBytes); len(data) > 0 {
 			if err := add(cand, []byte(scrubSecrets(string(data)))); err != nil {
 				return fail(err)

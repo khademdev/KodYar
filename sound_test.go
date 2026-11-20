@@ -19,7 +19,7 @@ func TestCompletionSoundWired(t *testing.T) {
 		t.Fatal("index.html must load assets/js/sound.js")
 	}
 	if strings.Index(h, "assets/js/app.js") > strings.Index(h, "assets/js/sound.js") {
-		t.Fatal("sound.js must load after app.js (it reads window.MyAIState)")
+		t.Fatal("sound.js must load after app.js (it reads window.KodYarState)")
 	}
 
 	raw, err := os.ReadFile(filepath.Join("frontend", "dist", "assets", "js", "sound.js"))

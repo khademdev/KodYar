@@ -75,7 +75,7 @@
 
   function onDone(ev) {
     if (!ev || ev.aborted) return;
-    var view = window.MyAIState && window.MyAIState.view;
+    var view = window.KodYarState && window.KodYarState.view;
     if (!view || !view.agentMode) return;
     play();
   }
@@ -95,5 +95,5 @@
     window.runtime.EventsOn("chat:done", onDone);
   }
 
-  window.MyAISound = { play: playForTest, unlock: unlock };
+  window.KodYarSound = { play: playForTest, unlock: unlock };
 })();

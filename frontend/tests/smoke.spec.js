@@ -1,4 +1,4 @@
-// MyAI — تست دودِ مرورگری (Playwright) — بند D.2.2 مأموریت ۳
+// KodYar — تست دودِ مرورگری (Playwright) — بند D.2.2 مأموریت ۳
 //
 // هدف: هر مودال/کارتِ کل باید واقعاً «قابل‌مشاهده» و «قابل‌کلیک» شود و
 // دکمه‌هایش به بریج (Mock) سیم‌کشی باشند — نگهبانِ همان کلاس باگِ
@@ -9,7 +9,7 @@
 
 const { test, expect } = require("@playwright/test");
 
-const MOCK_KEY = "myai-mock-v1";
+const MOCK_KEY = "kodyar-mock-v1";
 
 // تنظیم حالت ایجنت با Provider کامل، پیش از بارگذاری صفحه (mock از
 // localStorage می‌خواند؛ بدون Provider واقعی SendMessage رد می‌شود).

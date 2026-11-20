@@ -79,7 +79,7 @@ func TestHostBypassesProxy(t *testing.T) {
 		{"notexample.com", "example.com", false}, // پسوند کلاهبردار
 		{"sub.corp.local", "<local>;*.corp.local", true},
 		{"corp.local.evil.com", "*.corp.local", false},
-		{"api.myai.dev", "localhost;<local>*", false},
+		{"api.kodyar.dev", "localhost;<local>*", false},
 		{"", "localhost", false},
 	}
 	for _, c := range cases {
@@ -190,7 +190,7 @@ func TestFailOpenDeadProxyServesDirect(t *testing.T) {
 	// غیرواقعی را با DialContext به همان سرور تست می‌رسانیم.
 	addr := target.Listener.Addr().String()
 	dialTest := func(ctx context.Context, network, address string) (net.Conn, error) {
-		if strings.Contains(address, "myai-test.invalid") {
+		if strings.Contains(address, "kodyar-test.invalid") {
 			address = addr
 		}
 		var d net.Dialer
@@ -204,7 +204,7 @@ func TestFailOpenDeadProxyServesDirect(t *testing.T) {
 	tr := &http.Transport{Proxy: smartProxy, DialContext: dialTest}
 	client := &http.Client{Transport: failOpenTransport{base: tr}}
 
-	resp, err := client.Get("http://myai-test.invalid/") // پروکسی 127.0.0.1:1 بسته است
+	resp, err := client.Get("http://kodyar-test.invalid/") // پروکسی 127.0.0.1:1 بسته است
 	if err != nil {
 		t.Fatalf("fail-open failed: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestFailOpenDeadProxyServesDirect(t *testing.T) {
 	}
 
 	// درخواست دوم با فاصله‌ی خنک‌سازی مستقیماً می‌رود (بدون تلاش مجدد)
-	resp2, err := client.Get("http://myai-test.invalid/")
+	resp2, err := client.Get("http://kodyar-test.invalid/")
 	if err != nil {
 		t.Fatalf("second request failed: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestProxyModeMigration(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()
-			t.Setenv("MYAI_CONFIG_DIR", dir)
+			t.Setenv("KODYAR_CONFIG_DIR", dir)
 			resetErrorLogPath()
 			if werr := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(c.file), 0o600); werr != nil {
 				t.Fatal(werr)

@@ -25,8 +25,8 @@ func fidelityWorkspace(t *testing.T) (string, map[string][]byte) {
 	gitRun(t, ws, "config", "user.name", "T")
 	gitRun(t, ws, "config", "user.email", "t@t")
 	gitRun(t, ws, "config", "core.autocrlf", "true")
-	gitRun(t, ws, "config", "filter.broken.clean", "myai-filter-does-not-exist")
-	gitRun(t, ws, "config", "filter.broken.smudge", "myai-filter-does-not-exist")
+	gitRun(t, ws, "config", "filter.broken.clean", "kodyar-filter-does-not-exist")
+	gitRun(t, ws, "config", "filter.broken.smudge", "kodyar-filter-does-not-exist")
 
 	files := map[string][]byte{
 		".gitattributes":       []byte("* text=auto eol=crlf\n*.bin -text\n*.dat filter=broken\n"),

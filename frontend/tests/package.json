@@ -1,8 +1,8 @@
 {
-  "name": "myai-frontend-tests",
+  "name": "kodyar-frontend-tests",
   "version": "1.0.6",
   "private": true,
-  "description": "Optional Playwright smoke tests for the MyAI frontend (dev-only; not part of the app build).",
+  "description": "Optional Playwright smoke tests for the KodYar frontend (dev-only; not part of the app build).",
   "scripts": {
     "test": "playwright test"
   },

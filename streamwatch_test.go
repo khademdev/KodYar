@@ -78,17 +78,17 @@ func assistantMessages(t *testing.T, a *App, convID string) []Message {
 // نگه می‌دارد و t.TempDir در پاک‌سازی «directory is not empty» می‌دهد.
 func streamTestApp(t *testing.T, srvURL string) *App {
 	t.Helper()
-	cfgDir, err := os.MkdirTemp("", "myai-stream-")
+	cfgDir, err := os.MkdirTemp("", "kodyar-stream-")
 	if err != nil {
 		t.Fatalf("config dir: %v", err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(cfgDir) })
-	wsDir, err := os.MkdirTemp("", "myai-stream-ws-")
+	wsDir, err := os.MkdirTemp("", "kodyar-stream-ws-")
 	if err != nil {
 		t.Fatalf("workspace dir: %v", err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(wsDir) })
-	t.Setenv("MYAI_CONFIG_DIR", cfgDir)
+	t.Setenv("KODYAR_CONFIG_DIR", cfgDir)
 	resetErrorLogPath()
 
 	a := NewApp()

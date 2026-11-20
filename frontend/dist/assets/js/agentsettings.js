@@ -1,8 +1,8 @@
-/* MyAI — تنظیم «حداکثر مراحل ایجنت» و «حداکثر مراحل زیرایجنت» در تب «مدل و رفتار»
+/* KodYar — تنظیم «حداکثر مراحل ایجنت» و «حداکثر مراحل زیرایجنت» در تب «مدل و رفتار»
  *
  * این فایل خوانا و جدا است؛ فایل‌های minified دست‌کاری نمی‌شوند.
  * اتصال با حداقل قلاب:
- *   - کلیک روی تب «مدل و رفتار» → مقدار فعلی از MyAIState.view خوانده و در
+ *   - کلیک روی تب «مدل و رفتار» → مقدار فعلی از KodYarState.view خوانده و در
  *     فیلدهای #gen-agentrounds و #gen-subagentrounds نشان داده می‌شود
  *     (شنونده‌ی ما روی همان دکمه‌ی تب، بعد از شنونده‌ی minified اجرا می‌شود —
  *     stack کردن addEventListener).
@@ -38,7 +38,7 @@
 
   // خواندن مقدار فعلی از view (SettingsView بک‌اند؛ در Mock ممکن است نباشد)
   function currentValue(cfg) {
-    var v = (window.MyAIState && window.MyAIState.view && window.MyAIState.view[cfg.view]) || 0;
+    var v = (window.KodYarState && window.KodYarState.view && window.KodYarState.view[cfg.view]) || 0;
     var n = parseInt(v, 10);
     if (isNaN(n) || n <= 0) return cfg.def;
     if (n < cfg.min) return cfg.min;
@@ -73,8 +73,8 @@
     var n = clampClient(cfg, parseInt(el.value, 10));
     be[cfg.set](n)
       .then(function () {
-        if (window.MyAIState && window.MyAIState.view) {
-          window.MyAIState.view[cfg.view] = n;
+        if (window.KodYarState && window.KodYarState.view) {
+          window.KodYarState.view[cfg.view] = n;
         }
         el.value = String(n);
       })
@@ -166,7 +166,7 @@
     }
 
     row.addEventListener("click", function () {
-      var view = (window.MyAIState && window.MyAIState.view) || {};
+      var view = (window.KodYarState && window.KodYarState.view) || {};
       var next = view.promptCache === false;
       var be = backend();
       if (!be || typeof be.SetPromptCache !== "function") {
@@ -232,7 +232,7 @@
     }
 
     row.addEventListener("click", function () {
-      var view = (window.MyAIState && window.MyAIState.view) || {};
+      var view = (window.KodYarState && window.KodYarState.view) || {};
       var next = view.autoVerify === false;
       var be = backend();
       if (!be || typeof be.SetAutoVerify !== "function") {
@@ -266,9 +266,9 @@
   function init() {
     buildIdleField();
     buildCacheRow();
-    syncCacheSwitch((window.MyAIState && window.MyAIState.view || {}).promptCache);
+    syncCacheSwitch((window.KodYarState && window.KodYarState.view || {}).promptCache);
     buildAutoVerifyRow();
-    syncAutoVerifySwitch((window.MyAIState && window.MyAIState.view || {}).autoVerify);
+    syncAutoVerifySwitch((window.KodYarState && window.KodYarState.view || {}).autoVerify);
     // آیکون فیلدها — slots.js (minified) از IDهای شناخته‌شده آیکون می‌گذارد؛
     // فیلدهای جدید مال ما هستند، پس آیکونشان را همین‌جا می‌گذاریم (الگوی
     // permsettings.js). زیرایجنت آیکون «map» دارد (همان آیکون کارت ابزار task).
@@ -286,8 +286,8 @@
         populate(AGENT);
         populate(SUB);
         populate(IDLE);
-        syncCacheSwitch((window.MyAIState && window.MyAIState.view || {}).promptCache);
-        syncAutoVerifySwitch((window.MyAIState && window.MyAIState.view || {}).autoVerify);
+        syncCacheSwitch((window.KodYarState && window.KodYarState.view || {}).promptCache);
+        syncAutoVerifySwitch((window.KodYarState && window.KodYarState.view || {}).autoVerify);
       });
     populate(AGENT);
     populate(SUB);

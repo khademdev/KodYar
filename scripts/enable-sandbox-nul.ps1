@@ -1,4 +1,4 @@
-# فعال‌سازی یک‌بارهٔ دسترسی \Device\Null برای سندباکس MyAI
+# فعال‌سازی یک‌بارهٔ دسترسی \Device\Null برای سندباکس KodYar
 # -------------------------------------------------------
 # این اسکریپت با دسترسی Administrator اجرا می‌شود (از داخل خودِ برنامه با
 # ShellExecute "runas" و یک‌بار تأیید UAC) و سه کار می‌کند:
@@ -16,8 +16,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$Grant,
     [Parameter(Mandatory = $true)][string]$StateDir,
-    [string]$TaskName = 'MyAI Sandbox NUL (System)',
-    [string]$LegacyTask = 'MyAI Sandbox NUL',
+    [string]$TaskName = 'KodYar Sandbox NUL (System)',
+    [string]$LegacyTask = 'KodYar Sandbox NUL',
     [string]$StartupDir = ''
 )
 
@@ -59,7 +59,7 @@ $queryExit = $LASTEXITCODE
 # ۳) پاک‌سازی مسیرهای قدیمی (Task کاربری و ورودی Startup)
 & schtasks.exe /Delete /TN $LegacyTask /F 2>&1 | Out-Null
 if ($StartupDir -and (Test-Path -LiteralPath $StartupDir)) {
-    foreach ($name in @('MyAI-sandbox-nul.vbs', 'MyAI-sandbox-nul.cmd')) {
+    foreach ($name in @('KodYar-sandbox-nul.vbs', 'KodYar-sandbox-nul.cmd')) {
         $p = Join-Path $StartupDir $name
         if (Test-Path -LiteralPath $p) {
             Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue

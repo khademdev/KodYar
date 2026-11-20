@@ -313,7 +313,7 @@ func TestSetConfirmFileWrites(t *testing.T) {
 	}
 	// باید روی دیسک هم ذخیره شده باشد
 	a2 := NewApp()
-	os.Setenv("MYAI_CONFIG_DIR", a.mustConfigDir())
+	os.Setenv("KODYAR_CONFIG_DIR", a.mustConfigDir())
 	_ = a2.loadSettings()
 	if a2.settings.ConfirmFileWrites {
 		t.Fatal("confirmFileWrites must be persisted to disk")

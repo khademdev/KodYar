@@ -20,13 +20,13 @@ import re, glob, os, sys
 
 def find_go_dir():
     """Locate the Go module root relative to this script when possible
-    (repo layout: <MyAI>/scripts/gen_wailsjs.py); fall back to the
+    (repo layout: <KodYar>/scripts/gen_wailsjs.py); fall back to the
     hardening-workspace path otherwise."""
     here = os.path.dirname(os.path.abspath(__file__))
     parent = os.path.dirname(here)
     if os.path.exists(os.path.join(parent, "go.mod")):
         return parent
-    return "/home/z/my-project/myai-extract/MyAI"
+    return "/home/z/my-project/kodyar-extract/KodYar"
 
 GO_DIR = find_go_dir()
 OUT_DIR = os.path.join(GO_DIR, "frontend/wailsjs/go/main")
@@ -34,7 +34,7 @@ OUT_DIR = os.path.join(GO_DIR, "frontend/wailsjs/go/main")
 HEADER_JS = """// @ts-check
 // Cynhyrchwyd y ffeil hon yn awtomatig. PEIDIWCH Â MODIWLU
 // This file mirrors the Wails v2 bindings format, but is HAND-MAINTAINED
-// in this project because MyAI builds with `-skipbindings`.
+// in this project because KodYar builds with `-skipbindings`.
 // Protocol (see ARCHITECTURE.md): every new exported App method must be
 // added here (App.js + App.d.ts, plus any new struct types in models.ts).
 // Regenerate deterministically with: scripts/gen_wailsjs.py (repo root).
@@ -42,7 +42,7 @@ HEADER_JS = """// @ts-check
 
 HEADER_TS = """// Cynhyrchwyd y ffeil hon yn awtomatig. PEIDIWCH Â MODIWLU
 // This file mirrors the Wails v2 bindings format, but is HAND-MAINTAINED
-// in this project because MyAI builds with `-skipbindings`.
+// in this project because KodYar builds with `-skipbindings`.
 // Protocol (see ARCHITECTURE.md): keep in sync with App.js and models.ts.
 // Regenerate deterministically with: scripts/gen_wailsjs.py (repo root).
 """

@@ -60,7 +60,7 @@ func TestSandboxBlocksWriteOutsideWorkspace(t *testing.T) {
 	if base == "" {
 		base = os.TempDir()
 	}
-	target := filepath.Join(base, fmt.Sprintf("myai-sandbox-escape-%d.txt", time.Now().UnixNano()))
+	target := filepath.Join(base, fmt.Sprintf("kodyar-sandbox-escape-%d.txt", time.Now().UnixNano()))
 	defer os.Remove(target)
 
 	cmd := `echo escaped>"` + target + `"`
@@ -79,7 +79,7 @@ func TestSandboxBlocksReadingUserProfile(t *testing.T) {
 	if base == "" {
 		t.Skip("no local appdata to test against")
 	}
-	secret := filepath.Join(base, fmt.Sprintf("myai-sandbox-secret-%d.txt", time.Now().UnixNano()))
+	secret := filepath.Join(base, fmt.Sprintf("kodyar-sandbox-secret-%d.txt", time.Now().UnixNano()))
 	if err := os.WriteFile(secret, []byte("TOP-SECRET-MARKER"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -119,8 +119,8 @@ func TestSandboxEnvironmentIsolated(t *testing.T) {
 		"USERPROFILE=" + home,
 		"TEMP=" + filepath.Join(home, "tmp"),
 		"GOCACHE=" + filepath.Join(home, "go", "cache"),
-		"MYAI_SANDBOX=1",
-		"MYAI_SANDBOX_NETWORK=0",
+		"KODYAR_SANDBOX=1",
+		"KODYAR_SANDBOX_NETWORK=0",
 	} {
 		if !strings.Contains(block, want) {
 			t.Fatalf("sandbox environment missing %q", want)

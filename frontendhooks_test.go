@@ -90,7 +90,7 @@ func TestFrontendTodosPatchDefersPastAppJS(t *testing.T) {
 }
 
 // TestFrontendMCPSaveRefreshesSnapshot — رگرسیون: mcpsettings.js باید پس
-// از ذخیره snapshot در MyAIState.view.mcpServers را با SettingsView به‌روز
+// از ذخیره snapshot در KodYarState.view.mcpServers را با SettingsView به‌روز
 // کند تا باز کردن دوباره‌ی تب، پیکربندی قبل از ذخیره را نشان ندهد.
 func TestFrontendMCPSaveRefreshesSnapshot(t *testing.T) {
 	raw, err := os.ReadFile("frontend/dist/assets/js/mcpsettings.js")
@@ -100,8 +100,8 @@ func TestFrontendMCPSaveRefreshesSnapshot(t *testing.T) {
 	if !strings.Contains(string(raw), "SettingsView()") {
 		t.Fatal("mcpsettings.js save() must re-fetch SettingsView to refresh the snapshot")
 	}
-	if !strings.Contains(string(raw), `window.MyAIState.view.mcpServers = view.mcpServers`) {
-		t.Fatal("mcpsettings.js save() must update MyAIState.view.mcpServers")
+	if !strings.Contains(string(raw), `window.KodYarState.view.mcpServers = view.mcpServers`) {
+		t.Fatal("mcpsettings.js save() must update KodYarState.view.mcpServers")
 	}
 	// نمونه‌ی دست‌نخورده نباید به‌عنوان پیکربندی واقعی ذخیره شود.
 	if !strings.Contains(string(raw), `json = "[]"`) {

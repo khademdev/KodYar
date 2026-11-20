@@ -94,7 +94,7 @@ function fallbackCopy(text){
  * opts.stream  — lightweight path for live streaming (no highlight, less DOM work)
  * opts.skipHighlight — skip hljs only
  */
-window.MyAIMD={
+window.KodYarMD={
   renderMarkdown:function(el,text,opts){
     opts=opts||{};
     const isStream=!!opts.stream;

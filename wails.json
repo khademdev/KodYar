@@ -1,7 +1,7 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "MyAI",
-  "outputfilename": "MyAI",
+  "name": "KodYar",
+  "outputfilename": "KodYar",
   "frontend:install": "",
   "frontend:build": "",
   "frontend:dev:watcher": "",
@@ -10,9 +10,9 @@
     "name": "Meysam Khadem Shams"
   },
   "info": {
-    "productName": "MyAI",
+    "productName": "KodYar",
     "productVersion": "1.0.1",
     "copyright": "Copyright © 2026 Meysam Khadem Shams",
-    "comments": "دستیار هوشمند کدنویسی MyAI"
+    "comments": "دستیار هوشمند کدنویسی KodYar"
   }
 }

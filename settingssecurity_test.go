@@ -11,7 +11,7 @@ import (
 
 func TestSettingsSanitizesMaliciousProviderFields(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("MYAI_CONFIG_DIR", dir)
+	t.Setenv("KODYAR_CONFIG_DIR", dir)
 	const evilID = `"><img src=x onerror=alert(1)>`
 	const evilColor = `red" onmouseover="alert(2)`
 	// فیکسچر با Marshal ساخته می‌شود تا کوتیشن‌های مخرب به‌درستی

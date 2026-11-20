@@ -403,7 +403,7 @@ func TestToolDenyOverride(t *testing.T) {
 // (لیست‌سفید امن) اما قدرت بیشتری از قبل نمی‌گیرند.
 func TestPermissionsDefaultsMigration(t *testing.T) {
 	dir := t.TempDir()
-	os.Setenv("MYAI_CONFIG_DIR", dir)
+	os.Setenv("KODYAR_CONFIG_DIR", dir)
 	old := `{"provider":"","model":"","allowCommands":true,"providers":[],"workspacePath":"/tmp","apiKeys":{},"temperature":0.7,"maxHistory":30,"tokenLimit":200000,"defaultsRemoved":true}`
 	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(old), 0o600); err != nil {
 		t.Fatal(err)

@@ -1,4 +1,4 @@
-// MyAI — نوار «گزارش زنده» (که پیش‌تر «فعالیت ایجنت» نام داشت).
+// KodYar — نوار «گزارش زنده» (که پیش‌تر «فعالیت ایجنت» نام داشت).
 //
 // هدف: دقیقاً همان چیزی که کاربر از یک ایجنت حرفه‌ای می‌بیند — جمله‌های
 // انسانی فارسی برای هر کاری که ایجنت انجام می‌دهد: «در حال خواندن فایل
@@ -20,7 +20,7 @@
 (function () {
 	"use strict";
 
-	var utils = window.MyAIUtils || {};
+	var utils = window.KodYarUtils || {};
 	var $ = utils.$ || function (sel) { return document.querySelector(sel); };
 	var fa = utils.fa || function (n) { return String(n).replace(/\d/g, function (d) { return "۰۱۲۳۴۵۶۷۸۹"[d]; }); };
 
@@ -93,7 +93,7 @@
 	// پوشه/آدرس را نمی‌فهمید. حالا «.» و «./x» با نام واقعی پوشه نمایش
 	// داده می‌شوند.
 	function wsLabel() {
-		var st = window.MyAIState;
+		var st = window.KodYarState;
 		var ws = st && st.view && typeof st.view.workspace === "string" ? st.view.workspace.trim() : "";
 		ws = ws.replace(/[\\/]+$/, "");
 		if (!ws) return "ریشه‌ی پروژه";
@@ -216,7 +216,7 @@
 	// پیش‌فرض روشن). خاموش‌کردن فقط نمایش را می‌بندد؛ داده‌ها می‌مانند.
 	function activityEnabled() {
 		if (enabledOverride !== null) return enabledOverride;
-		var st = window.MyAIState;
+		var st = window.KodYarState;
 		if (st && st.view && typeof st.view.showActivity === "boolean") return st.view.showActivity;
 		return true;
 	}
@@ -224,7 +224,7 @@
 	// taskChip ارجاع کوتاه به وظیفه‌ی در جریان (از پنل «برنامهٔ کار»).
 	// اگر چک‌لیستی نباشد یا هیچ وظیفه‌ای در جریان نباشد، خالی است.
 	function taskChip() {
-		var api = window.MyAITodos;
+		var api = window.KodYarTodos;
 		if (!api || typeof api.currentTask !== "function") return "";
 		var t = null;
 		try { t = api.currentTask(); } catch (e) { return ""; }
@@ -480,7 +480,7 @@
 	}
 
 	function activeId() {
-		var st = window.MyAIState;
+		var st = window.KodYarState;
 		return st && st.activeId ? String(st.activeId) : "";
 	}
 
@@ -519,8 +519,8 @@
 			ms: 0,
 			error: "",
 			task: task,
-			taskText: task && window.MyAITodos && typeof window.MyAITodos.currentTask === "function"
-				? (window.MyAITodos.currentTask() || {}).content || ""
+			taskText: task && window.KodYarTodos && typeof window.KodYarTodos.currentTask === "function"
+				? (window.KodYarTodos.currentTask() || {}).content || ""
 				: ""
 		};
 		if (r.callId && byCall[r.callId]) return byCall[r.callId];
@@ -657,7 +657,7 @@
 	// setEnabled روشن/خاموش + ذخیرهٔ ماندگار (در پیش‌نمایش مرورگر فقط حافظه).
 	function setEnabled(on) {
 		enabledOverride = null;
-		if (window.MyAIState && window.MyAIState.view) window.MyAIState.view.showActivity = !!on;
+		if (window.KodYarState && window.KodYarState.view) window.KodYarState.view.showActivity = !!on;
 		syncSetting();
 		updateHeader();
 		if (on) renderAll();
@@ -728,7 +728,7 @@
 	}
 
 	// API عمومی برای تست/دیباگ و استفادهٔ سایر ماژول‌ها
-	window.MyAIActivity = {
+	window.KodYarActivity = {
 		rebuildFromConversation: rebuildFromConversation,
 		setEnabled: setEnabled,
 		enabled: activityEnabled,

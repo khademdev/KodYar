@@ -1,4 +1,4 @@
-/* MyAI — تب تنظیمات «MCP» (سرورهای ابزار خارجی)
+/* KodYar — تب تنظیمات «MCP» (سرورهای ابزار خارجی)
  *
  * فایل خوانا و جدا؛ کد مینیفای‌شدهٔ app.js دست نمی‌خورد. اتصال با همان الگوی
  * permsettings.js/agentsettings.js:
@@ -20,7 +20,7 @@
 (function () {
   "use strict";
 
-  var utils = window.MyAIUtils || {};
+  var utils = window.KodYarUtils || {};
   var $ = utils.$ || function (s) { return document.querySelector(s); };
   var fa = utils.fa || function (n) { return String(n).replace(/\d/g, function (d) { return "۰۱۲۳۴۵۶۷۸۹"[d]; }); };
 
@@ -143,7 +143,7 @@
   // ---------------------------------------------------------- خواندن/نوشتن
 
   function currentServers() {
-    var view = window.MyAIState && window.MyAIState.view;
+    var view = window.KodYarState && window.KodYarState.view;
     return (view && view.mcpServers) || [];
   }
 
@@ -189,7 +189,7 @@
     b.SaveMCPServers(json)
       .then(function () {
         toast("پیکربندی MCP ذخیره شد", "ok");
-        // snapshot در MyAIState.view.mcpServers به‌روز نمی‌شد؛ در نتیجه
+        // snapshot در KodYarState.view.mcpServers به‌روز نمی‌شد؛ در نتیجه
         // باز کردن دوبارهٔ تب، JSONِ «قبل از ذخیره» را نشان می‌داد و ذخیرهٔ
         // دوباره، ویرایش کاربر را بی‌صدا برمی‌گرداند. وضعیت رسمی را از
         // SettingsView می‌خوانیم (env ماسک‌شده) و ویرایشگر را با آن دوباره
@@ -197,8 +197,8 @@
         if (typeof b.SettingsView === "function") {
           b.SettingsView()
             .then(function (view) {
-              if (window.MyAIState && view) {
-                try { window.MyAIState.view.mcpServers = view.mcpServers || []; } catch (e) { /* فقطحالت‌های عجیب */ }
+              if (window.KodYarState && view) {
+                try { window.KodYarState.view.mcpServers = view.mcpServers || []; } catch (e) { /* فقطحالت‌های عجیب */ }
                 populateEditor();
               }
             })

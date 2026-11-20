@@ -1,4 +1,4 @@
-// MyAI — مهارت‌ها (Skills): گردآوری فایل‌های SKILL.md پروژه و تزریق یک
+// KodYar — مهارت‌ها (Skills): گردآوری فایل‌های SKILL.md پروژه و تزریق یک
 // فهرست فشرده به system prompt.
 //
 // چرا این‌طور: پرامپت سیستمی باید کوتاه بماند ولی مدل باید بداند چه
@@ -11,7 +11,7 @@
 //
 //	<root>/<skill-name>/SKILL.md
 //
-// ریشه‌ها به ترتیب اولویت بررسی می‌شوند: .myai/skills، .claude/skills،
+// ریشه‌ها به ترتیب اولویت بررسی می‌شوند: .kodyar/skills، .claude/skills،
 // .agents/skills، skills. نام تکراری از ریشه‌ی با اولویت بالاتر برنده است.
 package main
 
@@ -32,10 +32,12 @@ const (
 
 // skillRoots ریشه‌های جست‌وجوی مهارت‌ها، به ترتیب اولویت.
 var skillRoots = []string{
-	filepath.Join(".myai", "skills"),
+	filepath.Join(".kodyar", "skills"),
 	filepath.Join(".claude", "skills"),
 	filepath.Join(".agents", "skills"),
 	"skills",
+	// سازگاری با پروژه‌های قدیمی‌تر (نام پوشه پیش از تغییر برند).
+	filepath.Join(legacyAppDirName, "skills"),
 }
 
 // skillFileNames نام‌های پذیرفته‌شده‌ی فایل مهارت در پوشه‌ی هر مهارت.

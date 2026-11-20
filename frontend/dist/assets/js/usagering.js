@@ -1,4 +1,4 @@
-/* MyAI — نشانگر مصرف توکن (نسخهٔ ۱.۱۱ — بازطراحی کامل).
+/* KodYar — نشانگر مصرف توکن (نسخهٔ ۱.۱۱ — بازطراحی کامل).
  *
  * دو خواستهٔ کاربر که این ماژول پاسخ می‌دهد:
  *
@@ -20,7 +20,7 @@
 (function () {
   "use strict";
 
-  var utils = window.MyAIUtils || {};
+  var utils = window.KodYarUtils || {};
   var fa = utils.fa || function (n) {
     return String(n).replace(/\d/g, function (d) { return "۰۱۲۳۴۵۶۷۸۹"[d]; });
   };
@@ -64,9 +64,9 @@
     return Math.max(0, Math.min(100, v));
   }
 
-  // snapshot وضعیت فعلی از MyAIState (منبع UI).
+  // snapshot وضعیت فعلی از KodYarState (منبع UI).
   function snapshot() {
-    var st = window.MyAIState || {};
+    var st = window.KodYarState || {};
     var v = st.view || {};
     var conv = st.activeConv;
     var limit = num(v.tokenLimit) || 200000;
@@ -374,7 +374,7 @@
   // runProbe «بررسی شارژ»: موجودی Provider فعال را همین حالا می‌خواند.
   // این فراخوانی هرگز مستقیم شمارنده را صفر نمی‌کند؛ اگر با این خواندن شارژ
   // تشخیص داده شود، بک‌اند رویداد usage:auto-reset می‌فرستد و همان‌جا
-  // صفر شدن اعلام می‌شود. btn اختیاری است (API MyAIUsageRing.probe بدون پاپ‌اور).
+  // صفر شدن اعلام می‌شود. btn اختیاری است (API KodYarUsageRing.probe بدون پاپ‌اور).
   function runProbe(btn) {
     if (probeBusy) return;
     var be = window.go && window.go.main && window.go.main.App;
@@ -473,7 +473,7 @@
   }
 
   // API برای تست/دیباگ
-  window.MyAIUsageRing = {
+  window.KodYarUsageRing = {
     snapshot: snapshot,
     render: render,
     open: function () { togglePopover(true); },

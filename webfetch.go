@@ -307,7 +307,7 @@ func (a *App) toolWebFetch(ctx context.Context, rawURL string, maxChars int) (st
 	if err != nil {
 		return "ERROR: " + err.Error(), false
 	}
-	req.Header.Set("User-Agent", "MyAI/"+version+" (Wails desktop coding agent)")
+	req.Header.Set("User-Agent", "KodYar/"+version+" (Wails desktop coding agent)")
 	req.Header.Set("Accept", "text/html;q=0.9, application/xhtml+xml;q=0.9, text/*;q=0.8, application/json;q=0.8, application/xml;q=0.8")
 
 	resp, err := webFetchClient.Do(req)

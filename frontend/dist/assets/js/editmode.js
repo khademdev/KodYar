@@ -1,4 +1,4 @@
-/* MyAI — تنظیم «حالت ویرایش» و «سقف توکن هر نوبت» (Stage 2/3 — تب پوشه‌ی کاری)
+/* KodYar — تنظیم «حالت ویرایش» و «سقف توکن هر نوبت» (Stage 2/3 — تب پوشه‌ی کاری)
  *
  * فایل خوانا و جدا (الگوی agentsettings.js)؛ فایل‌های minified دست نمی‌خورند.
  *   - «حالت ویرایش» (۴.۱): دو گزینه با توضیح یک‌خطی:
@@ -67,7 +67,7 @@
   }
 
   function currentMode() {
-    var v = (window.MyAIState && window.MyAIState.view && window.MyAIState.view.editMode) || "";
+    var v = (window.KodYarState && window.KodYarState.view && window.KodYarState.view.editMode) || "";
     return v === "review_each" ? "review_each" : "auto";
   }
 
@@ -100,9 +100,9 @@
     var mode = pendingMode;
     be.SetEditMode(mode)
       .then(function () {
-        if (window.MyAIState && window.MyAIState.view) {
-          window.MyAIState.view.editMode = mode;
-          window.MyAIState.view.confirmFileWrites = mode === "review_each";
+        if (window.KodYarState && window.KodYarState.view) {
+          window.KodYarState.view.editMode = mode;
+          window.KodYarState.view.confirmFileWrites = mode === "review_each";
         }
       })
       .catch(function (err) {
@@ -116,7 +116,7 @@
     selectMode(currentMode());
     var cap = document.getElementById("gen-maxturntokens");
     if (cap) {
-      var v = (window.MyAIState && window.MyAIState.view && window.MyAIState.view.maxTurnTokens) || 0;
+      var v = (window.KodYarState && window.KodYarState.view && window.KodYarState.view.maxTurnTokens) || 0;
       cap.value = String(v || 2000000);
     }
   }
@@ -137,7 +137,7 @@
     }
     be.SetMaxTurnTokens(n)
       .then(function () {
-        if (window.MyAIState && window.MyAIState.view) window.MyAIState.view.maxTurnTokens = n;
+        if (window.KodYarState && window.KodYarState.view) window.KodYarState.view.maxTurnTokens = n;
         cap.value = String(n);
       })
       .catch(function (err) {

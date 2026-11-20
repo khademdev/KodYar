@@ -1,4 +1,4 @@
-/* MyAI — جمع‌شدن گروه مدل‌های هر Provider در انتخاب‌گر مدلِ چت‌باکس
+/* KodYar — جمع‌شدن گروه مدل‌های هر Provider در انتخاب‌گر مدلِ چت‌باکس
  * (modelfold.js → #mini-model / #model-popover)
  *
  * چرا: بعضی Providerها ده‌ها مدل دارند و فهرست مدل‌ها شلوغ می‌شود. حالا
@@ -13,7 +13,7 @@
 (function () {
 	"use strict";
 
-	var KEY = "myai.modelFold";
+	var KEY = "kodyar.modelFold";
 	var pop = document.getElementById("model-popover");
 	if (!pop) return;
 

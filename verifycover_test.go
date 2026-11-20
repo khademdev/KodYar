@@ -15,7 +15,7 @@ func TestParseVerifScopesKinds(t *testing.T) {
 		targets []string
 	}{
 		{"go build ./...", 1, "build", true, nil},
-		{"go test ./pkg/a/... ./cmd/myai/...", 1, "test", false, []string{"pkg/a", "cmd/myai"}},
+		{"go test ./pkg/a/... ./cmd/kodyar/...", 1, "test", false, []string{"pkg/a", "cmd/kodyar"}},
 		{"cd sub && go test ./...", 1, "test", true, nil},
 		{"go build ./... && go test ./pkg/a/...", 2, "test", false, []string{"pkg/a"}},
 		{"npm test", 1, "test", false, nil},
@@ -41,11 +41,11 @@ func TestParseVerifScopesKinds(t *testing.T) {
 }
 
 func TestCoverageGaps(t *testing.T) {
-	files := []string{"pkg/a/a.go", "cmd/myai/main.go"}
+	files := []string{"pkg/a/a.go", "cmd/kodyar/main.go"}
 
 	// فقط build روی کل مخزن: هر دو پوشه بی‌پوشش، buildOnly=true
 	gaps, buildOnly := coverageGaps(files, "go build ./...")
-	if len(gaps) != 2 || gaps[0] != "cmd/myai" || gaps[1] != "pkg/a" {
+	if len(gaps) != 2 || gaps[0] != "cmd/kodyar" || gaps[1] != "pkg/a" {
 		t.Fatalf("build-only must leave both dirs uncovered: %v", gaps)
 	}
 	if !buildOnly {
@@ -54,8 +54,8 @@ func TestCoverageGaps(t *testing.T) {
 
 	// تست هدفمند یکی را می‌پوشاند
 	gaps, buildOnly = coverageGaps(files, "go test ./pkg/a/...")
-	if len(gaps) != 1 || gaps[0] != "cmd/myai" || buildOnly {
-		t.Fatalf("only cmd/myai must be missing: %v buildOnly=%v", gaps, buildOnly)
+	if len(gaps) != 1 || gaps[0] != "cmd/kodyar" || buildOnly {
+		t.Fatalf("only cmd/kodyar must be missing: %v buildOnly=%v", gaps, buildOnly)
 	}
 
 	// ./... همه را می‌پوشاند
@@ -148,9 +148,9 @@ func TestTurnRecorderTracksChangedFiles(t *testing.T) {
 	rec := &turnRecorder{}
 	rec.recordFileChange("pkg/a/a.go")
 	rec.recordFileChange("./pkg/a/a.go") // تکراری پس از نرمال‌سازی
-	rec.recordFileChange(`cmd\myai\main.go`)
+	rec.recordFileChange(`cmd\kodyar\main.go`)
 	got := rec.changedFiles()
-	if len(got) != 2 || got[0] != "pkg/a/a.go" || got[1] != "cmd/myai/main.go" {
+	if len(got) != 2 || got[0] != "pkg/a/a.go" || got[1] != "cmd/kodyar/main.go" {
 		t.Fatalf("changed files = %v", got)
 	}
 	// فراخوانی بدون مسیر هم باید جواب بدهد (سازگاری عقب‌رو)

@@ -180,7 +180,7 @@ func TestDiagnosticsLiveGopls(t *testing.T) {
 	}
 	// پوشهٔ موقت دستی: gopls (و فرزندهای go) ممکن است لحظه‌ای هندل نگه دارند و
 	// t.TempDir پاک‌سازی را به شکست تست تبدیل می‌کند؛ اینجا best-effort است.
-	dir, err := os.MkdirTemp("", "myai-diag-*")
+	dir, err := os.MkdirTemp("", "kodyar-diag-*")
 	if err != nil {
 		t.Fatal(err)
 	}

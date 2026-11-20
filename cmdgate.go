@@ -518,7 +518,7 @@ func (e *commandEval) merge(o commandEval) {
 }
 
 // hardBlockReason متن فارسی لیست سیاه سخت.
-const hardBlockReason = "این دستور در لیست سیاه دستورات خطرناک MyAI است و هرگز اجرا نمی‌شود."
+const hardBlockReason = "این دستور در لیست سیاه دستورات خطرناک KodYar است و هرگز اجرا نمی‌شود."
 
 // evaluateCommandDetailed ارزیابی کامل با تجزیه‌ساز واقعی (تابع خالص).
 // workspace خالی یعنی «نامعلوم» → مسیرهای مطلق مجاز شمرده نمی‌شوند.

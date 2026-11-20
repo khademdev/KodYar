@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Full quality gate for MyAI (run after every stage).
+# Full quality gate for KodYar (run after every stage).
 # Usage: scripts/gate.sh   — prints each command and its result.
 #
 # از ۱.۸.۰: gofmt باید «خروجی خالی» بدهد؛ پیش‌تر فقط exit code بررسی می‌شد

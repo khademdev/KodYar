@@ -8,7 +8,7 @@
 // می‌شود؛ پس یک Scheduled Task کاربری (At log on) ثبت می‌شود.
 //
 // Task به‌جای خودِ اسکریپت، یک launcher تولیدشده را اجرا می‌کند که:
-//   - اگر فایل اجرایی MyAI دیگر وجود نداشته باشد (حذف/جابه‌جایی برنامه)،
+//   - اگر فایل اجرایی KodYar دیگر وجود نداشته باشد (حذف/جابه‌جایی برنامه)،
 //     خودِ Task و اسکریپت‌ها را حذف می‌کند — یعنی بعد از حذف برنامه، اولین
 //     ورود به ویندوز پاک‌سازی کامل انجام می‌شود؛
 //   - در غیر این صورت ACE دستگاه NUL را بازمی‌گرداند.
@@ -41,17 +41,17 @@ import (
 var sandboxNulScript string
 
 // sandboxNulTaskName نام Scheduled Task کاربری برای بازگرداندن ACE دستگاه NUL.
-const sandboxNulTaskName = "MyAI Sandbox NUL"
+const sandboxNulTaskName = "KodYar Sandbox NUL"
 
 // psQuote رشته را برای درج داخل تک‌کوتیشن PowerShell امن می‌کند.
 func psQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
-// sandboxNulAppPath مسیر فایل اجرایی MyAI که launcher باید مراقبش باشد.
-// MYAI_NUL_GUARD_APP فقط برای تست/طراحی است.
+// sandboxNulAppPath مسیر فایل اجرایی KodYar که launcher باید مراقبش باشد.
+// KODYAR_NUL_GUARD_APP فقط برای تست/طراحی است.
 func sandboxNulAppPath() string {
-	if p := strings.TrimSpace(os.Getenv("MYAI_NUL_GUARD_APP")); p != "" {
+	if p := strings.TrimSpace(os.Getenv("KODYAR_NUL_GUARD_APP")); p != "" {
 		return p
 	}
 	exe, err := os.Executable()
@@ -68,7 +68,7 @@ func sandboxNulLauncherScript(appPath, grantPath, launcherPath string) string {
 		appPath = grantPath // بدون مسیر exe همیشه grant را اجرا کن (fail-open برای ابزار)
 	}
 	return strings.Join([]string{
-		"# ساخته‌شده توسط MyAI — دستی ویرایش نکنید.",
+		"# ساخته‌شده توسط KodYar — دستی ویرایش نکنید.",
 		"$ErrorActionPreference = 'SilentlyContinue'",
 		"$app = " + psQuote(appPath),
 		"if (-not (Test-Path -LiteralPath $app)) {",
@@ -83,11 +83,11 @@ func sandboxNulLauncherScript(appPath, grantPath, launcherPath string) string {
 }
 
 // sandboxStartupScriptName نام ورودی پوشه‌ی Startup (fallback).
-const sandboxStartupScriptName = "MyAI-sandbox-nul.vbs"
+const sandboxStartupScriptName = "KodYar-sandbox-nul.vbs"
 
 // sandboxLegacyStartupScriptName نام fallback قدیمی (نسخه‌های < 1.0.3) که با
 // cmd اجرا می‌شد و پنجرهٔ کنسول باز می‌کرد.
-const sandboxLegacyStartupScriptName = "MyAI-sandbox-nul.cmd"
+const sandboxLegacyStartupScriptName = "KodYar-sandbox-nul.cmd"
 
 // vbsQuote رشته را به یک literal معتبر VBScript تبدیل می‌کند (گیومه دوتایی).
 func vbsQuote(s string) string {
@@ -95,12 +95,12 @@ func vbsQuote(s string) string {
 }
 
 // sandboxStartupVbsContent محتوای ورودی پوشه‌ی Startup است: launcher را با
-// wscript و پنجرهٔ مخفی اجرا می‌کند و اگر فایل اجرایی MyAI دیگر نباشد، خودش را
+// wscript و پنجرهٔ مخفی اجرا می‌کند و اگر فایل اجرایی KodYar دیگر نباشد، خودش را
 // هم از Startup حذف می‌کند (همان رفتار self-clean بقیه‌ی زنجیره).
 func sandboxStartupVbsContent(vbsPath, launcherPath, appPath string) string {
 	cmd := `powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "` + launcherPath + `"`
 	lines := []string{
-		"' ساخته‌شده توسط MyAI — دستی ویرایش نکنید.",
+		"' ساخته‌شده توسط KodYar — دستی ویرایش نکنید.",
 		"' اجرا با wscript تا هیچ پنجرهٔ کنسولی باز نشود.",
 		"Option Explicit",
 		"Dim sh, fso, appPath",
@@ -112,7 +112,7 @@ func sandboxStartupVbsContent(vbsPath, launcherPath, appPath string) string {
 	}
 	if appPath != "" {
 		lines = append(lines,
-			"' اگر MyAI حذف/جابه‌جا شده باشد، این ورودی هم نباید در Startup بماند.",
+			"' اگر KodYar حذف/جابه‌جا شده باشد، این ورودی هم نباید در Startup بماند.",
 			"If Not fso.FileExists(appPath) Then",
 			"\tfso.DeleteFile "+vbsQuote(vbsPath)+", True",
 			"End If",

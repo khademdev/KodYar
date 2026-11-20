@@ -21,7 +21,7 @@ func resetErrorLogPath() {
 func newTestApp(t *testing.T) *App {
 	t.Helper()
 	// config dir ایزوله برای هر تست تا changes.json بین تست‌ها نشت نکند
-	os.Setenv("MYAI_CONFIG_DIR", t.TempDir())
+	os.Setenv("KODYAR_CONFIG_DIR", t.TempDir())
 	resetErrorLogPath()
 	a := NewApp()
 	a.settings = defaultSettings()

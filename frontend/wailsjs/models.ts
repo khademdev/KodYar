@@ -1,6 +1,6 @@
 // Cynhyrchwyd y ffeil hon yn awtomatig. PEIDIWCH Â MODIWLU
 // This file mirrors the Wails v2 bindings format, but is HAND-MAINTAINED
-// in this project because MyAI builds with `-skipbindings`.
+// in this project because KodYar builds with `-skipbindings`.
 // Protocol (see ARCHITECTURE.md): keep in sync with App.js and models.ts.
 // Regenerate deterministically with: scripts/gen_wailsjs.py (repo root).
 export namespace main {

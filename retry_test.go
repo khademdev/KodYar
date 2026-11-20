@@ -54,7 +54,7 @@ func setRetryForTest(t *testing.T) *[]time.Duration {
 func redirectToTestLog(t *testing.T) string {
 	t.Helper()
 	old := errLogPath
-	p := filepath.Join(os.Getenv("MYAI_CONFIG_DIR"), "errors.log")
+	p := filepath.Join(os.Getenv("KODYAR_CONFIG_DIR"), "errors.log")
 	errLogMu.Lock()
 	errLogPath = p
 	errLogMu.Unlock()

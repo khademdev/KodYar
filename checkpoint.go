@@ -10,7 +10,7 @@
 // قواعد سخت:
 //   - ساختِ نقطه‌ی بازگشت هرگز HEAD/index/working tree کاربر را لمس نمی‌کند:
 //     ایندکسِ موقت (`GIT_INDEX_FILE`)، `write-tree`، `commit-tree` و
-//     `update-ref refs/myai/checkpoints/<conv>-<turn>` — بدون checkout، بدون
+//     `update-ref refs/kodyar/checkpoints/<conv>-<turn>` — بدون checkout، بدون
 //     commit روی شاخه، بدون تغییر فایل‌ها.
 //   - بازگردانی هرگز داده حذف نمی‌کند: هر فایلی که باید عوض/حذف شود اول به
 //     سبد زباله (`<configDir>/trash/<workspace-hash>/<timestamp>/`) منتقل
@@ -41,7 +41,7 @@ import (
 const (
 	checkpointRestoreTime = 60 * time.Second // سقف بازگردانی (فایل‌های زیاد)
 	checkpointMaxKeep     = 20               // نگه‌داری جدیدترین‌ها در هر پوشه
-	checkpointRefPrefix   = "refs/myai/checkpoints/"
+	checkpointRefPrefix   = "refs/kodyar/checkpoints/"
 	checkpointTrashDays   = 14
 	checkpointTrashBytes  = 500 << 20 // ۵۰۰ مگابایت
 )
@@ -67,8 +67,8 @@ func checkpointGitEnv(indexFile string) []string {
 	env := gitEnv()
 	env = append(env,
 		"GIT_INDEX_FILE="+indexFile,
-		"GIT_AUTHOR_NAME=MyAI", "GIT_AUTHOR_EMAIL=myai@localhost",
-		"GIT_COMMITTER_NAME=MyAI", "GIT_COMMITTER_EMAIL=myai@localhost",
+		"GIT_AUTHOR_NAME=KodYar", "GIT_AUTHOR_EMAIL=kodyar@localhost",
+		"GIT_COMMITTER_NAME=KodYar", "GIT_COMMITTER_EMAIL=kodyar@localhost",
 		"GIT_CONFIG_NOSYSTEM=1", "GIT_ATTR_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0",
 	)
 	return env
@@ -327,7 +327,7 @@ func (a *App) createCheckpoint(ctx context.Context, ws, convID string, turnID in
 			args = append(args, "-p", h)
 		}
 	}
-	args = append(args, "-m", "myai checkpoint "+convID+" turn "+strconv.FormatInt(turnID, 10))
+	args = append(args, "-m", "kodyar checkpoint "+convID+" turn "+strconv.FormatInt(turnID, 10))
 	commitOut, err := runGitCheckpoint(ctx, ws, env, checkpointTimeout, args...)
 	if err != nil {
 		return "", err

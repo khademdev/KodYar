@@ -8,7 +8,7 @@ import (
 )
 
 func TestWailsLoggerPersistsOnlyWarningsAndErrors(t *testing.T) {
-	os.Setenv("MYAI_CONFIG_DIR", t.TempDir())
+	os.Setenv("KODYAR_CONFIG_DIR", t.TempDir())
 	a := NewApp()
 	lg := fileLogger{app: a}
 

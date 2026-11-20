@@ -1,4 +1,4 @@
-/* MyAI — کارت «خلاصه‌ی واقعی این نوبت» (Stage 2 — ۴.۲)
+/* KodYar — کارت «خلاصه‌ی واقعی این نوبت» (Stage 2 — ۴.۲)
  *
  * رویدادها:
  *   - chat:turn_summary  {summary}  → پایان هر نوبتِ ایجنت که فایل یا دستور داشت
@@ -252,8 +252,8 @@
     view.className = "diff-view";
     view.setAttribute("dir", "ltr");
     // رندر خط‌به‌خط diff با کلاس‌های موجود (dl dl-add/dl-del/…)
-    if (window.MyAIChanges && window.MyAIChanges.renderDiff) {
-      window.MyAIChanges.renderDiff(view, diff || "");
+    if (window.KodYarChanges && window.KodYarChanges.renderDiff) {
+      window.KodYarChanges.renderDiff(view, diff || "");
     } else {
       var pre = document.createElement("pre");
       pre.style.cssText = "margin:0;padding:10px;font-family:var(--font-code);font-size:12px;white-space:pre-wrap;";
@@ -306,12 +306,12 @@
   }
 
   // برای تست‌های قراردادی/مرورگر (Mock mode)
-  window.MyAITurnSummary = { makeCard: makeCard };
+  window.KodYarTurnSummary = { makeCard: makeCard };
 
   /* --------------------------------------------------------------- رویدادها */
 
   function activeConvId() {
-    return (window.MyAIState && window.MyAIState.activeId) || null;
+    return (window.KodYarState && window.KodYarState.activeId) || null;
   }
 
   function appendCard(summary) {

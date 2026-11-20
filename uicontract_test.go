@@ -98,7 +98,7 @@ var (
 // uiRuntimeDotCalls نام‌های غیر App — توابع JS/Wails-runtime با فراخوانی نقطه‌ای.
 var uiRuntimeDotCalls = map[string]bool{
 	"DateTimeFormat":    true, // Intl.DateTimeFormat
-	"MyAIResetStreamUI": true, // هوک داخلی فرانت‌اند
+	"KodYarResetStreamUI": true, // هوک داخلی فرانت‌اند
 	"EventsEmit":        true, // window.runtime.*
 	"EventsOff":         true,
 	"EventsOn":          true,

@@ -28,7 +28,7 @@ func TestNoDefaultProviders(t *testing.T) {
 }
 
 func TestFreshLoadSettingsHasNoProviders(t *testing.T) {
-	os.Setenv("MYAI_CONFIG_DIR", t.TempDir())
+	os.Setenv("KODYAR_CONFIG_DIR", t.TempDir())
 	a := NewApp()
 	if err := a.loadSettings(); err != nil {
 		t.Fatal(err)
@@ -43,7 +43,7 @@ func TestFreshLoadSettingsHasNoProviders(t *testing.T) {
 
 func TestBuiltinProvidersMigration(t *testing.T) {
 	dir := t.TempDir()
-	os.Setenv("MYAI_CONFIG_DIR", dir)
+	os.Setenv("KODYAR_CONFIG_DIR", dir)
 
 	// تنظیمات قدیمی: ۵ Provider پیش‌فرض + یک Provider سفارشی با کلید
 	old := map[string]interface{}{

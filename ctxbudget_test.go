@@ -514,7 +514,7 @@ func TestStreamChatAutoCompaction(t *testing.T) {
 	defer srv.Close()
 
 	a := chatAppOnServer(t, srv.URL)
-	// ترتیب مهم است: اول App، بعد ریدایرکت لاگ (MYAI_CONFIG_DIR همین تست)
+	// ترتیب مهم است: اول App، بعد ریدایرکت لاگ (KODYAR_CONFIG_DIR همین تست)
 	redirectToTestLog(t)
 	// پنجره‌ی کوچک: بودجه = ۴۰۹۶−۱۰۲۴−۴۰۹ = ۲۶۶۳؛ آستانه = ۲۱۳۰؛ هدف = ۱۵۹۷
 	a.mu.Lock()
@@ -625,7 +625,7 @@ func TestStreamChatOverflowRecovery(t *testing.T) {
 	defer srv.Close()
 
 	a := chatAppOnServer(t, srv.URL)
-	// ترتیب مهم است: اول App، بعد ریدایرکت لاگ (MYAI_CONFIG_DIR همین تست)
+	// ترتیب مهم است: اول App، بعد ریدایرکت لاگ (KODYAR_CONFIG_DIR همین تست)
 	redirectToTestLog(t)
 	var msgs []Message
 	for i := 0; i < 6; i++ {
@@ -687,7 +687,7 @@ func TestStreamChatOverflowRetryFails(t *testing.T) {
 	defer srv.Close()
 
 	a := chatAppOnServer(t, srv.URL)
-	// ترتیب مهم است: اول App (تا MYAI_CONFIG_DIR این تست تنظیم شود)، بعد ریدایرکت لاگ
+	// ترتیب مهم است: اول App (تا KODYAR_CONFIG_DIR این تست تنظیم شود)، بعد ریدایرکت لاگ
 	logPath := redirectToTestLog(t)
 	var msgs []Message
 	for i := 0; i < 6; i++ {

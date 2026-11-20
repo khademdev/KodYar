@@ -106,8 +106,8 @@ func TestSandboxLinuxEnvVars(t *testing.T) {
 		"LANG=en_US.UTF-8",
 		"HOME=/home/sbx",
 		"TMPDIR=/home/sbx/tmp",
-		"MYAI_SANDBOX=1",
-		"MYAI_SANDBOX_NETWORK=0",
+		"KODYAR_SANDBOX=1",
+		"KODYAR_SANDBOX_NETWORK=0",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("env missing %q:\n%s", want, joined)
@@ -123,11 +123,11 @@ func TestSandboxLinuxEnvVars(t *testing.T) {
 	}
 
 	net := sandboxLinuxEnvVars(env, "/home/sbx", true)
-	if !strings.Contains(strings.Join(net, "\n"), "MYAI_SANDBOX_NETWORK=1") {
+	if !strings.Contains(strings.Join(net, "\n"), "KODYAR_SANDBOX_NETWORK=1") {
 		t.Fatalf("network flag must be 1 when allowed: %v", net)
 	}
 }
 
 // myTestSecretVar یک نام متغیر شبیه کلید است تا مطمئن شویم allowlist آن را
 // دور می‌ریزد.
-const myTestSecretVar = "MYAI_TEST_SECRET_KEY"
+const myTestSecretVar = "KODYAR_TEST_SECRET_KEY"

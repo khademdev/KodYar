@@ -39,7 +39,7 @@ const (
 )
 
 // webSearchUserAgent همان UA ابزار web_fetch.
-var webSearchUserAgent = "MyAI/" + version + " (Wails desktop coding agent)"
+var webSearchUserAgent = "KodYar/" + version + " (Wails desktop coding agent)"
 
 // webSearchEndpoints موتورهای جست‌وجو به‌ترتیب تلاش؛ در تست‌ها بازنویسی
 // می‌شوند تا به httptest اشاره کنند.

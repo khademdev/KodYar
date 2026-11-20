@@ -68,5 +68,5 @@
     bind();
   }
 
-  window.MyAIDiagnostics = { exportBundle: exportBundle, bind: bind };
+  window.KodYarDiagnostics = { exportBundle: exportBundle, bind: bind };
 })();

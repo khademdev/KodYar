@@ -8,7 +8,7 @@ import (
 )
 
 func TestReportFrontendErrorWritesToErrorLog(t *testing.T) {
-	os.Setenv("MYAI_CONFIG_DIR", t.TempDir())
+	os.Setenv("KODYAR_CONFIG_DIR", t.TempDir())
 	a := NewApp()
 
 	a.ReportFrontendError("unhandledrejection", "cannot read properties of null", "at render (app.js:42:7)\nat tick")
@@ -25,7 +25,7 @@ func TestReportFrontendErrorWritesToErrorLog(t *testing.T) {
 }
 
 func TestReportFrontendErrorSkipsEmptyAndTruncates(t *testing.T) {
-	os.Setenv("MYAI_CONFIG_DIR", t.TempDir())
+	os.Setenv("KODYAR_CONFIG_DIR", t.TempDir())
 	a := NewApp()
 
 	before, _ := a.GetErrorLog()
@@ -57,7 +57,7 @@ func TestFrontendErrorCaptureWired(t *testing.T) {
 		t.Fatalf("read errorcapture.js: %v", err)
 	}
 	src := string(js)
-	for _, want := range []string{"unhandledrejection", "addEventListener(\"error\"", "ReportFrontendError", "MyAIErrors"} {
+	for _, want := range []string{"unhandledrejection", "addEventListener(\"error\"", "ReportFrontendError", "KodYarErrors"} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("errorcapture.js must contain %q", want)
 		}

@@ -66,7 +66,7 @@ func TestMCPRunsInsideAppContainer(t *testing.T) {
 		Name:    "fake",
 		Command: server,
 		Args:    []string{"-test.run=TestMCPHelperProcess", "--", "fake-ok"},
-		Env:     map[string]string{"MYAI_MCP_FAKE": "1"},
+		Env:     map[string]string{"KODYAR_MCP_FAKE": "1"},
 		Enabled: true,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -108,7 +108,7 @@ func TestMCPFailsClosedWhenSandboxSetupFails(t *testing.T) {
 		Name:    "fake",
 		Command: server,
 		Args:    []string{"-test.run=TestMCPHelperProcess", "--", "fake-ok"},
-		Env:     map[string]string{"MYAI_MCP_FAKE": "1"},
+		Env:     map[string]string{"KODYAR_MCP_FAKE": "1"},
 		Enabled: true,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
