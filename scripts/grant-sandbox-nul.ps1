@@ -1,4 +1,4 @@
-# دسترسی دستگاه NUL برای SID سندباکس KodYar
+﻿# دسترسی دستگاه NUL برای SID سندباکس KodYar
 # ----------------------------------------
 # توکن AppContainer به \Device\Null دسترسی ندارد و همین باعث می‌شود
 # `go test` / `go vet` / `git` داخل سندباکس با «open NUL: Access is denied»
