@@ -66,7 +66,9 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          if go test -race -count=1 ./... 2>&1 | tee go-test.log; then
+          		  # مهلت طولانی‌تر: اولین تست سندباکس روی رانر سرد، مجوزهای ACL مسیرهای
+		  # ابزار را با icacls می‌گیرد؛ این آماده‌سازی می‌تواند چند دقیقه طول بکشد.
+		  if go test -race -count=1 -timeout 20m ./... 2>&1 | tee go-test.log; then
             exit 0
           fi
           grep -aE '^\s*--- FAIL|^FAIL|^panic:|_test\.go:[0-9]+:' go-test.log | head -40 | while IFS= read -r line; do
