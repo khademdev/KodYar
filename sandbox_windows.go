@@ -379,8 +379,14 @@ func sandboxEnsureToolAccess(sid string) {
 	// AppContainer خوانا باشد (مثل hostedtoolcache رانرهای CI) و حلقهٔ بالا
 	// زودتر رد شود، ولی خود GOROOT (src/pkg) همچنان ممنوع بماند؛ آن‌وقت go
 	// با «cannot find GOROOT directory» می‌میرد.
-	if root := sandboxGoRoot(); root != "" && !isSystemDir(root) && !dirAppContainerReadable(root) {
-		_ = sandboxGrantACE(sid, root, "RX", true)
+	if root := sandboxGoRoot(); root != "" {
+		if !isSystemDir(root) && !dirAppContainerReadable(root) {
+			_ = sandboxGrantACE(sid, root, "RX", true)
+		}
+		// حق «عبور» روی والدهای GOROOT — بدون آن، نصب‌هایی که خارج از
+		// Program Files هستند (مثل C:\hostedtoolcache رانرهای CI) اصلاً
+		// قابل stat نیستند و go با «cannot find GOROOT directory» می‌میرد.
+		sandboxGrantTraverse(sid, filepath.Join(root, "bin", "go.exe"))
 	}
 	if gm := strings.TrimSpace(os.Getenv("GOMODCACHE")); gm != "" {
 		_ = sandboxGrantACE(sid, gm, "RX", true)

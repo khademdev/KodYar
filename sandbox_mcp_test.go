@@ -69,7 +69,11 @@ func TestMCPRunsInsideAppContainer(t *testing.T) {
 		Env:     map[string]string{"KODYAR_MCP_FAKE": "1"},
 		Enabled: true,
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	// مهلت بلندتر از ۹۰ ثانیه: اولین اجرای سندباکس در هر فرایند، مجوز
+	// خواندن/عبور مسیرهای PATH را یک‌بار می‌گیرد (icacls برای هر مسیر)؛
+	// روی رانر سرد ویندوز همین مرحله ده‌ها ثانیه طول می‌کشد و بودجه‌ی
+	// ۹۰ثانیه‌ای پیش از پاسخ initialize سر می‌رسید.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	c, err := startMCPClient(ctx, app, cfg, nil, nil)
 	if err != nil {
