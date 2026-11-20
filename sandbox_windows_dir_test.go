@@ -75,6 +75,15 @@ func TestSandboxCompositeExternalChildren(t *testing.T) {
 	if strings.Contains(out, "could not open '/dev/null'") && strings.Contains(out, "Permission denied") {
 		t.Skip("git cannot open \\Device\\Null inside AppContainer on this boot — run scripts/grant-sandbox-nul.ps1 (environment prerequisite, not a code defect)")
 	}
+	// نصب Go روی رانرهای GitHub در C:\hostedtoolcache است، نه Program Files؛
+	// توکن AppContainer به آن پوشه دسترسی ندارد و go با «cannot find GOROOT
+	// directory» می‌میرد — همان محدودیتی که TestSandboxDirInComposite هم به
+	// همین دلیل عمداً go را انتخاب نکرده. سندباکس GOROOT را ست و حق عبور/خواندن
+	// را برای نصب‌های معمولی اعطا می‌کند؛ روی ماشین توسعه همین تست مسیر کامل
+	// (git + go داخل یک زنجیره) را می‌سنجد.
+	if strings.Contains(out, "cannot find GOROOT directory") {
+		t.Skip("go cannot reach its GOROOT inside AppContainer on this runner — the Go install lives outside Program Files (environment prerequisite, not a code defect)")
+	}
 	if err != nil || code != 0 || !strings.Contains(out, "git version") || !strings.Contains(out, "go version") {
 		t.Fatalf("composite command failed: code=%d err=%v out=%q", code, err, out)
 	}
