@@ -649,6 +649,19 @@ func (a *App) resolveWorkspacePath(rel string) (string, error) {
 	if realWs == "" || realFull == "" || !withinDir(realFull, realWs) {
 		return "", errors.New("path is outside the workspace (symlink): " + rel)
 	}
+
+	// junctionها (reparse point / MOUNT_POINT) را EvalSymlinks و os.Lstat
+	// نمی‌بینند؛ مسیر نهاییِ واقعی را از API ویندوز می‌گیریم. روی سکوهای دیگر
+	// قلاب no-op است و این بلوک اجرا نمی‌شود.
+	if finalFull, ok := finalPathForCompare(full); ok {
+		root := filepath.Clean(ws)
+		if finalWs, ok2 := finalPathForCompare(root); ok2 {
+			root = finalWs
+		}
+		if !withinDir(finalFull, root) {
+			return "", errors.New("path is outside the workspace (junction): " + rel)
+		}
+	}
 	return full, nil
 }
 

@@ -4,10 +4,13 @@
 // branch و وضعیت dirty (تزریق در system prompt).
 //
 // امنیت:
-// - همه‌ی فرمان‌ها بدون shell اجرا می‌شوند (exec مستقیم؛ بدون تزریق)
-// - ref کاربر با لیست سفید کاراکتری اعتبارسنجی می‌شود (بدون --option)
-// - فقط زیرفرمان‌های خواندنی؛ نوشتن/commit از مسیر run_command و دروازه‌های
-// امنیتی آن (لیست سیاه + اجازه‌ی کاربر) عبور می‌کند
+//   - همه‌ی فرمان‌ها بدون shell اجرا می‌شوند (exec مستقیم؛ بدون تزریق)
+//   - ref کاربر با لیست سفید کاراکتری اعتبارسنجی می‌شود (بدون --option)
+//   - فقط زیرفرمان‌های خواندنی؛ نوشتن/commit از مسیر run_command و دروازه‌های
+//     امنیتی آن (لیست سیاه + اجازه‌ی کاربر) عبور می‌کند
+//   - همان پرچم‌های خنثی‌سازی checkpoint به هر فرمان اضافه می‌شود (gitSafeArgs):
+//     یک .git/config دستکاری‌شده نباید بتواند با core.fsmonitor / core.hooksPath
+//     هنگام git status/diff فرمانی بیرونی اجرا کند
 package main
 
 import (
@@ -63,6 +66,21 @@ func (w *cappedGitBuffer) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// gitSafeArgs آرگومان‌های کامل git برای ابزارهای داخلی: `-C ws` و سپس همان
+// پرچم‌های خنثی‌سازیِ checkpoint (fsmonitor، hooksPath، CRLF).
+//
+// چرا: git status/diff تنظیمات مخزن را می‌خوانند؛ اگر فایل .git/config (که
+// ایجنت با تأیید کاربر می‌تواند بنویسد) core.fsmonitor یا core.hooksPath را به
+// یک فرمان بیرونی اشاره دهد، اجرای آن فرمان همان اجرای کد است. با این پرچم‌ها
+// مقدار خط فرمان بر config مقدم می‌شود و مسیر اجرایی بسته می‌ماند.
+func gitSafeArgs(ws string, args ...string) []string {
+	cfg := checkpointGitConfig()
+	out := make([]string, 0, len(args)+len(cfg)+2)
+	out = append(out, "-C", ws)
+	out = append(out, cfg...)
+	return append(out, args...)
+}
+
 // gitRefSafe فقط شناسه‌های کامیت/برنچ/تگ امن را می‌پذیرد: حرف/رقم/نقطه/
 // خط‌تیره/زیرخط/اسلش و «^~» برای بازه. شروع با «-» ممنوع (option injection).
 var gitRefSafe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/\-^~]*$`)
@@ -77,7 +95,7 @@ func (a *App) runGitIn(ctx context.Context, ws string, args ...string) (string, 
 
 	cctx, cancel := context.WithTimeout(ctx, gitTimeoutSec*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(cctx, "git", append([]string{"-C", ws}, args...)...)
+	cmd := exec.CommandContext(cctx, "git", gitSafeArgs(ws, args...)...)
 	hideConsoleWindow(cmd) // بدون این، هر فرمان git پنجره‌ی کنسول فلش می‌زد
 	// نویسنده‌های غیر-فایل → exec لوله و goroutine کپی می‌سازد؛ اگر فرزندی
 	// از git (credential helper/hook/filter) لوله را باز نگه دارد، Run بعد
