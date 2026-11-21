@@ -208,6 +208,38 @@ func TestDiagnosticsLiveGopls(t *testing.T) {
 	}
 }
 
+// TestDiagnosticsJSSyntaxOnly: بدون jsconfig/tsconfig با checkJs، پیام فایل
+// تمیزِ JS باید «no syntax errors» باشد نه «no errors» — چون tsserver برای
+// .js بدون checkJs فقط نحو را می‌سنجد. با checkJs همان «no errors» قبلی.
+func TestDiagnosticsJSSyntaxOnly(t *testing.T) {
+	dir := t.TempDir()
+	if !jsTypeCheckOff(dir) {
+		t.Fatalf("an empty project must count as type-check-off")
+	}
+	if !isPlainJSFile(filepath.Join(dir, "game.js")) || isPlainJSFile(filepath.Join(dir, "game.ts")) {
+		t.Fatalf("isPlainJSFile must select .js/.mjs/.cjs only")
+	}
+
+	plain := diagCleanLine("js/game.js", 0, true)
+	if !strings.Contains(plain, "no syntax errors") || !strings.Contains(plain, "checkJs") {
+		t.Errorf("JS without checkJs must say syntax-only: %q", plain)
+	}
+	if typed := diagCleanLine("js/game.js", 0, false); typed != "js/game.js: no errors" {
+		t.Errorf("type-checked file must keep the plain message, got %q", typed)
+	}
+	if withWarn := diagCleanLine("js/game.js", 2, true); !strings.Contains(withWarn, "2 warning(s)") {
+		t.Errorf("warning count must survive the syntax-only wording: %q", withWarn)
+	}
+
+	// jsconfig با checkJs → بررسی نوع روشن است.
+	if err := os.WriteFile(filepath.Join(dir, "jsconfig.json"), []byte(`{"compilerOptions":{"checkJs":true}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if jsTypeCheckOff(dir) {
+		t.Fatalf("checkJs:true must turn type checking on")
+	}
+}
+
 // TestDiagnosticsRegistry: ابزار فقط‌خواندنی است، argspec دارد و در پرامپت
 // سیستم آمده (قرارداد رجیستری ابزارها).
 func TestDiagnosticsRegistry(t *testing.T) {

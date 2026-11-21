@@ -135,6 +135,7 @@ func (a *App) toolDiagnostics(ctx context.Context, rel string) (string, bool) {
 	}
 
 	deadline := time.Now().Add(diagTotalBudget)
+	jsSyntaxOnly := jsTypeCheckOff(ws)
 	var b strings.Builder
 	ran := false
 	for _, f := range files {
@@ -174,11 +175,8 @@ func (a *App) toolDiagnostics(ctx context.Context, rel string) (string, bool) {
 			}
 		}
 		if errorsFound == 0 {
-			b.WriteString(fmt.Sprintf("%s: no errors", relPath))
-			if warnings > 0 {
-				b.WriteString(fmt.Sprintf(" (%d warning(s))", warnings))
-			}
-			b.WriteString("\n")
+			syntaxOnly := lang == "ts" && jsSyntaxOnly && isPlainJSFile(f)
+			b.WriteString(diagCleanLine(relPath, warnings, syntaxOnly) + "\n")
 		}
 	}
 	out := strings.TrimRight(b.String(), "\n")
@@ -186,6 +184,45 @@ func (a *App) toolDiagnostics(ctx context.Context, rel string) (string, bool) {
 		return "No language server produced diagnostics (see the messages above).", false
 	}
 	return out, true
+}
+
+// diagCleanLine پیام «بدون خطا» برای یک فایل تمیز. برای JS بدون checkJs
+// صریح می‌گوید «نحو»، نه «نوع» — تا «no errors» بیش از آنچه سنجیده شده
+// ادعا نکند.
+func diagCleanLine(relPath string, warnings int, syntaxOnly bool) string {
+	line := relPath + ": no errors"
+	if syntaxOnly {
+		line = relPath + `: no syntax errors (type checking is off: no jsconfig.json/tsconfig.json with "checkJs")`
+	}
+	if warnings > 0 {
+		line += fmt.Sprintf(" (%d warning(s))", warnings)
+	}
+	return line
+}
+
+// jsTypeCheckOff آیا بررسی نوعِ JS خاموش است؟ tsserver بدون `checkJs` (در
+// jsconfig.json/tsconfig.json) برای فایل‌های .js فقط خطای نحوی می‌دهد؛ پس
+// «no errors» یعنی «نحو درست است»، نه «نوع درست است» — و باید همین را بگوید.
+func jsTypeCheckOff(ws string) bool {
+	for _, name := range []string{"jsconfig.json", "tsconfig.json"} {
+		data, err := os.ReadFile(filepath.Join(ws, name))
+		if err != nil {
+			continue
+		}
+		if strings.Contains(string(data), "checkJs") {
+			return false
+		}
+	}
+	return true
+}
+
+// isPlainJSFile فایل‌های JavaScript (نه TS و نه JSX) که رفتار بالا شاملشان است.
+func isPlainJSFile(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".js", ".mjs", ".cjs":
+		return true
+	}
+	return false
 }
 
 // readFileTextCapped فایل را تا سقف می‌خواند و باینری‌ها را رد می‌کند.
