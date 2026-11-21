@@ -50,7 +50,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" build/bin/KodYar.exe \
-            --title "KodYar $GITHUB_REF_NAME" \
-            --generate-notes \
-            --verify-tag
+          # تگ ممکن است از قبل ریلیز داشته باشد (بازانتشار همان نسخه با
+          # اصلاحات): آن‌گاه فقط باینری تازه جایگزین می‌شود، وگرنه ریلیز
+          # جدید با notes تولیدشده ساخته می‌شود.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" build/bin/KodYar.exe --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" build/bin/KodYar.exe \
+              --title "KodYar ${GITHUB_REF_NAME#v}" \
+              --generate-notes \
+              --verify-tag
+          fi
