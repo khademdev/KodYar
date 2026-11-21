@@ -321,8 +321,8 @@ func (a *App) subagentRunCommand(ctx context.Context, command string) (string, b
 	}
 	ctx, cancel := context.WithTimeout(ctx, subagentCommandTimeout)
 	defer cancel()
-	out, code, err := runShellWithPolicy(ctx, dir, command, subagentCommandTimeout, nil,
-		a.sandboxPolicyForCommand(dir, command))
+	sb := a.sandboxPolicyForCommand(dir, command)
+	out, code, err := runShellWithPolicy(ctx, dir, command, subagentCommandTimeout, nil, sb)
 	body := truncateToolOutputKeepTail(strings.TrimRight(out, "\n"))
 	header := fmt.Sprintf("exit=%d", code)
 	if err != nil && body == "" {
@@ -330,6 +330,9 @@ func (a *App) subagentRunCommand(ctx context.Context, command string) (string, b
 	}
 	result := header + "\n" + body
 	if err != nil {
+		if hint := sandboxDeniedHint(sb != nil, body); hint != "" {
+			result += "\n\n" + hint
+		}
 		return result, false
 	}
 	return result, true

@@ -1997,19 +1997,43 @@ func (a *App) toolGlob(ctx context.Context, pattern, rel string) (string, bool) 
 // commandFailureResult پیام یکدستِ شکست/تایم‌اوتِ دستور را می‌سازد. وقتی
 // دستور هیچ خروجی نداشته، پیام نباید با یک خط خالی شروع شود (در لاگ به شکل
 // «[tool] run_command:» خالی دیده می‌شد و شبیه دستورِ خالی بود).
-func commandFailureResult(result string, timeoutSec int, timedOut bool, err error) string {
-	if timedOut {
-		msg := fmt.Sprintf("ERROR: command timed out after %d second(s).", timeoutSec)
+func commandFailureResult(result string, timeoutSec int, timedOut bool, err error, sandboxed bool) string {
+	var msg string
+	switch {
+	case timedOut:
+		msg = fmt.Sprintf("ERROR: command timed out after %d second(s).", timeoutSec)
 		if result != "" {
-			return result + "\n" + msg
+			msg = result + "\n" + msg
 		}
-		return msg
-	}
-	if result == "" {
+	case result == "":
 		// دستور هیچ خروجی نداشت؛ پیام کد خروج خودش گویاست و نباید تکرار شود.
-		return fmt.Sprintf("ERROR: command failed: %v", err)
+		msg = fmt.Sprintf("ERROR: command failed: %v", err)
+	default:
+		msg = result + fmt.Sprintf("\n[command failed: %v]", err)
 	}
-	return result + fmt.Sprintf("\n[command failed: %v]", err)
+	if hint := sandboxDeniedHint(sandboxed, result); hint != "" {
+		msg += "\n\n" + hint
+	}
+	return msg
+}
+
+// driveRootLstatRe خطای Node روی ریشهٔ درایو داخل AppContainer را می‌شناسد:
+// `EPERM: operation not permitted, lstat 'D:\'`. مسیر داخل workspace این الگو
+// را ندارد، چون بلافاصله بعد از `X:\` یک کوتیشن می‌آید.
+var driveRootLstatRe = regexp.MustCompile(`(?i)lstat\s+['"][a-z]:\\['"]`)
+
+// sandboxDeniedHint وقتی دستور داخل سندباکس اجرا شده و خروجی نشان می‌دهد
+// سندباکس جلوی دسترسی بیرون از workspace (یا ریشهٔ درایو) را گرفته است،
+// علت و راهحل کوتاه را به مدل می‌گوید تا همان دستور را تکرار نکند.
+func sandboxDeniedHint(sandboxed bool, output string) string {
+	if !sandboxed {
+		return ""
+	}
+	denied := driveRootLstatRe.MatchString(output) || strings.Contains(strings.ToLower(output), "access is denied")
+	if !denied {
+		return ""
+	}
+	return "SANDBOX: the sandbox blocked access outside the workspace (it also denies the drive root). Do not retry the same command; use workspace paths, or ask the user to turn the sandbox off (Settings → Folder)."
 }
 
 // toolRunCommand اجرای دستور در پوشه‌ی کاری (فقط با اجازه‌ی کاربر + لایه‌ی امنیتی).
@@ -2058,7 +2082,8 @@ func (a *App) toolRunCommand(parent context.Context, command string, timeoutSec 
 
 	// استریم تدریجی خروجی به UI (chat:tool_output؛ ≤ ۱۰ رویداد/ثانیه)
 	emit, flush := a.shellOutputEmitter(ctx)
-	out, exitCode, err := runShellWithPolicy(ctx, dir, command, time.Duration(timeoutSec)*time.Second, emit, a.sandboxPolicyForCommand(dir, command))
+	sb := a.sandboxPolicyForCommand(dir, command)
+	out, exitCode, err := runShellWithPolicy(ctx, dir, command, time.Duration(timeoutSec)*time.Second, emit, sb)
 	flush()
 	// ثبت در خلاصه‌ی واقعی نوبت (۴.۲) — از رکورد ابزار، نه متن مدل
 	turnRecorderFrom(parent).recordCommand(command, exitCode, err == nil)
@@ -2066,7 +2091,7 @@ func (a *App) toolRunCommand(parent context.Context, command string, timeoutSec 
 	// خروجی است و بریدن فقط از سر، مدل را از علت شکست بی‌خبر می‌گذاشت.
 	result := truncateToolOutputKeepTail(strings.TrimRight(out, "\n"))
 	if err != nil {
-		return commandFailureResult(result, timeoutSec, ctx.Err() == context.DeadlineExceeded, err), false
+		return commandFailureResult(result, timeoutSec, ctx.Err() == context.DeadlineExceeded, err, sb != nil), false
 	}
 	if result == "" {
 		result = "(command finished successfully, no output)"

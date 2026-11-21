@@ -51,7 +51,7 @@ func probeExec(t *testing.T, ws, cmd string, timeoutSec int) (string, bool) {
 	out, _, err := runShellWithPolicy(ctx, ws, cmd, d, nil, nil)
 	result := truncateToolOutputKeepTail(strings.TrimRight(out, "\n"))
 	if err != nil {
-		return commandFailureResult(result, timeoutSec, ctx.Err() == context.DeadlineExceeded, err), false
+		return commandFailureResult(result, timeoutSec, ctx.Err() == context.DeadlineExceeded, err, false), false
 	}
 	if result == "" {
 		result = "(command finished successfully, no output)"
