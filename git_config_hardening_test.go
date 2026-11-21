@@ -46,6 +46,95 @@ func initPoisonedRepo(t *testing.T) string {
 	return ws
 }
 
+// gitInForTest یک فرمان git را در ws اجرا می‌کند.
+func gitInForTest(t *testing.T, ws string, args ...string) []byte {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", ws}, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v (%s)", args, err, strings.TrimSpace(string(out)))
+	}
+	return out
+}
+
+// markerScript یک اسکریپت کوچک شِل می‌سازد که فقط یک نشانگر چاپ می‌کند — همان
+// کاری که textconv/diff.external مخرب انجام می‌دهد (اجرای کد).
+//
+// مسیر با اسلش برگردانده می‌شود: git در ویندوز درایور را با sh اجرا می‌کند و
+// بک‌اسلش‌های مسیر ویندوزی در آن از بین می‌رفت.
+func markerScript(t *testing.T, dir, marker string) string {
+	t.Helper()
+	p := filepath.Join(dir, "driver.sh")
+	// خط اول محتوای ورودی، خط دوم نشانگر: با textconv هر دو سمت نشانگر را
+	// می‌گیرند، پس diff خالی نمی‌شود و اجرای درایور از خروجی دیده می‌شود.
+	script := "#!/bin/sh\ncat \"$1\" 2>/dev/null\necho " + marker + "\n"
+	if err := os.WriteFile(p, []byte(script), 0o755); err != nil {
+		t.Fatalf("write driver script: %v", err)
+	}
+	return filepath.ToSlash(p)
+}
+
+// TestGitToolsIgnoreExternalDiffDrivers: ابزارهای git_diff / git_show / git_log
+// نباید درایورهای بیرونیِ diff را اجرا کنند.
+//
+// حمله: ایجنت (با تأیید کاربر) یک .gitattributes با `*.txt diff=evil` و
+// `diff.evil.textconv` در .git/config می‌نویسد؛ git هنگام نمایش diff مقدار
+// جایگزینِ textconv را چاپ می‌کند و به این ترتیب فرمان دلخواه اجرا می‌شود.
+func TestGitToolsIgnoreExternalDiffDrivers(t *testing.T) {
+	gitAvailableForTest(t)
+	ws := t.TempDir()
+	gitInForTest(t, ws, "init", "-q")
+	gitInForTest(t, ws, "config", "user.email", "test@example.com")
+	gitInForTest(t, ws, "config", "user.name", "Test")
+
+	if err := os.WriteFile(filepath.Join(ws, "a.txt"), []byte("one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws, ".gitattributes"), []byte("*.txt diff=evil\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitInForTest(t, ws, "add", "-A")
+	gitInForTest(t, ws, "commit", "-qm", "init")
+
+	tc := markerScript(t, ws, "TEXTCONV_RAN")
+	gitInForTest(t, ws, "config", "diff.evil.textconv", tc)
+	if err := os.WriteFile(filepath.Join(ws, "a.txt"), []byte("two\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// پیش‌شرط: با git خام همین حمله باید واقعاً کار کند، وگرنه تست بی‌معناست.
+	rawDiff := exec.Command("git", "-C", ws, "diff")
+	rawDiff.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0")
+	if raw, _ := rawDiff.CombinedOutput(); !strings.Contains(string(raw), "TEXTCONV_RAN") {
+		t.Skipf("the textconv driver cannot be executed in this environment, so there is nothing to prove: %s", strings.TrimSpace(string(raw)))
+	}
+
+	a := newTestApp(t)
+	a.settings.WorkspacePath = ws
+
+	if out, ok := a.execTool("git_diff", `{}`); !ok || strings.Contains(out, "TEXTCONV_RAN") || !strings.Contains(out, "+two") {
+		t.Fatalf("git_diff must show the real change and never the textconv driver output: %v", out)
+	}
+	if out, ok := a.execTool("git_log", `{}`); !ok || strings.Contains(out, "TEXTCONV_RAN") {
+		t.Fatalf("git_log must not run diff drivers: %v", out)
+	}
+	if out, ok := a.execTool("git_show", `{"ref":"HEAD"}`); !ok || strings.Contains(out, "TEXTCONV_RAN") {
+		t.Fatalf("git_show must not run diff drivers: %v", out)
+	}
+
+	// همان حمله از راه diff.external (GIT_EXTERNAL_DIFF).
+	ext := markerScript(t, ws, "EXTERNAL_DIFF_RAN")
+	gitInForTest(t, ws, "config", "diff.external", ext)
+	gitInForTest(t, ws, "config", "--unset", "diff.evil.textconv")
+	if out, ok := a.execTool("git_diff", `{}`); !ok || strings.Contains(out, "EXTERNAL_DIFF_RAN") || !strings.Contains(out, "+two") {
+		t.Fatalf("git_diff must not run diff.external: %v", out)
+	}
+	if out, ok := a.execTool("git_show", `{"ref":"HEAD"}`); !ok || strings.Contains(out, "EXTERNAL_DIFF_RAN") {
+		t.Fatalf("git_show must not run diff.external: %v", out)
+	}
+}
+
 // TestRunGitNeutralizesPoisonedRepoConfig اثبات رفتاری: همان مسیر production
 // (a.runGit) به git می‌گوید fsmonitor خاموش و hooksPath خنثی است.
 func TestRunGitNeutralizesPoisonedRepoConfig(t *testing.T) {

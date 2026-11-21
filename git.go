@@ -235,7 +235,10 @@ func (a *App) toolGitStatus(ctx context.Context) (string, bool) {
 
 // toolGitDiff نمایش diff — کل، یک مسیر، یا فقط staged.
 func (a *App) toolGitDiff(ctx context.Context, rel string, staged bool) (string, bool) {
-	args := []string{"diff"}
+	// --no-ext-diff / --no-textconv: یک .git/config + .gitattributes دستکاری‌شده
+	// (diff.<driver>.textconv یا diff.external) نباید هنگام نمایش diff فرمان
+	// بیرونی اجرا کند — همان مسیر اجرای کد، فقط از راه دیگر.
+	args := []string{"diff", "--no-ext-diff", "--no-textconv"}
 	if staged {
 		args = append(args, "--cached")
 	}
@@ -268,7 +271,7 @@ func (a *App) toolGitLog(ctx context.Context, rel string, limit int) (string, bo
 	if limit > gitMaxLog {
 		limit = gitMaxLog
 	}
-	args := []string{"log", fmt.Sprintf("-%d", limit), "--pretty=format:%h %ad %an: %s", "--date=short"}
+	args := []string{"log", "--no-ext-diff", "--no-textconv", fmt.Sprintf("-%d", limit), "--pretty=format:%h %ad %an: %s", "--date=short"}
 	if rel = strings.TrimSpace(rel); rel != "" {
 		p, err := a.resolveWorkspacePath(rel)
 		if err != nil {
@@ -298,7 +301,7 @@ func (a *App) toolGitShow(ctx context.Context, ref string) (string, bool) {
 	if !gitRefSafe.MatchString(ref) {
 		return "ERROR: invalid ref (allowed: letters, digits, . _ / - ^ ~ ; must not start with '-').", false
 	}
-	out, ok := a.runGit(ctx, "show", "--unified=3", "--pretty=format:commit %H%nAuthor: %an <%ae>%nDate:   %ad%n%n    %s%n%n%b", ref)
+	out, ok := a.runGit(ctx, "show", "--no-ext-diff", "--no-textconv", "--unified=3", "--pretty=format:commit %H%nAuthor: %an <%ae>%nDate:   %ad%n%n    %s%n%n%b", ref)
 	if !ok {
 		return out, false
 	}
