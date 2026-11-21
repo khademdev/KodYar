@@ -35,3 +35,6 @@ frontend/tests/playwright-report/
 
 # پیوست‌ها/بازمانده‌های ابزار محلی
 .cloud-attachments/
+
+# اسکرین‌شات‌های ابزار browser_screenshot (خروجی موقت، نه سورس)
+screenshots/

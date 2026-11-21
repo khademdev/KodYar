@@ -250,6 +250,20 @@ var toolArgSpecs = map[string][]toolArgSpec{
 		{key: "target", typ: "string", required: true, nonEmpty: true},
 		{key: "timeout_sec", typ: "integer"},
 	},
+	"browser_open": {
+		{key: "url", typ: "string", required: true, nonEmpty: true},
+		{key: "width", typ: "integer"},
+		{key: "height", typ: "integer"},
+	},
+	"browser_console": {
+		{key: "url", typ: "string"},
+		{key: "clear", typ: "boolean"},
+	},
+	"browser_screenshot": {
+		{key: "url", typ: "string"},
+		{key: "path", typ: "string"},
+		{key: "full_page", typ: "boolean"},
+	},
 	"web_search": {
 		{key: "query", typ: "string", required: true, nonEmpty: true},
 		{key: "max_results", typ: "integer"},

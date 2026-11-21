@@ -85,6 +85,9 @@ func toolDefaultDecision(tool string, confirmWrites bool) permDecision {
 	case "list_dir", "read_file", "search_files", "glob", "find_symbol", "find_references",
 		"create_dir", "process_output", "process_stop", "process_list", "process_wait", "wait_for_port",
 		"process_input", // فقط stdin فرایندی که خودِ ایجنت (و با تأیید) شروع کرده
+		// فقط‌خواندنی برای مخزن: مرورگر headless صفحه را می‌بیند و اسکرین‌شات
+		// فقط داخل workspace نوشته می‌شود؛ هیچ فایل پروژه‌ای را تغییر نمی‌دهد.
+		"browser_open", "browser_console", "browser_screenshot",
 		"git_status", "git_diff", "git_log", "git_show", "diagnostics":
 		return permAllow
 	case "write_file", "edit_file", "apply_patch", "move_path", "delete_path":
@@ -501,7 +504,10 @@ var agentToolNames = []string{
 	"list_dir", "read_file", "search_files", "glob", "create_dir",
 	"git_status", "git_diff", "git_log", "git_show", "git_create_branch", "git_commit",
 	"write_file", "edit_file", "apply_patch", "move_path", "delete_path",
-	"run_command", "task",
+	"run_command",
+	"process_output", "process_stop", "process_list", "process_input", "process_wait", "wait_for_port",
+	"browser_open", "browser_console", "browser_screenshot",
+	"diagnostics", "todo_write", "task",
 }
 
 // permissionDecisionString نمایش رشته‌ای تصمیم برای UI/API.

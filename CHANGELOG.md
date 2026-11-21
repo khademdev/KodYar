@@ -132,6 +132,13 @@
   اجرا نمی‌شوند تا نوبت معطل نماند. خروجی با نگه‌داشتن سر و انتها بریده می‌شود و
   نام تست‌های شکست‌خورده جدا در پیام به مدل می‌آید (تست‌های
   `TestAutoVerifyTurnRunsAndReportsFailingTest` و `TestAutoVerifyWatchScriptsAreNotRun`).
+- **دیدن نتیجهٔ بصری (P0-4):** سه ابزار فقط‌خواندنی `browser_open`،
+  `browser_console` و `browser_screenshot` روی کروم/اج/کرومیوم نصب‌شدهٔ سیستم در
+  حالت headless از طریق CDP (بدون دانلود مرورگر و بدون وابستگی جدید؛ کلاینت
+  WebSocket کوچک در `wsclient.go`). اسکرین‌شات فقط داخل workspace
+  (`screenshots/`) ذخیره می‌شود، فقط http(s) پذیرفته می‌شود و اگر مرورگری نصب
+  نباشد پیام روشن با راهنمای `KODYAR_BROWSER_PATH` برمی‌گردد. مرورگر یک‌بار
+  شروع و هنگام خروج برنامه بسته می‌شود.
 - **فرایند تعاملی و آمادگی dev server:** `process_input` متن/Enter را به stdin فرایند
   پس‌زمینه می‌فرستد (npm create، gh auth login، prisma migrate، کلیدهای vite)؛
   `process_wait` تا خروج/مهلت صبر می‌کند و کد خروج را می‌دهد؛ `wait_for_port` آماده‌شدن

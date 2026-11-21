@@ -126,6 +126,10 @@ a.checkpointMu, a.readStore.mu, a.factsCache.mu  (leaf locks — Mission 3)
    a sandbox-free background process via an `os.Pipe`; exec waits on a
    reader goroutine, so `io.Pipe` would deadlock `Wait`),
    `wait_for_port` (TCP readiness probe for dev servers),
+   `browser_open/browser_console/browser_screenshot` (headless
+   Chrome/Edge/Chromium over CDP — `browser.go`; minimal WebSocket client
+   in `wsclient.go`, no dependency; screenshots confined to the workspace,
+   start-once browser killed on shutdown),
    `git_status/git_diff/git_log/git_show`, `git_create_branch`/
    `git_commit` (modal-gated writes: `kind=git_write`, no always option,
    hooks/clean-filters bypassed, never push), `task`, `todo_write`,

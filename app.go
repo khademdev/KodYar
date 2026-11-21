@@ -82,6 +82,11 @@ type App struct {
 	bgMu    sync.Mutex
 	bgProcs map[string]*bgProcess
 
+	// browserMu/browser مرورگر headless مشترک ابزارهای browser_* (browser.go).
+	// قفل برگ است؛ کار طولانی CDP زیر آن انجام نمی‌شود (فقط start-once).
+	browserMu sync.Mutex
+	browser   *browserSession
+
 	// sessionAllowWrites اگر true باشد، تأیید نوشتن فایل برای بقیه‌ی عمر
 	// برنامه (یا تا خاموش شدن صریح) رد می‌شود — از مودال Diff با
 	// «اجازه تا پایان نشست». جدا از ConfirmFileWrites در settings است.
@@ -225,6 +230,8 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 	// کشتن فرایندهای پس‌زمینه‌ی همین نشست (dev server/watch) — خروج تمیز.
 	a.stopAllBackgroundProcesses()
+	// بستن مرورگر headless ابزارهای browser_* (اگر اجرا شده باشد).
+	a.browserShutdown()
 	// بستن سرورهای زبان (gopls/typescript-language-server) — start-once در
 	// طول عمر برنامه، kill هنگام خروج.
 	diagMgr.stopAll()
