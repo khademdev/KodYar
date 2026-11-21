@@ -122,9 +122,15 @@ a.checkpointMu, a.readStore.mu, a.factsCache.mu  (leaf locks — Mission 3)
    (mtime-desc ordering), `run_command` (foreground; `background:true`
    returns a process id), `process_output/process_stop/process_list`
    (incremental log tail, tree kill, status — `processes.go`),
+   `process_wait` (wait for exit, no polling), `process_input` (stdin of
+   a sandbox-free background process via an `os.Pipe`; exec waits on a
+   reader goroutine, so `io.Pipe` would deadlock `Wait`),
+   `wait_for_port` (TCP readiness probe for dev servers),
    `git_status/git_diff/git_log/git_show`, `git_create_branch`/
    `git_commit` (modal-gated writes: `kind=git_write`, no always option,
    hooks/clean-filters bypassed, never push), `task`, `todo_write`,
+   auto-verify covering Go/Rust/.NET/PHP/Python/Node and every nested
+   `go.mod`/`Cargo.toml`/project root (depth 2),
    `web_fetch`, `diagnostics`) plus custom user tools
    and `mcp_<server>_<tool>` tools from enabled MCP servers
    (`mcpmanager.go`; lazy parallel start with a 15 s budget, backoff

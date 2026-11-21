@@ -427,6 +427,73 @@ func TestAutoVerifyTurnRunsAndReportsFailingTest(t *testing.T) {
 	}
 }
 
+// TestAutoVerifyRecursiveModules: monorepoیی که go.mod در ریشه ندارد نباید
+// «راستی‌آزمایی پیدا نشد» بدهد — ماژول‌ها در زیرپوشه پیدا و در همان‌جا اجرا می‌شوند.
+func TestAutoVerifyRecursiveModules(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+	ws := t.TempDir()
+	for _, sub := range []string{"svc/api", "svc/worker"} {
+		dir := filepath.Join(ws, filepath.FromSlash(sub))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module "+sub+"\n\ngo 1.21\n"), 0o600)
+	}
+	got := autoVerifyCommands(ws, nil)
+	joined := strings.Join(got, "\n")
+	for _, want := range []string{"cd svc/api && go build ./...", "cd svc/api && go test ./...", "cd svc/worker && go build ./..."} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("recursive module detection missing %q; got %v", want, got)
+		}
+	}
+}
+
+// TestAutoVerifyExtraEcosystems: PHP/Python/Rust/.NET هم راستی‌آزمایی نحوی/
+// ساخت دارند (قبلاً فقط Go/TS/JS/Python بود).
+func TestAutoVerifyExtraEcosystems(t *testing.T) {
+	if _, err := exec.LookPath("php"); err == nil {
+		got := autoVerifyCommands(t.TempDir(), []string{"a.php", "sub/b.php", "README.md"})
+		joined := strings.Join(got, "\n")
+		if !strings.Contains(joined, `php -l "a.php"`) || strings.Contains(joined, "README.md") {
+			t.Fatalf("php syntax check missing/misapplied: %v", got)
+		}
+	}
+	if _, err := exec.LookPath("cargo"); err == nil {
+		ws := t.TempDir()
+		os.WriteFile(filepath.Join(ws, "Cargo.toml"), []byte("[package]\nname=\"x\"\n"), 0o600)
+		joined := strings.Join(autoVerifyCommands(ws, nil), "\n")
+		if !strings.Contains(joined, "cargo build") || !strings.Contains(joined, "cargo test") {
+			t.Fatalf("cargo verification missing: %s", joined)
+		}
+	}
+	if _, err := exec.LookPath("dotnet"); err == nil {
+		ws := t.TempDir()
+		os.WriteFile(filepath.Join(ws, "app.csproj"), []byte("<Project/>"), 0o600)
+		joined := strings.Join(autoVerifyCommands(ws, nil), "\n")
+		if !strings.Contains(joined, "dotnet build") {
+			t.Fatalf("dotnet verification missing: %s", joined)
+		}
+	}
+}
+
+// TestAutoVerifyUnsafeDirNamesNotUsed: نام پوشه‌ی دارای فاصله/metachar نباید
+// به دستور cd بدون quoting تبدیل شود.
+func TestAutoVerifyUnsafeDirNamesNotUsed(t *testing.T) {
+	ws := t.TempDir()
+	bad := filepath.Join(ws, "a b & c")
+	if err := os.MkdirAll(bad, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(bad, "go.mod"), []byte("module x\n"), 0o600)
+	for _, c := range autoVerifyCommands(ws, nil) {
+		if strings.Contains(c, "a b") {
+			t.Fatalf("unsafe directory name must never reach a shell command: %q", c)
+		}
+	}
+}
+
 // TestAutoVerifyWatchScriptsAreNotRun: اسکریپت تست watch-mode هرگز خودکار
 // اجرا نمی‌شود، وگرنه کل نوبت تا پایان مهلت معطل می‌ماند.
 func TestAutoVerifyWatchScriptsAreNotRun(t *testing.T) {

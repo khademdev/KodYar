@@ -29,6 +29,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -80,9 +81,15 @@ func autoVerifyCommands(ws string, changed []string) []string {
 		!autoVerifyWatchScript(testScript) && hasTool("npm") {
 		npmTest = "npm test"
 	}
-	// Go: ساخت همه‌ی بسته‌ها؛ در صورت موفقیت vet و سپس تست.
-	if exists("go.mod") && hasTool("go") {
-		cmds = append(cmds, "go build ./...", "go vet ./...", "go test ./...")
+	// Go: هر ماژول (ریشه یا زیرپوشه‌های monorepo تا عمق ۲): build، vet، تست.
+	goDirs := autoVerifyScanDirs(ws, 2, 4, func(dir string) bool { return fileExistsIn(dir, "go.mod") })
+	if len(goDirs) > 0 && hasTool("go") {
+		for _, d := range goDirs {
+			cmds = append(cmds,
+				autoVerifyInDir(d, "go build ./..."),
+				autoVerifyInDir(d, "go vet ./..."),
+				autoVerifyInDir(d, "go test ./..."))
+		}
 		return cmds
 	}
 	// TypeScript: فقط tsc نصب‌شده در PATH — عمداً هیچ باینری‌ای از خود مخزن
@@ -139,7 +146,112 @@ func autoVerifyCommands(ws string, changed []string) []string {
 		(exists("pytest.ini") || exists("tox.ini") || exists("setup.cfg") || exists("pyproject.toml")) {
 		cmds = append(cmds, "python -m pytest")
 	}
+
+	// PHP: فقط بررسی نحویِ فایل‌های تغییرکرده (php -l).
+	if hasTool("php") {
+		for _, f := range changed {
+			if strings.HasSuffix(strings.ToLower(f), ".php") && len(cmds) < autoVerifyMaxFiles*2 {
+				cmds = append(cmds, `php -l "`+f+`"`)
+			}
+		}
+	}
+
+	// Rust: هر Cargo.toml (ریشه یا monorepo تا عمق ۲) — build سپس تست.
+	if hasTool("cargo") {
+		for _, d := range autoVerifyScanDirs(ws, 2, 3, func(dir string) bool { return fileExistsIn(dir, "Cargo.toml") }) {
+			cmds = append(cmds, autoVerifyInDir(d, "cargo build"), autoVerifyInDir(d, "cargo test"))
+		}
+	}
+
+	// .NET: نزدیکترین .sln/.csproj (ریشه یا monorepo تا عمق ۲).
+	if hasTool("dotnet") {
+		dirs := autoVerifyScanDirs(ws, 2, 2, func(dir string) bool {
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				return false
+			}
+			for _, e := range entries {
+				if e.IsDir() {
+					continue
+				}
+				name := strings.ToLower(e.Name())
+				if strings.HasSuffix(name, ".sln") || strings.HasSuffix(name, ".csproj") {
+					return true
+				}
+			}
+			return false
+		})
+		for _, d := range dirs {
+			cmds = append(cmds, autoVerifyInDir(d, "dotnet build --nologo -v q"), autoVerifyInDir(d, "dotnet test --nologo -v q"))
+		}
+	}
 	return cmds
+}
+
+// autoVerifyInDir دستور را در زیرپوشه‌ی rel اجرا می‌کند ("" = ریشه).
+// نام پوشه‌ها در autoVerifyScanDirs به کاراکترهای امن محدود می‌شوند؛ پس بدون
+// quoting ایمی هستیم (cmd.exe و sh هر دو cd نسبی را می‌فهمند).
+func autoVerifyInDir(rel, cmd string) string {
+	if rel == "" {
+		return cmd
+	}
+	return "cd " + rel + " && " + cmd
+}
+
+// fileExistsIn آیا فایل name در پوشه‌ی dir وجود دارد؟
+func fileExistsIn(dir, name string) bool {
+	st, err := os.Stat(filepath.Join(dir, name))
+	return err == nil && !st.IsDir()
+}
+
+// autoVerifyScanDirs پوشه‌های نسبیِ ("" = ریشه) که match تأیید می‌کند را
+// تا عمق maxDepth پیدا می‌کند — monorepoیی که go.mod/Cargo.toml در ریشه
+// ندارد هم دیده می‌شود (باگ «راستی‌آزمایی پیدا نشد»).
+// فقط نام‌های امن (بدون فاصله/metachar) برگردانده می‌شوند تا دستور cd بدون
+// quoting امن بماند؛ node_modules و پوشه‌های مخفی هرگز پیموده نمی‌شوند.
+func autoVerifyScanDirs(ws string, maxDepth, max int, match func(dir string) bool) []string {
+	var out []string
+	safe := true
+	_ = filepath.WalkDir(ws, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if len(out) >= max {
+			return filepath.SkipAll
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		rel, rerr := filepath.Rel(ws, path)
+		if rerr != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if rel != "." {
+			name := d.Name()
+			if searchSkipDirs[name] || name == "node_modules" || strings.HasPrefix(name, ".") {
+				return filepath.SkipDir
+			}
+			rel = strings.TrimPrefix(rel, "./")
+			if strings.ContainsAny(rel, " \t\"'`$;&|<>()*?[]{}!#") {
+				safe = false
+			} else {
+				safe = true
+			}
+		}
+		if match(path) && (rel == "." || safe) {
+			if rel == "." {
+				rel = ""
+			}
+			out = append(out, rel)
+		}
+		if rel != "" && strings.Count(rel, "/") >= maxDepth-1 {
+			return filepath.SkipDir
+		}
+		return nil
+	})
+	sort.Strings(out)
+	return out
 }
 
 // packageJSONTestScript متن اسکریپت test پروژه ("" یعنی ندارد).

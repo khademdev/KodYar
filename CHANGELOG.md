@@ -132,6 +132,14 @@
   اجرا نمی‌شوند تا نوبت معطل نماند. خروجی با نگه‌داشتن سر و انتها بریده می‌شود و
   نام تست‌های شکست‌خورده جدا در پیام به مدل می‌آید (تست‌های
   `TestAutoVerifyTurnRunsAndReportsFailingTest` و `TestAutoVerifyWatchScriptsAreNotRun`).
+- **فرایند تعاملی و آمادگی dev server:** `process_input` متن/Enter را به stdin فرایند
+  پس‌زمینه می‌فرستد (npm create، gh auth login، prisma migrate، کلیدهای vite)؛
+  `process_wait` تا خروج/مهلت صبر می‌کند و کد خروج را می‌دهد؛ `wait_for_port` آماده‌شدن
+  پورت را تأیید می‌کند. stdin فقط بدون سندباکس است و پیام روشن می‌دهد.
+- **پوشش زبان‌ها و monorepo:** راستی‌آزمایی خودکار علاوه بر Go/TS/JS/Python حالا
+  Rust (`cargo build/test`)، .NET (`dotnet build/test`) و PHP (`php -l`) را پوشش می‌دهد و
+  ماژول‌ها را بازگشتی پیدا می‌کند (`go.mod`/`Cargo.toml`/`.csproj` در زیرپوشه تا عمق ۲)،
+  پس monorepo دیگر «راستی‌آزمایی پیدا نشد» نمی‌دهد.
 - **ابزارهای نوشتنی git با مودال تأیید:** `git_create_branch` (ساخت شاخه و
   سوییچ، با اعتبارسنجی نام) و `git_commit` (stage با `hash-object --no-filters`
   + `update-index`، سپس کامیت روی شاخهٔ فعلی) — هر دو پیش از هر تغییری مودال
