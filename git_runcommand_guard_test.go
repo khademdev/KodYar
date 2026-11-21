@@ -8,6 +8,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,6 +74,45 @@ func TestAgentCommandBlockedGitDiffDrivers(t *testing.T) {
 		if reason, ok := agentCommandBlocked(cmd); ok {
 			t.Errorf("%q must not be refused, got %q", cmd, reason)
 		}
+	}
+}
+
+// TestAllowedGitSubcommandsStillUseTheGate: لیست سفید فقط درِ ورودی است؛
+// زیرفرمان‌های مجاز باید مثل قبل از دروازه‌ی allow/ask بگذرند (لیست سفید
+// نباید به‌جای دروازه تصمیم بگیرد).
+func TestAllowedGitSubcommandsStillUseTheGate(t *testing.T) {
+	gitAvailableForTest(t)
+	ws := t.TempDir()
+	gitInForTest(t, ws, "init", "-q")
+	gitInForTest(t, ws, "config", "user.email", "test@example.com")
+	gitInForTest(t, ws, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(ws, "a.txt"), []byte("one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitInForTest(t, ws, "add", "-A")
+	gitInForTest(t, ws, "commit", "-qm", "init")
+
+	a := newTestApp(t)
+	a.settings.WorkspacePath = ws
+
+	// allow: دستور فقط‌خواندنی در لیست سفیدِ دروازه → بدون مودال اجرا می‌شود.
+	for _, cmd := range []string{"git status --short", "git branch -a", "git rev-parse --short HEAD"} {
+		out, ok := a.execTool("run_command", fmt.Sprintf(`{"command":%q}`, cmd))
+		if !ok {
+			t.Fatalf("%s must run (the gate allows it): %s", cmd, out)
+		}
+	}
+
+	// ask: پرچم خطرناکِ همان زیرفرمان مجاز باید همچنان مودال بدهد؛ بدون UI = رد.
+	out, ok := a.execTool("run_command", `{"command":"git branch -D no-such-branch"}`)
+	if ok {
+		t.Fatalf("a destructive branch flag must not run without approval: %s", out)
+	}
+	if strings.Contains(out, "run through run_command") {
+		t.Fatalf("the allow-list must not pre-empt the gate: %s", out)
+	}
+	if !strings.Contains(out, "rejected") {
+		t.Fatalf("expected the permission-modal refusal, got: %s", out)
 	}
 }
 
