@@ -256,10 +256,15 @@ func TestUIContract(t *testing.T) {
 			t.Fatalf("turn summary contract: turnsummary.js must contain %q", want)
 		}
 	}
-	for _, gone := range []string{"RevertTurnChanges", "RestoreCheckpoint", "PreviewCheckpointRestore", "برگرداندن"} {
-		if strings.Contains(ts, gone) {
-			t.Fatalf("turnsummary.js must no longer contain the removed revert flow (%q)", gone)
+	// بازگردانی نوبت دوباره در محصول است: دکمه، پیش‌نمایش و اجرای همان
+	// بک‌اند موجود (بدون مسیر جدید). اگر یکی حذف شود، این قرارداد می‌شکند.
+	for _, want := range []string{"PreviewCheckpointRestore", "RestoreCheckpoint", "بازگردانی این نوبت"} {
+		if !strings.Contains(ts, want) {
+			t.Fatalf("turnsummary.js must offer the per-turn restore flow (%q)", want)
 		}
+	}
+	if !strings.Contains(css, ".ts-restore") {
+		t.Fatal("turnsummary.css must style the restore button and preview modal")
 	}
 	perm := findSrc(js, "permissions.js")
 	if !strings.Contains(perm, "web_host") {

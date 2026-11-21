@@ -7,7 +7,8 @@
  * کارت پس از آخرین پیام دستیار در #msg-col اضافه می‌شود:
  *   - عنوان «خلاصه‌ی واقعی این نوبت» + فهرست فایل‌ها با +/− و وضعیت محافظت
  *   - کلیک روی فایل → دیافراگ diff (GetFileChangeDiff)
- *   - کارت فقط اطلاعات نوبت را نشان می‌دهد؛ هیچ دکمه‌ی بازگشتی ندارد.
+ *   - دکمه‌ی «بازگردانی این نوبت» → پیش‌نمایش (PreviewCheckpointRestore)،
+ *     تأیید کاربر، سپس RestoreCheckpoint؛ فایل تازه حذف نمی‌شود (سبد زباله).
  *   - چیپ هشدار «پس از آخرین تغییر، تست یا ساخت اجرا نشده» وقتی
  *     verification.ok=false ولی فایلی عوض شده
  *   - فهرست دستورات با کد خروج
@@ -199,7 +200,219 @@
       card.appendChild(cap);
     }
 
+    // بازگردانی این نوبت — فقط وقتی فایلی تغییر کرده و نوبت شناسه دارد.
+    if (s.turnId && (s.files || []).length > 0) {
+      card.appendChild(restoreFoot(s));
+    }
+
     return card;
+  }
+
+  /* ------------------------------------------------------- بازگردانی نوبت */
+
+  function toastMsg(text, kind) {
+    if (window.toast) window.toast(text, kind || "info");
+  }
+
+  function restoreFoot(s) {
+    var foot = document.createElement("div");
+    foot.className = "ts-foot";
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn btn-ghost btn-sm ts-restore";
+    btn.textContent = "بازگردانی این نوبت";
+    btn.title =
+      "فایل‌های این نوبت به وضعیت پیش از آن برمی‌گردند؛ هیچ فایلی حذف نمی‌شود و فایل‌های تازه به سبد زباله می‌روند.";
+    btn.addEventListener("click", function () {
+      startRestore(btn, s);
+    });
+    foot.appendChild(btn);
+    return foot;
+  }
+
+  function startRestore(btn, s) {
+    var be = backend();
+    if (!be || typeof be.PreviewCheckpointRestore !== "function" || typeof be.RestoreCheckpoint !== "function") {
+      toastMsg("در حالت پیش‌نمایش مرورگر، بازگردانی نوبت ممکن نیست", "info");
+      return;
+    }
+    var convId = s.conversationId || activeConvId();
+    var turnId = Number(s.turnId) || 0;
+    if (!convId || turnId <= 0) {
+      toastMsg("این کارت شناسهٔ گفتگو/نوبت معتبری ندارد", "err");
+      return;
+    }
+    btn.disabled = true;
+    be.PreviewCheckpointRestore(convId, turnId)
+      .then(function (p) {
+        btn.disabled = false;
+        if (!p || !p.available) {
+          toastMsg((p && p.error) || "برای این نوبت نقطهٔ بازگشتی ثبت نشده است.", "err");
+          return;
+        }
+        openRestoreModal(s, p, function () {
+          applyRestore(btn, convId, turnId);
+        });
+      })
+      .catch(function (err) {
+        btn.disabled = false;
+        toastMsg(String(err && err.message ? err.message : err), "err");
+      });
+  }
+
+  function restoreGroup(title, items, warn) {
+    var list = items || [];
+    var wrap = document.createElement("div");
+    wrap.className = "ts-restore-group" + (warn ? " ts-restore-warn" : "");
+    var head = document.createElement("div");
+    head.className = "ts-restore-title";
+    head.textContent = title + " (" + fa(list.length) + ")";
+    wrap.appendChild(head);
+    if (!list.length) return wrap;
+    var box = document.createElement("div");
+    box.className = "ts-restore-items";
+    list.slice(0, 40).forEach(function (p) {
+      var it = document.createElement("div");
+      it.className = "ts-restore-item";
+      it.setAttribute("dir", "ltr");
+      it.textContent = p;
+      box.appendChild(it);
+    });
+    if (list.length > 40) {
+      var more = document.createElement("div");
+      more.className = "ts-restore-item ts-restore-more";
+      more.textContent = "… و " + fa(list.length - 40) + " فایل دیگر";
+      box.appendChild(more);
+    }
+    wrap.appendChild(box);
+    return wrap;
+  }
+
+  function openRestoreModal(s, p, onConfirm) {
+    var overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    var modal = document.createElement("div");
+    modal.className = "modal modal-restore";
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+
+    var head = document.createElement("div");
+    head.className = "modal-head";
+    var title = document.createElement("div");
+    title.className = "modal-title";
+    title.textContent = "بازگردانی نوبت " + fa(s.turnId) + " — پیش‌نمایش";
+    var close = document.createElement("button");
+    close.className = "modal-close";
+    close.title = "بستن";
+    head.appendChild(title);
+    head.appendChild(close);
+
+    var body = document.createElement("div");
+    body.className = "modal-body";
+    var total = (p.rewrite || []).length + (p.trash || []).length;
+    var note = document.createElement("div");
+    note.className = "ts-restore-note";
+    note.textContent =
+      total === 0
+        ? "فایلی برای بازگردانی نیست؛ پروژه همان وضعیت پیش از این نوبت را دارد."
+        : "فایل‌های این نوبت به وضعیت پیش از آن برمی‌گردند. هیچ چیز حذف نمی‌شود: فایل‌های تازه به سبد زباله منتقل می‌شوند.";
+    body.appendChild(note);
+    body.appendChild(restoreGroup("بازنویسی با نسخهٔ قبل", p.rewrite, false));
+    body.appendChild(restoreGroup("انتقال به سبد زباله (فایل تازهٔ این نوبت)", p.trash, false));
+    if ((p.skipped || []).length) {
+      body.appendChild(restoreGroup("ردشده (بیرون از پروژه یا محافظت‌شده)", p.skipped, true));
+    }
+
+    var foot = document.createElement("div");
+    foot.className = "modal-foot";
+    var spacer = document.createElement("span");
+    spacer.className = "spacer";
+    var cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "btn btn-ghost";
+    cancel.textContent = "انصراف";
+    var confirm = document.createElement("button");
+    confirm.type = "button";
+    confirm.className = "btn btn-primary";
+    confirm.textContent = "بازگردانی";
+    confirm.disabled = total === 0;
+    foot.appendChild(spacer);
+    foot.appendChild(cancel);
+    foot.appendChild(confirm);
+
+    modal.appendChild(head);
+    modal.appendChild(body);
+    modal.appendChild(foot);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    requestAnimationFrame(function () {
+      overlay.classList.add("open");
+    });
+
+    var closed = false;
+    function close_() {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener("keydown", onKey);
+      if (overlay.parentNode) document.body.removeChild(overlay);
+    }
+    function onKey(e) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        close_();
+      }
+    }
+    close.addEventListener("click", close_);
+    cancel.addEventListener("click", close_);
+    confirm.addEventListener("click", function () {
+      close_();
+      onConfirm();
+    });
+    overlay.addEventListener("mousedown", function (e) {
+      if (e.target === overlay) close_();
+    });
+    document.addEventListener("keydown", onKey);
+  }
+
+  function applyRestore(btn, convId, turnId) {
+    var be = backend();
+    if (!be || typeof be.RestoreCheckpoint !== "function") return;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "در حال بازگردانی…";
+    }
+    be.RestoreCheckpoint(convId, turnId)
+      .then(function (r) {
+        var rep = r || {};
+        var restored = (rep.restored || []).length;
+        var trashed = (rep.trashed || []).length;
+        var errs = (rep.errors || []).length;
+        var parts = [];
+        if (restored) parts.push(fa(restored) + " فایل بازنویسی شد");
+        if (trashed) parts.push(fa(trashed) + " فایل به سبد زباله رفت");
+        if (!parts.length) parts.push("فایلی برای بازگردانی نبود");
+        if (errs) parts.push(fa(errs) + " خطا");
+        toastMsg("بازگردانی نوبت: " + parts.join("، "), errs ? "err" : "ok");
+
+        var card = btn ? btn.closest(".ts-card") : null;
+        if (card) {
+          card.querySelectorAll(".ts-file").forEach(function (row) {
+            row.classList.add("ts-reverted");
+          });
+          var foot = card.querySelector(".ts-foot");
+          if (foot) {
+            foot.className = "ts-foot ts-restored-note";
+            foot.textContent = "این نوبت بازگردانده شد.";
+          }
+        }
+      })
+      .catch(function (err) {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "بازگردانی این نوبت";
+        }
+        toastMsg(String(err && err.message ? err.message : err), "err");
+      });
   }
 
   /* -------------------------------------------------------------- diff box */

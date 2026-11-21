@@ -92,7 +92,7 @@ test("permission modal: agent:permission_ask becomes visible, allow responds thr
   expect(await bridgeCalls(page, "RespondPermissionConfirm")).toBe(1);
 });
 
-test("turn-summary card: after an agent turn it is visible with files, protection chip, verification and the revert button", async ({ page }) => {
+test("turn-summary card: after an agent turn it is visible with files, protection chip and the turn restore button", async ({ page }) => {
   await primeMockState(page, { agentMode: true });
   await page.fill("#msg-input", "یک تغییر آزمایشی اعمال کن");
   await page.click("#btn-send");
@@ -108,6 +108,6 @@ test("turn-summary card: after an agent turn it is visible with files, protectio
   await expect(card).toContainText("src/agent.go");
   await expect(card).toContainText("package.json");        // فایل محافظت‌شده در فهرست
   await expect(card).toContainText("go build ./...");      // راستی‌آزمایی ثبت‌شده
-  await expect(card.getByRole("button", { name: "برگرداندن همه‌ی تغییرات این نوبت" })).toHaveCount(0);
+  await expect(card.getByRole("button", { name: "بازگردانی این نوبت" })).toBeVisible();
 });
 

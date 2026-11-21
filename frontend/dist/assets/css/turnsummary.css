@@ -235,3 +235,62 @@
 .ts-cap {
   align-self: flex-start;
 }
+
+/* ---------------- بازگردانی نوبت (دکمه + مودال پیش‌نمایش) ---------------- */
+.ts-foot .ts-restore {
+  align-self: flex-start;
+}
+.ts-foot.ts-restored-note {
+  font-size: calc(var(--ui-size) - 2px);
+  color: var(--ok);
+}
+.modal-restore .modal-body {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ts-restore-note {
+  font-size: calc(var(--ui-size) - 2px);
+  line-height: 1.9;
+  color: var(--text2);
+}
+.ts-restore-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ts-restore-title {
+  font-size: calc(var(--ui-size) - 2px);
+  color: var(--text3);
+}
+.ts-restore-warn .ts-restore-title {
+  color: var(--warn);
+}
+.ts-restore-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 240px;
+  overflow: auto;
+}
+.ts-restore-item {
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: left;
+  font-family: var(--font-code);
+  font-size: calc(var(--ui-size) - 3px);
+  color: var(--text2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 2px 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ts-restore-more {
+  border-style: dashed;
+  color: var(--text3);
+  direction: rtl;
+  text-align: right;
+}
