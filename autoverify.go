@@ -73,9 +73,11 @@ func autoVerifyCommands(ws string, changed []string) []string {
 	}
 	var cmds []string
 	// npm test فقط وقتی اسکریپت test تعریف شده باشد؛ وگرنه npm خودش با
-	// «Missing script» شکست می‌خورد و خطای واقعی را می‌پوشاند.
+	// «Missing script» شکست می‌خورد و خطای واقعی را می‌پوشاند. اسکریپت
+	// watch-mode هم اجرا نمی‌شود (ممکن است هرگز تمام نشود).
 	npmTest := ""
-	if exists("package.json") && hasTool("npm") && packageJSONHasTestScript(ws) {
+	if testScript := packageJSONTestScript(ws); testScript != "" &&
+		!autoVerifyWatchScript(testScript) && hasTool("npm") {
 		npmTest = "npm test"
 	}
 	// Go: ساخت همه‌ی بسته‌ها؛ در صورت موفقیت vet و سپس تست.
@@ -140,19 +142,60 @@ func autoVerifyCommands(ws string, changed []string) []string {
 	return cmds
 }
 
-// packageJSONHasTestScript آیا package.json اسکریپت testِ غیرخالی دارد؟
-func packageJSONHasTestScript(ws string) bool {
+// packageJSONTestScript متن اسکریپت test پروژه ("" یعنی ندارد).
+func packageJSONTestScript(ws string) string {
 	data, err := readHeadBytes(filepath.Join(ws, "package.json"))
 	if err != nil {
-		return false
+		return ""
 	}
 	var pkg struct {
 		Scripts map[string]string `json:"scripts"`
 	}
 	if json.Unmarshal(data, &pkg) != nil {
+		return ""
+	}
+	return strings.TrimSpace(pkg.Scripts["test"])
+}
+
+// autoVerifyWatchScript آیا اسکریپت تست در حالت watch اجرا می‌شود؟
+//
+// stdout دستورها یک pipe است (نه TTY)، پس runnerهایی که watch را به TTY
+// مشروط می‌کنند (react-scripts، vitest، jest) خودشان یک‌بار اجرا و خارج
+// می‌شوند. چیزی که باقی می‌ماند و می‌تواند تا مهلت کامل معطل بماند، پرچم
+// صریح watch و runnerهایی است که پیش‌فرضشان watch است (karma، ng test) —
+// این اسکریپت خودکار اجرا نمی‌شود.
+func autoVerifyWatchScript(script string) bool {
+	low := strings.ToLower(strings.TrimSpace(script))
+	if low == "" {
 		return false
 	}
-	return strings.TrimSpace(pkg.Scripts["test"]) != ""
+	for _, tok := range strings.Fields(low) {
+		t := strings.Trim(tok, `"'`)
+		switch {
+		case t == "--watch" || t == "--watchall" || t == "-w":
+			return true
+		case strings.HasPrefix(t, "--watch=") && !strings.Contains(t, "false"):
+			return true
+		case strings.HasPrefix(t, "--watchall=") && !strings.Contains(t, "false"):
+			return true
+		}
+	}
+	if strings.Contains(low, "karma") && strings.Contains(low, "start") && !strings.Contains(low, "--single-run") {
+		return true
+	}
+	if strings.Contains(low, "ng test") && !strings.Contains(low, "--watch=false") {
+		return true
+	}
+	return false
+}
+
+// autoVerifyWatchSkipReason دلیل فارسیِ «تست خودکار اجرا نشد» برای اسکریپت
+// watch-mode ("" وقتی دلیلی نیست).
+func autoVerifyWatchSkipReason(ws string) string {
+	if s := packageJSONTestScript(ws); s != "" && autoVerifyWatchScript(s) {
+		return "اسکریپت تست پروژه در حالت watch اجرا می‌شود و خودکار اجرا نشد (ممکن است هرگز تمام نشود)"
+	}
+	return ""
 }
 
 // autoVerifyTimeoutFor مهلت هر دستور: تست‌ها بیشتر از build طول می‌کشند.
@@ -167,6 +210,10 @@ func autoVerifyTimeoutFor(command string) time.Duration {
 // skipped دلیل «چیزی برای اجرا نبود» است (فارسی، برای اعلان/لاگ).
 func (a *App) autoVerifyTurn(ctx context.Context, ws string, changed []string) (runs []autoVerifyRun, skipped string) {
 	cmds := autoVerifyCommands(ws, changed)
+	if reason := autoVerifyWatchSkipReason(ws); reason != "" {
+		// یک‌بار برای هر (پوشه، دلیل) در لاگ فعالیت ثبت می‌شود.
+		a.noteAutoVerifySkip(ws, reason)
+	}
 	if len(cmds) == 0 {
 		return nil, "برای این پروژه دستور ساخت/تایپ‌چک خودکاری پیدا نشد"
 	}

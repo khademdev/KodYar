@@ -427,6 +427,52 @@ func TestAutoVerifyTurnRunsAndReportsFailingTest(t *testing.T) {
 	}
 }
 
+// TestAutoVerifyWatchScriptsAreNotRun: اسکریپت تست watch-mode هرگز خودکار
+// اجرا نمی‌شود، وگرنه کل نوبت تا پایان مهلت معطل می‌ماند.
+func TestAutoVerifyWatchScriptsAreNotRun(t *testing.T) {
+	cases := []struct {
+		script string
+		watch  bool
+	}{
+		{"react-scripts test", false}, // حالت watch به TTY مشروط است؛ خروجی pipe است
+		{"vitest run", false},
+		{"vitest", false},
+		{"jest", false},
+		{"node --test", false},
+		{"jest --watch", true},
+		{"vitest --watch", true},
+		{"jest --watchAll", true},
+		{"jest --watchAll=false", false},
+		{"vitest --watch=false", false},
+		{"ng test", true},
+		{"ng test --watch=false", false},
+		{"karma start", true},
+		{"karma start --single-run", false},
+	}
+	for _, c := range cases {
+		if got := autoVerifyWatchScript(c.script); got != c.watch {
+			t.Fatalf("watch detection for %q = %v, want %v", c.script, got, c.watch)
+		}
+	}
+
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "package.json"), []byte(`{"scripts":{"test":"jest --watch"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := autoVerifyCommands(ws, nil); autoVerifyHasCmd(got, "npm test") {
+		t.Fatalf("watch-mode test script must never be scheduled, got %v", got)
+	}
+	if autoVerifyWatchSkipReason(ws) == "" {
+		t.Fatal("watch-mode test script must produce a skip reason for the activity log")
+	}
+
+	okWS := t.TempDir()
+	os.WriteFile(filepath.Join(okWS, "package.json"), []byte(`{"scripts":{"test":"node --test"}}`), 0o600)
+	if autoVerifyWatchSkipReason(okWS) != "" {
+		t.Fatal("one-shot test script must not be reported as watch-mode")
+	}
+}
+
 // TestAutoVerifyTestCommandTimeoutLonger: تست‌ها بیش از build طول می‌کشند و
 // مهلت ۱۵۰ ثانیه‌ای build برایشان کم است.
 func TestAutoVerifyTestCommandTimeoutLonger(t *testing.T) {
