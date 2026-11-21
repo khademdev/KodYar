@@ -670,6 +670,10 @@ var defaultProtectedGlobs = []string{
 	// C.5: مخزن تودرتو (submodule) — «src/.git/config» هم محافظت‌شده است؛
 	// الگوهای بالا فقط از ریشه‌ی پوشه‌ی کاری تطبیق می‌شدند.
 	"**/.git/**",
+	// .gitattributes نیمه‌ی دیگرِ همان حمله است: `*.txt diff=<driver>` یا
+	// `filter=<driver>` کافی است تا git درایور بیرونی را هنگام diff/add صدا
+	// بزند؛ پس حتی در حالت «ویرایش خودکار» هم بی‌تأیید نوشته نمی‌شود.
+	".gitattributes",
 	".env*", "*.pem", "*.key", "*.pfx",
 	"package.json", "Makefile", "makefile", "*.mk", "justfile",
 	"Taskfile.y*ml", "*.csproj", "pom.xml", "build.gradle*",

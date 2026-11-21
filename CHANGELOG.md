@@ -64,12 +64,19 @@
   workspace مقایسه می‌کند — چون `os.Lstat`/`EvalSymlinks` روی ویندوز junction
   را پوشهٔ معمولی می‌بینند و پیش‌تر یک junction داخل workspace می‌توانست
   خواندن/نوشتن را به بیرون ببرد.
-- **`run_command` دیگر `git diff/show/log` را اجرا نمی‌کند:** این
-  زیرفرمان‌ها می‌توانند با `.gitattributes` و `diff.<driver>.textconv` یا
-  `diff.external` فرمان بیرونی اجرا کنند و git در ویندوز از سندباکس مستثناست؛
-  ایجنت حالا پیام روشن می‌گیرد که از ابزارهای `git_diff`/`git_show`/`git_log`
-  استفاده کند (همان نتیجه، با `--no-ext-diff --no-textconv`). بقیه‌ی
-  زیرفرمان‌های git و دستورهای تایپ‌شده‌ی خود کاربر بدون تغییر می‌مانند.
+- **`run_command` دیگر زیرفرمان‌های خانواده‌ی diff را اجرا نمی‌کند:**
+  `diff`، `show`، `log`، `diff-tree`، `diff-index`، `diff-files`،
+  `range-diff`، `format-patch`، `whatchanged` و `stash` (چون `stash show -p`
+  هم diff می‌گیرد) می‌توانند با `.gitattributes` و `diff.<driver>.textconv`
+  یا `diff.external` فرمان بیرونی اجرا کنند و git در ویندوز از سندباکس
+  مستثناست؛ ایجنت حالا پیام روشن می‌گیرد که از ابزارهای
+  `git_diff`/`git_show`/`git_log` استفاده کند (همان نتیجه، با
+  `--no-ext-diff --no-textconv`). بقیه‌ی زیرفرمان‌های git و دستورهای
+  تایپ‌شده‌ی خود کاربر بدون تغییر می‌مانند.
+- **`.gitattributes` هم مسیر محافظت‌شده است:** نیمه‌ی دیگرِ همان حمله
+  (`*.txt diff=evil` یا `filter=evil`) قبلاً در حالت ویرایش «خودکار»
+  بی‌تأیید نوشته می‌شد؛ حالا مثل `.git/**` در هر دو حالت ویرایش تأیید
+  می‌خواهد (تست: نوشتن با write_file/edit_file/apply_patch/move_path).
 - **تست‌های مسیر و درایور:** ماتریس ویندوزی (`UNC`، `\\?\`، `\.\`،
   `C:foo`، نام کوتاه 8.3، ADS، نام دستگاه، junction) و تست عبور نکردن هیچ‌یک
   از ابزارهای فایل از پوشهٔ کاری؛ همراه تست‌هایی که ثابت می‌کنند فیلتر

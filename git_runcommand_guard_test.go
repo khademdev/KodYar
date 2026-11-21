@@ -28,6 +28,15 @@ func TestAgentCommandBlockedGitDiffDrivers(t *testing.T) {
 		"git status && git log --oneline",
 		"git diff | head -5",
 		`sh -c "git diff"`,
+		// زیرفرمان‌های دیگری که همان درایور/فرمان بیرونی را اجرا می‌کنند
+		"git diff-tree HEAD",
+		"git diff-index HEAD",
+		"git diff-files",
+		"git range-diff HEAD~1 HEAD",
+		"git format-patch -1",
+		"git whatchanged",
+		"git stash show",
+		"git stash show -p",
 	}
 	for _, cmd := range blocked {
 		reason, ok := agentCommandBlocked(cmd)
@@ -45,6 +54,7 @@ func TestAgentCommandBlockedGitDiffDrivers(t *testing.T) {
 		"git status --short",
 		"git branch -a",
 		"git branch show", // نام شاخه، نه زیرفرمان show
+		"git branch stash",
 		"git rev-parse --show-toplevel",
 		"git remote -v",
 		"echo git diff",

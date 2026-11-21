@@ -544,7 +544,20 @@ func agentCommandBlocked(cmd string) (string, bool) {
 	return "", false
 }
 
-// gitRunsDiffDriver آیا argv یک git diff/show/log است؟
+// gitDriverSubs زیرفرمان‌هایی که از درایور بیرونی diff استفاده می‌کنند
+// (`diff=<driver>` → textconv) یا خودشان فرمان بیرونی اجرا می‌کنند
+// (diff.external / GIT_EXTERNAL_DIFF). `stash` هم چون `stash show -p` همان
+// درایور را اجرا می‌کند (و بقیه‌ی حالت‌هایش برای ایجنت کاربردی ندارد) کامل
+// رد می‌شود.
+var gitDriverSubs = map[string]bool{
+	"diff": true, "show": true, "log": true,
+	"diff-tree": true, "diff-index": true, "diff-files": true,
+	"range-diff": true, "format-patch": true, "whatchanged": true,
+	"stash": true,
+}
+
+// gitRunsDiffDriver آیا argv یک زیرفرمان git با درایور diff است؟
+// اولین توکن غیرپرچم، زیرفرمان است (`git --no-pager diff` هم همین‌طور).
 func gitRunsDiffDriver(argv []string) bool {
 	if len(argv) < 2 {
 		return false
@@ -556,11 +569,7 @@ func gitRunsDiffDriver(argv []string) bool {
 	}
 	for _, tok := range argv[1:] {
 		if !strings.HasPrefix(tok, "-") {
-			switch strings.ToLower(tok) {
-			case "diff", "show", "log":
-				return true
-			}
-			return false // اولین توکن غیرپرچم و بی‌خطر → همان زیرفرمان نهایی است
+			return gitDriverSubs[strings.ToLower(tok)]
 		}
 	}
 	return false
