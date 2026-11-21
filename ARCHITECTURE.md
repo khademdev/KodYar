@@ -193,18 +193,19 @@ a.checkpointMu, a.readStore.mu, a.factsCache.mu  (leaf locks — Mission 3)
    hard-block list → user rules `Permissions.CommandRules` (first glob
    match wins, an explicit allow also skips risky-confirm) → risky
    patterns → safe allow-list → default **ask**). The agent's `run_command`
-   refuses `git` diff-family subcommands before the gate
-   (`agentCommandBlocked` + `gitDriverSubs`: `diff`, `show`, `log`,
-   `diff-tree`, `diff-index`, `diff-files`, `range-diff`, `format-patch`,
-   `whatchanged`, and `stash` because `stash show -p` diffs — plus the
-   repo-writing `apply`, `am`, `submodule`, `checkout`, `restore` and
-   `clean`): the diff family honours
-   `diff=<driver>`/`diff.<driver>.textconv` from the repo and `diff.external`
-   from `.git/config`, and would run an external program after a plain
-   approval; the `git_diff`/`git_show`/`git_log` tools do the same job with
-   `--no-ext-diff --no-textconv`, while apply/am/submodule/checkout/restore/
-   clean would write or delete files (or pull in external code) outside the
-   diff-confirm flow — reverts go through the checkpoint/file-changes flow.
+   allows only `git status`, `git rev-parse`, `git remote` and `git branch`
+   before the gate (`agentCommandBlocked` + `gitRunCommandAllowSubs`); every
+   other subcommand is refused. A deny list kept missing one (diff family ran
+   repo textconv drivers, `apply`/`am`/`submodule`/`checkout`/`restore`/
+   `clean`/`reset`/`switch` wrote or deleted files outside the diff-confirm
+   flow, `push`/`commit`/`config` were next), so the small allow-list is the
+   fail-closed form: the diff family honours `diff=<driver>`/
+   `diff.<driver>.textconv` and `diff.external` and would run an external
+   program after a plain approval — the `git_diff`/`git_show`/`git_log` tools
+   do the same job with `--no-ext-diff --no-textconv`, changes go through
+   write_file/edit_file/apply_patch, and reverts through the checkpoint flow.
+   The gate still applies afterwards (its own per-subcommand flag whitelist),
+   and the user's own `RunCommand` keeps the old ask/allow behaviour.
    `.gitattributes` and `.gitmodules` are in `defaultProtectedGlobs` (with
    `.git/**` and `**/.git/**`), so the config half of that attack also needs
    confirmation in every edit mode. Then →

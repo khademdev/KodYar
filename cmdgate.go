@@ -502,18 +502,26 @@ func interpreterPayloads(argv []string) []string {
 
 // ---------------------------------------------------------------- رد دستورهای اجراکننده‌ی درایور
 
-// gitDiffDriverReason دلیل رد شدن خانواده‌ی diff از مسیر run_command.
-const gitDiffDriverReason = "The git diff family is not run through run_command: a .gitattributes " +
-	"plus diff.<driver>.textconv (or diff.external) in .git/config can make git execute an external " +
-	"program. Use the git_diff, git_show or git_log tools instead — they show the same content and " +
-	"always run with --no-ext-diff --no-textconv."
+// gitRunCommandAllowSubs لیست سفیدِ کوچک زیرفرمان‌های git برای run_command
+// ایجنت. هر چیز دیگری رد می‌شود — به‌جای لیست سیاهِ فزاینده (که هر بار یک
+// زیرفرمان از قلم می‌افتاد). دروازه‌ی معمول (allow/ask) هم بعد از این لایه
+// همچنان اعمال می‌شود؛ این لیست فقط برای زیرفرمان‌هایی است که ایجنت اصلاً
+// نباید از مسیر shell اجرا کند:
+//   - خانواده‌ی diff (textconv/diff.external از مخزن اجرای فرمان می‌کند)
+//   - نویسنده/حذف‌کننده‌های مخزن (apply، am، checkout، reset، switch، …)
+//
+// status/rev-parse/remote/branch فقط-خواندنی‌های متداول ایجنت هستند و پرچم
+// خطرناکشان را همان دروازه (لیست سفید هر زیرفرمان) می‌گیرد.
+var gitRunCommandAllowSubs = map[string]bool{
+	"status": true, "rev-parse": true, "remote": true, "branch": true,
+}
 
-// gitRepoWriteReason دلیل رد شدن زیرفرمان‌های نویسنده/آورنده/حذف‌کننده‌ی
-// محتوای مخزن.
-const gitRepoWriteReason = "git apply/am/submodule/checkout/restore/clean are not run through " +
-	"run_command: they write or delete files in the repository, or fetch external code, outside the " +
-	"diff-confirm flow. Use write_file, edit_file or apply_patch for changes; reverting a file goes " +
-	"through the file-changes/checkpoint flow, and submodules are the user's call."
+// gitRunCommandReason پیام رد شدن یک زیرفرمان git دیگر از run_command.
+const gitRunCommandReason = "Only `git status`, `git rev-parse`, `git remote` and `git branch` run " +
+	"through run_command. Other git subcommands either can execute an external driver configured by " +
+	"the repo (diff/textconv/diff.external), or write/delete files or rewrite history outside the " +
+	"diff-confirm flow. Use git_diff/git_show/git_log for history, write_file/edit_file/apply_patch " +
+	"for changes, and the checkpoint/file-changes flow for reverts."
 
 // agentCommandBlocked (تابع خالص) بررسی می‌کند آیا این دستور باید از مسیر
 // run_command ایجنت رد شود. فقط زیرفرمان‌های diff/show/log را می‌گیرد؛ بقیه‌ی
@@ -551,27 +559,6 @@ func agentCommandBlocked(cmd string) (string, bool) {
 	return "", false
 }
 
-// gitDriverSubs زیرفرمان‌هایی که از درایور بیرونی diff استفاده می‌کنند
-// (`diff=<driver>` → textconv) یا خودشان فرمان بیرونی اجرا می‌کنند
-// (diff.external / GIT_EXTERNAL_DIFF). `stash` هم چون `stash show -p` همان
-// درایور را اجرا می‌کند (و بقیه‌ی حالت‌هایش برای ایجنت کاربردی ندارد) کامل
-// رد می‌شود.
-var gitDriverSubs = map[string]bool{
-	"diff": true, "show": true, "log": true,
-	"diff-tree": true, "diff-index": true, "diff-files": true,
-	"range-diff": true, "format-patch": true, "whatchanged": true,
-	"stash": true,
-}
-
-// gitRepoWriteSubs زیرفرمان‌هایی که فایل/محتوای مخزن را می‌نویسند (بدون عبور
-// از مودال diff) یا کد بیرونی را وارد مخزن می‌کنند.
-var gitRepoWriteSubs = map[string]bool{
-	"apply": true, "am": true, "submodule": true,
-	// checkout/restore/clean پیش از این فقط «ask» بودند: پس از تأیید، فایل را
-	// بازنویسی یا حذف می‌کردند و هیچ diffی نشان نمی‌دادند.
-	"checkout": true, "restore": true, "clean": true,
-}
-
 // gitSubcommand زیرفرمان یک فرمان git را برمی‌گرداند: اولین توکن غیرپرچم
 // (`git --no-pager diff` هم همین‌طور). argv0 باید git باشد.
 func gitSubcommand(argv []string) (string, bool) {
@@ -595,15 +582,12 @@ func gitSubcommand(argv []string) (string, bool) {
 func gitRunCommandBlocked(argv []string) (string, bool) {
 	sub, ok := gitSubcommand(argv)
 	if !ok {
+		return "", false // بدون زیرفرمان (مثل git --version) → دروازه تصمیم می‌گیرد
+	}
+	if gitRunCommandAllowSubs[sub] {
 		return "", false
 	}
-	if gitDriverSubs[sub] {
-		return gitDiffDriverReason, true
-	}
-	if gitRepoWriteSubs[sub] {
-		return gitRepoWriteReason, true
-	}
-	return "", false
+	return gitRunCommandReason, true
 }
 
 // ---------------------------------------------------------------- ارزیابی کامل
