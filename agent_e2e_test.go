@@ -994,15 +994,18 @@ func TestScenarioCommandGateBypassAttempts(t *testing.T) {
 	bypass := []struct {
 		callID string
 		cmd    string
+		// noAsk: پیش از دروازه رد می‌شود (بدون مودال) — git diff/show/log از
+		// مسیر run_command اجرا نمی‌شوند تا درایور بیرونیِ مخزن اجرا نشود.
+		noAsk bool
 	}{
-		{"b1", "echo ok & npm install x"},
-		{"b2", "dir & del /q *.cs"},
-		{"b3", `echo x > ..\out.txt`},
-		{"b4", "type .env"},
-		{"b5", "go test -exec evil ./..."},
-		{"b6", "git diff --output=f"},
-		{"b7", "d^el /q x"},
-		{"b8", "echo %COMSPEC%"},
+		{"b1", "echo ok & npm install x", false},
+		{"b2", "dir & del /q *.cs", false},
+		{"b3", `echo x > ..\out.txt`, false},
+		{"b4", "type .env", false},
+		{"b5", "go test -exec evil ./...", false},
+		{"b6", "git diff --output=f", true},
+		{"b7", "d^el /q x", false},
+		{"b8", "echo %COMSPEC%", false},
 	}
 	for _, fl := range []struct {
 		name   string
@@ -1048,7 +1051,14 @@ func TestScenarioCommandGateBypassAttempts(t *testing.T) {
 				if !strings.HasPrefix(res, "ERROR:") {
 					t.Fatalf("%s must never execute without a recorded ask: got %q", b.cmd, res)
 				}
-				if grew := env.askCount() - before; grew != 1 {
+				if grew := env.askCount() - before; b.noAsk {
+					if grew != 0 {
+						t.Fatalf("%s: must be refused before the gate (no ask), got %d asks", b.cmd, grew)
+					}
+					if !strings.Contains(res, "git_diff") {
+						t.Fatalf("%s: the refusal must point at the git tools, got %q", b.cmd, res)
+					}
+				} else if grew != 1 {
 					t.Fatalf("%s: exactly one permission ask expected, got %d (asks=%v)", b.cmd, grew, env.asks)
 				}
 			}

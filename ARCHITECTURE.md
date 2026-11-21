@@ -192,7 +192,12 @@ a.checkpointMu, a.readStore.mu, a.factsCache.mu  (leaf locks — Mission 3)
    `permissions.go` (order per segment + on the whole command:
    hard-block list → user rules `Permissions.CommandRules` (first glob
    match wins, an explicit allow also skips risky-confirm) → risky
-   patterns → safe allow-list → default **ask**) → `runShell` in `shell.go`
+   patterns → safe allow-list → default **ask**). The agent's `run_command`
+   refuses `git diff/show/log` before the gate (`agentCommandBlocked`): those
+   subcommands honour `diff=<driver>`/`diff.<driver>.textconv` from the repo
+   and `diff.external` from `.git/config`, and would run an external program
+   after a plain approval; the `git_diff`/`git_show`/`git_log` tools do the
+   same job with `--no-ext-diff --no-textconv`. Then → `runShell` in `shell.go`
    (single runner: `cmd /S /C "chcp 65001 …"` + Job-Object tree kill on
    Windows, `sh -c` + Setpgid/SIGTERM→SIGKILL group kill on Unix; timeout
    60s default / 300s cap; `WaitDelay` 5s; bounded head+tail output

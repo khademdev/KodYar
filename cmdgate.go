@@ -500,6 +500,72 @@ func interpreterPayloads(argv []string) []string {
 	return nil
 }
 
+// ---------------------------------------------------------------- رد دستورهای اجراکننده‌ی درایور
+
+// gitDiffDriverReason دلیل رد شدن git diff/show/log از مسیر run_command.
+const gitDiffDriverReason = "git diff/show/log is not run through run_command: a .gitattributes " +
+	"plus diff.<driver>.textconv (or diff.external) in .git/config can make git execute an external " +
+	"program. Use the git_diff, git_show or git_log tools instead — they show the same content and " +
+	"always run with --no-ext-diff --no-textconv."
+
+// agentCommandBlocked (تابع خالص) بررسی می‌کند آیا این دستور باید از مسیر
+// run_command ایجنت رد شود. فقط زیرفرمان‌های diff/show/log را می‌گیرد؛ بقیه‌ی
+// gitها (status، branch، rev-parse، …) مثل قبل از دروازه‌ی معمول می‌گذرند.
+//
+// چرا اینجا و نه در gateCommand: تصمیم allow/ask برای دستورهای کاربر عوض
+// نمی‌شود (تایپ مستقیم کاربر همان رفتار قبل را دارد)؛ فقط مسیری که ایجنت
+// می‌تواند مخزن را با ابزارهای خودش آلوده کند و بعد بی‌سروصدا فرمان اجرا کند
+// بسته می‌شود — و ایجنت برای همین کار سه ابزار اختصاصی دارد.
+func agentCommandBlocked(cmd string) (string, bool) {
+	pc, ok := parseShellCommand(cmd, currentCommandFlavor())
+	if !ok {
+		return "", false // تجزیه نشد → دروازه‌ی معمول تصمیم می‌گیرد
+	}
+	for i := range pc.simples {
+		sc := &pc.simples[i]
+		if gitRunsDiffDriver(sc.argv) {
+			return gitDiffDriverReason, true
+		}
+		// ‎sh -c "git diff"‎ و ‎$(git diff)‎ هم همان فرمان را اجرا می‌کنند.
+		for _, payload := range interpreterPayloads(sc.argv) {
+			if reason, blocked := agentCommandBlocked(payload); blocked {
+				return reason, true
+			}
+		}
+		for _, payload := range sc.subshells {
+			if strings.TrimSpace(payload) == "" {
+				continue
+			}
+			if reason, blocked := agentCommandBlocked(payload); blocked {
+				return reason, true
+			}
+		}
+	}
+	return "", false
+}
+
+// gitRunsDiffDriver آیا argv یک git diff/show/log است؟
+func gitRunsDiffDriver(argv []string) bool {
+	if len(argv) < 2 {
+		return false
+	}
+	base := strings.ToLower(filepath.Base(strings.ReplaceAll(argv[0], `\`, "/")))
+	base = strings.TrimSuffix(base, ".exe")
+	if base != "git" {
+		return false
+	}
+	for _, tok := range argv[1:] {
+		if !strings.HasPrefix(tok, "-") {
+			switch strings.ToLower(tok) {
+			case "diff", "show", "log":
+				return true
+			}
+			return false // اولین توکن غیرپرچم و بی‌خطر → همان زیرفرمان نهایی است
+		}
+	}
+	return false
+}
+
 // ---------------------------------------------------------------- ارزیابی کامل
 
 // commandEval نتیجه‌ی ارزیابی یک دستور (خالص).

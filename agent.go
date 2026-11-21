@@ -2029,6 +2029,13 @@ func (a *App) toolRunCommand(parent context.Context, command string, timeoutSec 
 		return "ERROR: workspace directory is not configured.", false
 	}
 
+	// git diff/show/log از اینجا اجرا نمی‌شود: مخزن می‌تواند با .gitattributes
+	// و .git/config درایور بیرونی (textconv/diff.external) اجرا کند. ابزارهای
+	// git_diff/git_show/git_log همین کار را با پرچم‌های امن انجام می‌دهند.
+	if reason, blocked := agentCommandBlocked(command); blocked {
+		return "ERROR: " + reason, false
+	}
+
 	// دروازه‌ی دسترسی واحد: لیست سیاه سخت → قاعده‌های Permissions →
 	// الگوهای پرریسک/لیست‌سفید امن (ask = مودال اجازه با گزینه‌ی «همیشه»)
 	if ok, why := a.gateCommand(parent, command, false,
