@@ -25,6 +25,27 @@ npx playwright install chromium
 npm test
 ```
 
+### راه جایگزین: npm به رجیستری وصل نمی‌شود
+
+اگر `npm install` با `ECONNRESET`/timeout شکست بخورد ولی `curl` به همان
+رجیستری جواب می‌دهد، بسته‌های رسمی را مستقیم از tarball نصب کنید (همان نسخه‌ای
+که `package.json` می‌خواهد؛ بدون lockfile):
+
+```bash
+cd frontend/tests
+rm -rf node_modules
+mkdir -p node_modules/@playwright/test node_modules/playwright node_modules/playwright-core
+V=1.49.1   # ← همان نسخه‌ی @playwright/test در package.json
+curl -sSL https://registry.npmjs.org/@playwright/test/-/test-$V.tgz           | tar -xz -C node_modules/@playwright/test --strip-components=1
+curl -sSL https://registry.npmjs.org/playwright/-/playwright-$V.tgz           | tar -xz -C node_modules/playwright --strip-components=1
+curl -sSL https://registry.npmjs.org/playwright-core/-/playwright-core-$V.tgz | tar -xz -C node_modules/playwright-core --strip-components=1
+node node_modules/playwright-core/cli.js install chromium   # مرورگر (نه npx)
+node node_modules/@playwright/test/cli.js test              # اجرا
+```
+
+`node_modules/` و `test-results/` در `.gitignore` هستند؛ این راه چیزی به مخزن
+اضافه نمی‌کند.
+
 ## اجرا (بعدی)
 
 ```bash
