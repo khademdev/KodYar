@@ -237,6 +237,19 @@ var toolArgSpecs = map[string][]toolArgSpec{
 		{key: "id", typ: "string", required: true, nonEmpty: true},
 	},
 	"process_list": {},
+	"process_input": {
+		{key: "id", typ: "string", required: true, nonEmpty: true},
+		{key: "text", typ: "string"}, // خالی + newline = فقط Enter
+		{key: "newline", typ: "boolean"},
+	},
+	"process_wait": {
+		{key: "id", typ: "string", required: true, nonEmpty: true},
+		{key: "timeout_sec", typ: "integer"},
+	},
+	"wait_for_port": {
+		{key: "target", typ: "string", required: true, nonEmpty: true},
+		{key: "timeout_sec", typ: "integer"},
+	},
 	"web_search": {
 		{key: "query", typ: "string", required: true, nonEmpty: true},
 		{key: "max_results", typ: "integer"},

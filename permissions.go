@@ -83,7 +83,8 @@ func normalizePermissionDecision(s string) string {
 func toolDefaultDecision(tool string, confirmWrites bool) permDecision {
 	switch tool {
 	case "list_dir", "read_file", "search_files", "glob", "find_symbol", "find_references",
-		"create_dir", "process_output", "process_stop", "process_list",
+		"create_dir", "process_output", "process_stop", "process_list", "process_wait", "wait_for_port",
+		"process_input", // فقط stdin فرایندی که خودِ ایجنت (و با تأیید) شروع کرده
 		"git_status", "git_diff", "git_log", "git_show", "diagnostics":
 		return permAllow
 	case "write_file", "edit_file", "apply_patch", "move_path", "delete_path":

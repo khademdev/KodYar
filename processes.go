@@ -21,7 +21,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"net"
+	"net/url"
+	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -54,6 +59,10 @@ type bgProcess struct {
 	errTxt string
 	cancel context.CancelFunc
 	wait   chan struct{}
+	// stdin برای CLIهای تعاملی (process_input). در سندباکس nil است.
+	// عمداً *os.File است: exec با Stdin غیر-File یک goroutine کپی می‌سازد و
+	// Wait تا EOF آن منتظر می‌ماند (deadlock)؛ فایل مستقیم این مشکل را ندارد.
+	stdin *os.File
 }
 
 // append خروجی تازه را در بافر حلقه‌ای می‌ریزد (thread-safe؛ از دو
@@ -208,6 +217,18 @@ func (a *App) startBackgroundProcess(dir, command string, pol *sandboxPolicy, em
 		cancel:  cancel,
 		wait:    make(chan struct{}),
 	}
+	var stdinReader io.Reader
+	var stdinReadEnd *os.File
+	if pol == nil {
+		pr, pw, perr := os.Pipe()
+		if perr != nil {
+			cancel()
+			return nil, fmt.Errorf("create stdin pipe: %w", perr)
+		}
+		p.stdin = pw // قبل از bgAdd تا هیچ خواننده‌ی هم‌زمانی آن را نبیند
+		stdinReader = pr
+		stdinReadEnd = pr
+	}
 	if !a.bgAdd(p) {
 		cancel()
 		return nil, fmt.Errorf("too many running background processes (max %d); stop one with process_stop first", bgMaxProcesses)
@@ -217,6 +238,33 @@ func (a *App) startBackgroundProcess(dir, command string, pol *sandboxPolicy, em
 		if emit != nil {
 			emit(b)
 		}
+	}
+	// stdin فقط بدون سندباکس: مسیر sandboxed stdin ندارد (صریح، نه کمین).
+	if pol == nil {
+		safeGo(a, "process.run", func() {
+			defer close(p.wait)
+			defer func() {
+				_ = p.stdin.Close()
+				_ = stdinReadEnd.Close()
+			}()
+			var code int
+			var rerr error
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						recordPanic(a, "process.run", r)
+						code, rerr = -1, fmt.Errorf("internal error while running the background process")
+					}
+				}()
+				_, code, rerr = runShellWithPolicyBackgroundInput(runCtx, dir, command, onOutput, nil, stdinReader)
+			}()
+			p.finish(code, rerr)
+			if flush != nil {
+				flush()
+			}
+			logAppErrorFor(a, "process", fmt.Sprintf("%s finished (%s)", id, p.status()))
+		})
+		return p, nil
 	}
 	safeGo(a, "process.run", func() {
 		defer close(p.wait)
@@ -341,6 +389,125 @@ func (a *App) toolProcessStop(id string) (string, bool) {
 		b.WriteString(t)
 	}
 	return b.String(), err == nil
+}
+
+// toolProcessInput متن را به stdin یک فرایند پس‌زمینه می‌نویسد (CLI تعاملی،
+// انتخاب پیش‌فرض پرامپت‌ها، دستورهای dev server مثل r/q).
+func (a *App) toolProcessInput(id, text string, newline bool) (string, bool) {
+	p := a.bgGet(id)
+	if p == nil {
+		return fmt.Sprintf("ERROR: unknown process id %q (use process_list to see active processes).", strings.TrimSpace(id)), false
+	}
+	p.mu.Lock()
+	stdin, done := p.stdin, p.done
+	p.mu.Unlock()
+	if done {
+		return fmt.Sprintf("ERROR: process %s has already exited; stdin cannot be written.", p.id), false
+	}
+	if stdin == nil {
+		return "ERROR: this process has no stdin (it was started inside the sandbox). " +
+			"Disable the sandbox in Settings → Folder and start it again to drive an interactive CLI.", false
+	}
+	payload := text
+	if newline {
+		payload += "\n"
+	}
+	if payload == "" {
+		return "ERROR: nothing to send (pass text and/or newline=true).", false
+	}
+	if _, err := io.WriteString(stdin, payload); err != nil {
+		return "ERROR: writing to the process stdin failed: " + err.Error(), false
+	}
+	return fmt.Sprintf("OK: sent %d byte(s) to stdin of %s. Read the reaction with process_output.", len(payload), p.id), true
+}
+
+// toolProcessWait تا خروج فرایند یا مهلت صبر می‌کند (بدون poll کردن لاگ).
+func (a *App) toolProcessWait(id string, timeoutSec int) (string, bool) {
+	p := a.bgGet(id)
+	if p == nil {
+		return fmt.Sprintf("ERROR: unknown process id %q (use process_list to see active processes).", strings.TrimSpace(id)), false
+	}
+	if timeoutSec <= 0 {
+		timeoutSec = 30
+	}
+	if timeoutSec > 300 {
+		timeoutSec = 300
+	}
+	timer := time.NewTimer(time.Duration(timeoutSec) * time.Second)
+	defer timer.Stop()
+	select {
+	case <-p.wait:
+		text, _, _, total, status, _ := p.snapshot(p.read, bgTailOnStop)
+		var b strings.Builder
+		fmt.Fprintf(&b, "process %s finished: %s (total output: %d bytes)\n", p.id, status, total)
+		if t := strings.TrimRight(text, "\n"); t != "" {
+			b.WriteString("\n--- output since the last read ---\n")
+			b.WriteString(t)
+		}
+		return b.String(), true
+	case <-timer.C:
+		return fmt.Sprintf("process %s is still running after %ds. Read output with process_output or stop it with process_stop.", p.id, timeoutSec), true
+	}
+}
+
+// toolWaitForPort تا باز شدن یک پورت محلی صبر می‌کند (dev server آماده شد).
+// spec می‌تواند URL باشد (http://localhost:5173) یا host:port یا فقط port.
+func (a *App) toolWaitForPort(spec string, timeoutSec int) (string, bool) {
+	host, port, err := parsePortSpec(spec)
+	if err != nil {
+		return "ERROR: " + err.Error(), false
+	}
+	if timeoutSec <= 0 {
+		timeoutSec = 30
+	}
+	if timeoutSec > 300 {
+		timeoutSec = 300
+	}
+	deadline := time.Now().Add(time.Duration(timeoutSec) * time.Second)
+	addr := net.JoinHostPort(host, port)
+	for {
+		conn, derr := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+		if derr == nil {
+			_ = conn.Close()
+			return fmt.Sprintf("OK: %s is accepting connections (waited %s).", addr, time.Since(deadline.Add(-time.Duration(timeoutSec)*time.Second)).Round(time.Millisecond)), true
+		}
+		if time.Now().After(deadline) {
+			return fmt.Sprintf("ERROR: %s did not open within %ds (last error: %v). Check the process log with process_output.", addr, timeoutSec, derr), false
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// parsePortSpec «http://127.0.0.1:5173/x»، «localhost:5173» یا «5173» را
+// به host/port تبدیل می‌کند (پیش‌فرض host: 127.0.0.1).
+func parsePortSpec(spec string) (string, string, error) {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return "", "", fmt.Errorf("port or URL is required (e.g. 5173, localhost:5173 or http://127.0.0.1:5173)")
+	}
+	host, port := "127.0.0.1", ""
+	if strings.Contains(spec, "://") {
+		u, err := url.Parse(spec)
+		if err != nil || u.Host == "" {
+			return "", "", fmt.Errorf("invalid URL %q", spec)
+		}
+		host, port = u.Hostname(), u.Port()
+	} else if h, p, err := net.SplitHostPort(spec); err == nil {
+		host, port = h, p
+	} else {
+		port = spec
+	}
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	if host == "localhost" {
+		host = "127.0.0.1"
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n <= 0 || n > 65535 {
+		return "", "", fmt.Errorf("invalid port %q (expected 1-65535)", port)
+	}
+	return host, strconv.Itoa(n), nil
 }
 
 // toolProcessList فهرست فرایندهای نشست.

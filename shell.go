@@ -13,6 +13,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 	"sync"
@@ -63,14 +64,29 @@ func runShell(ctx context.Context, dir, command string, timeout time.Duration, o
 	}
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	return runShellCtx(cctx, dir, command, onOutput)
+	return runShellCtx(cctx, dir, command, onOutput, nil)
 }
 
 // runShellBackground مثل runShell است اما بدون مهلت: فرایند تا وقتی خودش
 // تمام شود یا ctx لغو شود (stop/خروج برنامه) زنده می‌ماند. کشتن درخت فرایند
 // روی لغو همان مسیر runShell است (watchdog → terminate → kill).
 func runShellBackground(ctx context.Context, dir, command string, onOutput func([]byte)) (string, int, error) {
-	return runShellCtx(ctx, dir, command, onOutput)
+	return runShellCtx(ctx, dir, command, onOutput, nil)
+}
+
+// runShellBackgroundInput مثل runShellBackground است ولی stdin فرایند را از
+// یک pipe می‌گیرد (برای CLIهای تعاملی: process_input).
+func runShellBackgroundInput(ctx context.Context, dir, command string, onOutput func([]byte), stdin io.Reader) (string, int, error) {
+	return runShellCtx(ctx, dir, command, onOutput, stdin)
+}
+
+// runShellWithPolicyBackgroundInput همان runShellWithPolicyBackground با stdin.
+// داخل سندباکس stdin پشتیبانی نمی‌شود (شکست = اجرا نمی‌شود، بدون مسیر کمین).
+func runShellWithPolicyBackgroundInput(ctx context.Context, dir, command string, onOutput func([]byte), sb *sandboxPolicy, stdin io.Reader) (string, int, error) {
+	if sb == nil {
+		return runShellBackgroundInput(ctx, dir, command, onOutput, stdin)
+	}
+	return "", -1, fmt.Errorf("stdin is not available for sandboxed processes; disable the sandbox in Settings → Folder to drive this CLI")
 }
 
 // runShellWithPolicyBackground همان runShellWithPolicy برای فرایند بلندمدت:
@@ -88,7 +104,7 @@ func runShellWithPolicyBackground(ctx context.Context, dir, command string, onOu
 }
 
 // runShellCtx بدنه‌ی اجرا با ctx آماده (مهلت یا لغو، تصمیم فراخواننده).
-func runShellCtx(cctx context.Context, dir, command string, onOutput func([]byte)) (string, int, error) {
+func runShellCtx(cctx context.Context, dir, command string, onOutput func([]byte), stdin io.Reader) (string, int, error) {
 	var cmd *exec.Cmd
 	if isWindows() {
 		cmd = exec.CommandContext(cctx, "cmd")
@@ -114,6 +130,9 @@ func runShellCtx(cctx context.Context, dir, command string, onOutput func([]byte
 	out := &boundedOutput{onOutput: onOutput}
 	cmd.Stdout = out
 	cmd.Stderr = out // نکته: با writer غیر-File یکسان، exec نوشتن‌ها را سریال می‌کند
+	if stdin != nil {
+		cmd.Stdin = stdin
+	}
 
 	if err := cmd.Start(); err != nil {
 		tree.close()

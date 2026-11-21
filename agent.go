@@ -380,6 +380,44 @@ func agentToolDefs() []toolDef {
 		{
 			Type: "function",
 			Function: toolFunctionDef{
+				Name: "process_input",
+				Description: "Write text to the stdin of a background process started with run_command background=true " +
+					"(interactive CLIs such as 'npm create vite', 'gh auth login', 'prisma migrate', and dev-server keys like r/q). " +
+					"Works only when the command sandbox is off: sandboxed processes have no stdin and the tool says so.",
+				Parameters: schemaObj(map[string]interface{}{
+					"id":      propStr("Process id returned by run_command (e.g. 'proc-abc123')."),
+					"text":    propStr("Text to send (optional when newline=true, e.g. to press Enter)."),
+					"newline": propBool("Append a newline after the text (default false)."),
+				}, []string{"id"}),
+			},
+		},
+		{
+			Type: "function",
+			Function: toolFunctionDef{
+				Name: "process_wait",
+				Description: "Wait until a background process exits (or a timeout) and return its final status and the output since the last read. " +
+					"Use it instead of polling process_output right after starting a short build or script.",
+				Parameters: schemaObj(map[string]interface{}{
+					"id":          propStr("Process id to wait for."),
+					"timeout_sec": propInt("Maximum seconds to wait (default 30, max 300)."),
+				}, []string{"id"}),
+			},
+		},
+		{
+			Type: "function",
+			Function: toolFunctionDef{
+				Name: "wait_for_port",
+				Description: "Wait until a local TCP port accepts connections — the reliable readiness check after starting a dev server " +
+					"in the background. Accepts a URL (http://127.0.0.1:5173), host:port, or just a port number.",
+				Parameters: schemaObj(map[string]interface{}{
+					"target":      propStr("URL, host:port or port number, e.g. '5173' or 'http://localhost:5173'."),
+					"timeout_sec": propInt("Maximum seconds to wait (default 30, max 300)."),
+				}, []string{"target"}),
+			},
+		},
+		{
+			Type: "function",
+			Function: toolFunctionDef{
 				Name:        "git_status",
 				Description: "Show git repository status: current branch, and staged/unstaged/untracked files with a summary count.",
 				Parameters:  schemaObj(nil, nil),
@@ -593,14 +631,14 @@ func agentSystemPromptForOS(workspace, goos string) string {
 		" desktop app on the user's machine (similar to OpenCode / Claude Code).\n\n")
 	b.WriteString("Workspace directory (file tools are relative to it and confined to it; run_command is permission-gated but NOT sandboxed — a command can touch the whole machine, so state exactly what a command will do before running it):\n")
 	b.WriteString(workspace + "\n\n")
-	b.WriteString("Available tools: list_dir, read_file, write_file, edit_file, apply_patch, move_path, delete_path, create_dir, search_files, glob, find_symbol, find_references, run_command, process_output, process_stop, process_list, git_status, git_diff, git_log, git_show, git_create_branch, git_commit, diagnostics, task, todo_write, web_search, web_fetch.\n\n")
+	b.WriteString("Available tools: list_dir, read_file, write_file, edit_file, apply_patch, move_path, delete_path, create_dir, search_files, glob, find_symbol, find_references, run_command, process_output, process_stop, process_list, process_input, process_wait, wait_for_port, git_status, git_diff, git_log, git_show, git_create_branch, git_commit, diagnostics, task, todo_write, web_search, web_fetch.\n\n")
 	b.WriteString("Operating rules:\n")
 	b.WriteString("1. Behave like a real agent: explore with list_dir / search_files / glob, read the relevant files, then create or edit them with write_file / edit_file. Do not ask the user to paste file contents. " +
 		"Narrow text searches with search_files' include (e.g. '*.go' or 'src/**/*.ts') and context (surrounding lines) instead of reading whole files; " +
 		"matching is case-insensitive unless you pass case_sensitive=true. For \"where is symbol X defined?\" and \"where is X used?\", call find_symbol / find_references first — they are cheap and match whole identifiers (so 'foo' does not match 'fooBar') — and fall back to search_files when they miss. Command output keeps both its beginning and its end.\n")
 	b.WriteString("2. Read a file before changing it (read-before-write is enforced: write_file refuses to overwrite an existing file you have not read in this conversation, and refuses any file whose content changed on disk since your last read — in both cases call read_file again instead of overwriting content you have not seen). edit_file needs an exact, unique old_string copied from the current file content (mind indentation and line endings). If the exact text is not found, it retries with tolerant matching (line endings, trailing whitespace, and — only for a unique match — indentation) and reports which strategy matched; prefer exact matches. For several changes to the SAME file, pass the multi-edit form edits: [{old_string, new_string, replace_all?}, ...] (max 20): edits apply sequentially and atomically — if any edit fails, nothing is written.\n")
 	b.WriteString("2b. For structural or multi-file edits use apply_patch with a unified diff (`--- a/x` / `+++ b/x` / `@@ -a,b +c,d @@`, 3 context lines). Its hunks are validated against the real file before writing; an unmatched or ambiguous hunk aborts the whole patch. Prefer it over many edit_file calls on big files: it needs line numbers and context, not a byte-exact copy of whole blocks. Use dry_run=true when unsure whether the hunk still applies after other edits.\n")
-	b.WriteString("3. " + plat.shellUse + ". Commands are checked by a permission gate and usually need the user's approval; they are NOT sandboxed — never run a command whose effect you cannot describe precisely. For dev servers / watchers / long builds use run_command with background=true, then read progress with process_output and stop it with process_stop (always stop what you started before finishing a task). If command execution is disabled by the user, tell them to enable «اجازه اجرای دستور» in the app; never pretend a command ran. " + plat.hints + "\n")
+	b.WriteString("3. " + plat.shellUse + ". Commands are checked by a permission gate and usually need the user's approval; they are NOT sandboxed — never run a command whose effect you cannot describe precisely. For dev servers / watchers / long builds use run_command with background=true, then check readiness with wait_for_port (do not poll the log for readiness), wait for short builds to finish with process_wait instead of repeated reads, drive interactive prompts (npm create, gh auth login, dev-server keys) with process_input, and stop with process_stop (always stop what you started before finishing a task). If command execution is disabled by the user, tell them to enable «اجازه اجرای دستور» in the app; never pretend a command ran. " + plat.hints + "\n")
 	b.WriteString("4. After changing code, verify it. FIRST, for every file you just created or edited, call diagnostics with that file's path (Go uses gopls, TypeScript/JavaScript uses typescript-language-server) and fix the reported errors — it is cheap and catches breakage before a build. If diagnostics says the language server is not installed (or reports nothing usable), fall back to build/compile/test with run_command and fix what breaks, as long as rounds remain. " +
 		"Write a large file in complete pieces (create it with write_file, then extend it with edit_file) instead of one giant payload; if a result says your response was truncated, split the payload. " +
 		"GUI/interactive programs (pygame, tkinter, a game waiting for clicks or keys) never exit on their own: never run them expecting a clean exit and never treat the timeout or the crash-on-close as a failing test — verify their logic with a syntax/import check or a short bounded run, then ask the user to try the window.\n")
@@ -987,6 +1025,12 @@ func (a *App) execToolCtx(ctx context.Context, name, argsJSON string) (string, b
 		return a.toolProcessStop(gs("id"))
 	case "process_list":
 		return a.toolProcessList()
+	case "process_input":
+		return a.toolProcessInput(gs("id"), gs("text"), gb("newline"))
+	case "process_wait":
+		return a.toolProcessWait(gs("id"), gi("timeout_sec"))
+	case "wait_for_port":
+		return a.toolWaitForPort(gs("target"), gi("timeout_sec"))
 	case "git_status":
 		return a.toolGitStatus(ctx)
 	case "git_diff":
