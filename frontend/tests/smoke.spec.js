@@ -109,5 +109,22 @@ test("turn-summary card: after an agent turn it is visible with files, protectio
   await expect(card).toContainText("package.json");        // فایل محافظت‌شده در فهرست
   await expect(card).toContainText("go build ./...");      // راستی‌آزمایی ثبت‌شده
   await expect(card.getByRole("button", { name: "بازگردانی این نوبت" })).toBeVisible();
+
+  // مسیر بازگردانی: پیش‌نمایش (PreviewCheckpointRestore) → تأیید →
+  // بازگردانی (RestoreCheckpoint)، هر دو روی بریج Mock.
+  await spyBridge(page, "PreviewCheckpointRestore");
+  await spyBridge(page, "RestoreCheckpoint");
+  await card.getByRole("button", { name: "بازگردانی این نوبت" }).click();
+  const restore = page.locator(".modal-overlay .modal-restore");
+  await expect(restore).toBeVisible();
+  await expect(restore).toContainText("بازگردانی نوبت ۷ — پیش‌نمایش");
+  await expect(restore).toContainText("src/agent.go");
+  await expect(restore).toContainText("package.json");  // بازنویسی
+  await expect(restore).toContainText("dist/build.out"); // انتقال به سبد زباله
+  await restore.getByRole("button", { name: "بازگردانی", exact: true }).click();
+  await expect(restore).toHaveCount(0);
+  await expect(card).toContainText("این نوبت بازگردانده شد.");
+  expect(await bridgeCalls(page, "PreviewCheckpointRestore")).toBe(1);
+  expect(await bridgeCalls(page, "RestoreCheckpoint")).toBe(1);
 });
 
