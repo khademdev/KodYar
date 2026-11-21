@@ -279,3 +279,161 @@ func TestAutoVerifyJSDetection(t *testing.T) {
 		t.Fatalf("failure message must name the command")
 	}
 }
+
+func autoVerifyHasCmd(cmds []string, want string) bool {
+	for _, c := range cmds {
+		if c == want {
+			return true
+		}
+	}
+	return false
+}
+
+// TestAutoVerifyRunsProjectTests: کدی که کامپایل می‌شود ولی تست را می‌شکند
+// نباید «سبز» تلقی شود — دستور تست همان اکوسیستم هم اجرا می‌شود.
+func TestAutoVerifyRunsProjectTests(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+	goWS := t.TempDir()
+	if err := os.WriteFile(filepath.Join(goWS, "go.mod"), []byte("module demo\n\ngo 1.21\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmds := autoVerifyCommands(goWS, nil)
+	if len(cmds) != 3 || cmds[0] != "go build ./..." || cmds[1] != "go vet ./..." || cmds[2] != "go test ./..." {
+		t.Fatalf("Go project must build, vet, then test; got %v", cmds)
+	}
+
+	nodeWS := t.TempDir()
+	os.WriteFile(filepath.Join(nodeWS, "package.json"), []byte(`{"scripts":{"test":"node -e 0","build":"node -e 0"}}`), 0o600)
+	if _, err := exec.LookPath("npm"); err == nil {
+		if got := autoVerifyCommands(nodeWS, nil); !autoVerifyHasCmd(got, "npm test") {
+			t.Fatalf("package.json with a test script must run npm test, got %v", got)
+		}
+	}
+	noTest := t.TempDir()
+	os.WriteFile(filepath.Join(noTest, "package.json"), []byte(`{"scripts":{"build":"node -e 0"}}`), 0o600)
+	if got := autoVerifyCommands(noTest, nil); autoVerifyHasCmd(got, "npm test") {
+		t.Fatalf("missing test script must not run npm test, got %v", got)
+	}
+}
+
+// TestAutoVerifyOutputKeepsTail: خطای واقعی معمولاً انتهای لاگ است؛ بریدن فقط
+// از سر باعث می‌شد مدل همان دستور را تکرار کند.
+func TestAutoVerifyOutputKeepsTail(t *testing.T) {
+	var b strings.Builder
+	for i := 0; i < 1500; i++ {
+		b.WriteString("noise line that fills the log output\n")
+	}
+	b.WriteString("FAIL: the real error is at the end\n")
+	out := autoVerifyOutput(b.String())
+	if len(out) > autoVerifyMaxOutput {
+		t.Fatalf("output must be bounded, got %d bytes", len(out))
+	}
+	if !strings.Contains(out, "the real error is at the end") {
+		t.Fatalf("tail of the log (the actual failure) must survive truncation: %q", out)
+	}
+	if !strings.Contains(out, "truncated") {
+		t.Fatalf("truncation must be marked explicitly")
+	}
+}
+
+// TestAutoVerifyFailedTestExtraction: نام تست‌های شکست‌خورده جدا می‌شود تا مدل
+// مستقیم همان‌ها را هدف بگیرد.
+func TestAutoVerifyFailedTestExtraction(t *testing.T) {
+	cases := []struct {
+		name string
+		out  string
+		want []string
+	}{
+		{"go", "--- FAIL: TestAlpha (0.00s)\n    x_test.go:9: boom\nFAIL\nFAIL\tdemo\t0.3s\nFAIL", []string{"TestAlpha"}},
+		{"pytest", "FAILED tests/test_api.py::test_login - assert 1 == 2\n2 failed", []string{"tests/test_api.py::test_login"}},
+		{"jest", "  ✕ renders the header (12 ms)\n  × loads data", []string{"renders the header", "loads data"}},
+		{"tap", "not ok 3 - parses input\n", []string{"parses input"}},
+		{"none", "ok\tdemo\t0.1s\n", nil},
+	}
+	for _, c := range cases {
+		got := autoVerifyFailedTests(c.out)
+		if len(got) != len(c.want) {
+			t.Fatalf("%s: got %v want %v", c.name, got, c.want)
+		}
+		for i := range c.want {
+			if got[i] != c.want[i] {
+				t.Fatalf("%s: got %v want %v", c.name, got, c.want)
+			}
+		}
+	}
+	dup := autoVerifyFailedTests("--- FAIL: TestA (0.00s)\n--- FAIL: TestA (0.00s)")
+	if len(dup) != 1 {
+		t.Fatalf("failing test names must be deduped, got %v", dup)
+	}
+}
+
+func TestAutoVerifyMessageListsFailingTest(t *testing.T) {
+	msg := autoVerifyFailedMessage(autoVerifyRun{
+		Command:     "go test ./...",
+		ExitCode:    1,
+		Output:      "--- FAIL: TestAlpha (0.00s)\nFAIL\n",
+		FailedTests: []string{"TestAlpha"},
+	})
+	if !strings.Contains(msg, "TestAlpha") || !strings.Contains(msg, "Failing tests") {
+		t.Fatalf("message must name the failing test: %s", msg)
+	}
+	// اگر نام‌ها از خروجی بریده شده باشند، از خود Output استخراج می‌شود.
+	msg = autoVerifyFailedMessage(autoVerifyRun{
+		Command:  "pytest",
+		ExitCode: 1,
+		Output:   "FAILED tests/test_api.py::test_login - assert 1 == 2\n",
+	})
+	if !strings.Contains(msg, "tests/test_api.py::test_login") {
+		t.Fatalf("message must recover failing tests from output: %s", msg)
+	}
+}
+
+// TestAutoVerifyTurnRunsAndReportsFailingTest — اجرای واقعی: build موفق، تست
+// شکست‌خورده؛ راستی‌آزمایی باید شکست را با نام تست گزارش کند.
+func TestAutoVerifyTurnRunsAndReportsFailingTest(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+	a := newTestApp(t)
+	ws := t.TempDir()
+	os.WriteFile(filepath.Join(ws, "go.mod"), []byte("module demo\n\ngo 1.21\n"), 0o600)
+	os.WriteFile(filepath.Join(ws, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o600)
+	os.WriteFile(filepath.Join(ws, "main_test.go"), []byte("package main\n\nimport \"testing\"\n\nfunc TestBroken(t *testing.T) {\n\tt.Fatal(\"nope\")\n}\n"), 0o600)
+
+	runs, skipped := a.autoVerifyTurn(context.Background(), ws, []string{"main_test.go"})
+	if skipped != "" {
+		t.Fatalf("verification must run, skipped=%q", skipped)
+	}
+	if len(runs) != 3 {
+		t.Fatalf("build, vet, then test must run; got %+v", runs)
+	}
+	last := runs[len(runs)-1]
+	if last.Command != "go test ./..." || last.OK || last.ExitCode == 0 {
+		t.Fatalf("failing test must fail verification: %+v", last)
+	}
+	found := false
+	for _, n := range last.FailedTests {
+		if n == "TestBroken" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("failing test name must be extracted, got %v (output: %s)", last.FailedTests, last.Output)
+	}
+	if msg := autoVerifyFailedMessage(last); !strings.Contains(msg, "TestBroken") {
+		t.Fatalf("model message must name TestBroken: %s", msg)
+	}
+}
+
+// TestAutoVerifyTestCommandTimeoutLonger: تست‌ها بیش از build طول می‌کشند و
+// مهلت ۱۵۰ ثانیه‌ای build برایشان کم است.
+func TestAutoVerifyTestCommandTimeoutLonger(t *testing.T) {
+	if autoVerifyTimeoutFor("go build ./...") != autoVerifyTimeout {
+		t.Fatal("build keeps the build timeout")
+	}
+	if autoVerifyTimeoutFor("go test ./...") <= autoVerifyTimeout {
+		t.Fatal("test commands need a longer timeout than build")
+	}
+}

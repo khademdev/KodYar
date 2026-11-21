@@ -10,9 +10,11 @@
 // می‌شود تا مدل همان‌جا علت را رفع کند. خروجی موفق فقط ثبت/اعلام می‌شود.
 //
 // اصول ایمنی:
-//   - فقط دستورهای ثابت whitelist (go build/go vet، tsc --noEmit،
-//     py_compile روی فایل‌های تغییرکرده) — هیچ ورودی مدل اجرا نمی‌شود.
-//   - مهلت ۱۵۰ ثانیه، خروجی حداکثر ۶KB، حداکثر دو دستور در هر نوبت.
+//   - فقط دستورهای ثابت whitelist (go build/go vet/go test، tsc --noEmit،
+//     py_compile روی فایل‌های تغییرکرده، npm test و pytest فقط وقتی پروژه
+//     اسکریپت/پیکربندی تست دارد) — هیچ ورودی مدل اجرا نمی‌شود.
+//   - مهلت ۱۵۰ ثانیه برای ساخت و ۳۰۰ ثانیه برای تست، خروجی حداکثر ۶KB
+//     (سر و انتهای لاگ هر دو نگه داشته می‌شوند)، حداکثر دو دستور در هر نوبت.
 //   - اگر ابزار سازنده نصب نباشد، بی‌صدا رد می‌شود (Skipped، یک‌بار لاگ).
 //   - هماهنگ با دروازهٔ دسترسی (AllowCommands + قواعد Permissions + لیست سیاه)
 //     و با همان سیاست سندباکس run_command اجرا می‌شود؛ نیاز به تأیید → اجرا نشدن.
@@ -22,6 +24,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -32,9 +35,14 @@ import (
 )
 
 const (
-	autoVerifyTimeout   = 150 * time.Second
-	autoVerifyMaxOutput = 6000
-	autoVerifyMaxFiles  = 8
+	autoVerifyTimeout = 150 * time.Second
+	// autoVerifyTestTimeout مهلت جداگانهٔ تست‌هاست: تست واقعی چند برابر
+	// build طول می‌کشد و مهلت ۱۵۰ ثانیه‌ای ساخت برایش کم بود.
+	autoVerifyTestTimeout = 300 * time.Second
+	autoVerifyMaxOutput   = 6000
+	autoVerifyMaxFiles    = 8
+	// autoVerifyMaxFailTests سقف نام تست‌های شکست‌خورده در پیام به مدل.
+	autoVerifyMaxFailTests = 8
 )
 
 // autoVerifyRun نتیجهٔ اجرای یک دستور راستی‌آزمایی.
@@ -44,6 +52,8 @@ type autoVerifyRun struct {
 	OK       bool
 	Output   string
 	Ms       int64
+	// FailedTests نام تست‌های شکست‌خورده (از خروجی کامل، پیش از برش).
+	FailedTests []string
 }
 
 // autoVerifyCommands دستورهای راستی‌آزمایی خودکار را از روی نشانه‌های پروژه
@@ -62,9 +72,15 @@ func autoVerifyCommands(ws string, changed []string) []string {
 		return err == nil
 	}
 	var cmds []string
-	// Go: ساخت همه‌ی بسته‌ها؛ در صورت موفقیت vet هم (سبک و سریع با کش).
+	// npm test فقط وقتی اسکریپت test تعریف شده باشد؛ وگرنه npm خودش با
+	// «Missing script» شکست می‌خورد و خطای واقعی را می‌پوشاند.
+	npmTest := ""
+	if exists("package.json") && hasTool("npm") && packageJSONHasTestScript(ws) {
+		npmTest = "npm test"
+	}
+	// Go: ساخت همه‌ی بسته‌ها؛ در صورت موفقیت vet و سپس تست.
 	if exists("go.mod") && hasTool("go") {
-		cmds = append(cmds, "go build ./...", "go vet ./...")
+		cmds = append(cmds, "go build ./...", "go vet ./...", "go test ./...")
 		return cmds
 	}
 	// TypeScript: فقط tsc نصب‌شده در PATH — عمداً هیچ باینری‌ای از خود مخزن
@@ -73,6 +89,9 @@ func autoVerifyCommands(ws string, changed []string) []string {
 	if exists("tsconfig.json") {
 		if hasTool("tsc") {
 			cmds = append(cmds, "tsc --noEmit -p tsconfig.json")
+		}
+		if npmTest != "" {
+			cmds = append(cmds, npmTest)
 		}
 		return cmds
 	}
@@ -94,6 +113,9 @@ func autoVerifyCommands(ws string, changed []string) []string {
 			cmds = append(cmds, `node --check "`+f+`"`)
 		}
 	}
+	if npmTest != "" {
+		cmds = append(cmds, npmTest)
+	}
 
 	// Python: فقط فایل‌های تغییرکرده (بدون پیمایش کل مخزن).
 	var pyFiles []string
@@ -109,7 +131,36 @@ func autoVerifyCommands(ws string, changed []string) []string {
 		}
 		cmds = append(cmds, "python -m py_compile "+strings.Join(quoted, " "))
 	}
+	// pytest فقط وقتی پیکربندی تست وجود دارد و خودِ pytest نصب است؛
+	// وگرنه «No module named pytest» یک شکست جعلی می‌سازد.
+	if hasTool("pytest") && hasTool("python") &&
+		(exists("pytest.ini") || exists("tox.ini") || exists("setup.cfg") || exists("pyproject.toml")) {
+		cmds = append(cmds, "python -m pytest")
+	}
 	return cmds
+}
+
+// packageJSONHasTestScript آیا package.json اسکریپت testِ غیرخالی دارد؟
+func packageJSONHasTestScript(ws string) bool {
+	data, err := readHeadBytes(filepath.Join(ws, "package.json"))
+	if err != nil {
+		return false
+	}
+	var pkg struct {
+		Scripts map[string]string `json:"scripts"`
+	}
+	if json.Unmarshal(data, &pkg) != nil {
+		return false
+	}
+	return strings.TrimSpace(pkg.Scripts["test"]) != ""
+}
+
+// autoVerifyTimeoutFor مهلت هر دستور: تست‌ها بیشتر از build طول می‌کشند.
+func autoVerifyTimeoutFor(command string) time.Duration {
+	if verificationKind(command) == "test" {
+		return autoVerifyTestTimeout
+	}
+	return autoVerifyTimeout
 }
 
 // autoVerifyTurn دستورها را به ترتیب اجرا می‌کند و در نخستین شکست می‌ایستد.
@@ -131,14 +182,18 @@ func (a *App) autoVerifyTurn(ctx context.Context, ws string, changed []string) (
 		}
 		start := time.Now()
 		// با همان سیاست سندباکس دستورهای عادی (AppContainer، شبکه طبق تنظیم).
-		out, code, _ := runShellWithPolicy(ctx, ws, cmd, autoVerifyTimeout, nil,
+		out, code, _ := runShellWithPolicy(ctx, ws, cmd, autoVerifyTimeoutFor(cmd), nil,
 			a.sandboxPolicyForCommand(ws, cmd))
 		run := autoVerifyRun{
 			Command:  cmd,
 			ExitCode: code,
 			OK:       code == 0,
-			Output:   cutUTF8(strings.TrimSpace(out), autoVerifyMaxOutput),
+			Output:   autoVerifyOutput(out),
 			Ms:       time.Since(start).Milliseconds(),
+		}
+		if !run.OK {
+			// نام تست‌ها از خروجی کامل استخراج می‌شود، نه از نسخهٔ بریده‌شده.
+			run.FailedTests = autoVerifyFailedTests(out)
 		}
 		runs = append(runs, run)
 		if !run.OK {
@@ -232,6 +287,81 @@ func autoVerifyRepoBinary(ws, command string) bool {
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
+// autoVerifyOutput خروجی را برای پیام به مدل آماده می‌کند: سر و انتهای لاگ
+// هر دو نگه داشته می‌شوند (خلاصهٔ خطا معمولاً انتهاست) و برش صریح علامت
+// می‌خورد.
+func autoVerifyOutput(out string) string {
+	return truncateMiddle(strings.TrimSpace(out), autoVerifyMaxOutput)
+}
+
+// autoVerifyFailedTests نام تست‌های شکست‌خورده را از خروجی go test، pytest،
+// Jest/Vitest و TAP استخراج می‌کند تا مدل همان تست را هدف بگیرد.
+func autoVerifyFailedTests(output string) []string {
+	var names []string
+	seen := map[string]bool{}
+	add := func(raw string) {
+		if len(names) >= autoVerifyMaxFailTests {
+			return
+		}
+		name := strings.TrimSpace(raw)
+		// Jest/Vitest مدت اجرا را داخل پرانتز می‌چسبانند.
+		if i := strings.Index(name, " ("); i > 0 {
+			name = strings.TrimSpace(name[:i])
+		}
+		name = strings.TrimSpace(cutUTF8(name, 120))
+		if name == "" || seen[name] {
+			return
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	for _, line := range strings.Split(output, "\n") {
+		if len(names) >= autoVerifyMaxFailTests {
+			break
+		}
+		t := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(t, "--- FAIL: "):
+			if f := strings.Fields(strings.TrimPrefix(t, "--- FAIL: ")); len(f) > 0 {
+				add(f[0])
+			}
+		case strings.HasPrefix(t, "FAILED "):
+			rest := strings.TrimSpace(strings.TrimPrefix(t, "FAILED "))
+			if i := strings.Index(rest, " - "); i > 0 {
+				rest = rest[:i]
+			}
+			add(rest)
+		case strings.HasPrefix(t, "not ok "):
+			rest := strings.TrimSpace(strings.TrimPrefix(t, "not ok "))
+			if f := strings.Fields(rest); len(f) > 0 && autoVerifyAllDigits(f[0]) {
+				rest = strings.TrimSpace(strings.TrimPrefix(rest, f[0]))
+				rest = strings.TrimSpace(strings.TrimPrefix(rest, "-"))
+			}
+			add(rest)
+		default:
+			for _, mark := range []string{"✕", "×", "✖", "✗"} {
+				if strings.HasPrefix(t, mark+" ") {
+					add(strings.TrimSpace(strings.TrimPrefix(t, mark+" ")))
+					break
+				}
+			}
+		}
+	}
+	return names
+}
+
+func autoVerifyAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // autoVerifyFailedMessage پیام انگلیسیِ رو به مدل برای شکست راستی‌آزمایی.
 func autoVerifyFailedMessage(r autoVerifyRun) string {
 	var b strings.Builder
@@ -239,7 +369,17 @@ func autoVerifyFailedMessage(r autoVerifyRun) string {
 	b.WriteString(r.Command)
 	b.WriteString("` exited with code ")
 	b.WriteString(fmt.Sprint(r.ExitCode))
-	b.WriteString(". Fix the cause in the code and keep going; do not just describe the error.\nShip only changes that compile.\n\nOutput:\n")
+	b.WriteString(". Fix the cause in the code and keep going; do not just describe the error.\nShip only changes that compile and pass their tests.\n")
+	names := r.FailedTests
+	if len(names) == 0 && !r.OK {
+		names = autoVerifyFailedTests(r.Output)
+	}
+	if len(names) > 0 {
+		b.WriteString("\nFailing tests (fix these first): ")
+		b.WriteString(strings.Join(names, ", "))
+		b.WriteString("\n")
+	}
+	b.WriteString("\nOutput:\n")
 	if r.Output == "" {
 		b.WriteString("(no output)")
 	} else {
