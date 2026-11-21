@@ -32,17 +32,9 @@ func gitAvailableForTest(t *testing.T) {
 func initPoisonedRepo(t *testing.T) string {
 	t.Helper()
 	ws := t.TempDir()
-	git := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", append([]string{"-C", ws}, args...)...)
-		cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v (%s)", args, err, strings.TrimSpace(string(out)))
-		}
-	}
-	git("init", "-q")
-	git("config", "core.fsmonitor", filepath.Join(ws, "evil-fsmonitor"))
-	git("config", "core.hooksPath", filepath.Join(ws, "evil-hooks"))
+	gitInForTest(t, ws, "init", "-q")
+	gitInForTest(t, ws, "config", "core.fsmonitor", filepath.Join(ws, "evil-fsmonitor"))
+	gitInForTest(t, ws, "config", "core.hooksPath", filepath.Join(ws, "evil-hooks"))
 	return ws
 }
 

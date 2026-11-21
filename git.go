@@ -66,18 +66,21 @@ func (w *cappedGitBuffer) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// gitSafeArgs آرگومان‌های کامل git برای ابزارهای داخلی: `-C ws` و سپس همان
-// پرچم‌های خنثی‌سازیِ checkpoint (fsmonitor، hooksPath، CRLF).
+// gitSafeArgs آرگومان‌های کامل git برای ابزارهای خواندنی داخلی: `-C ws` و
+// فقط پرچم‌هایی که مسیر اجرای فرمان را می‌بندند (core.fsmonitor،
+// core.hooksPath). پرچم‌های CRLF مخصوص checkpoint هستند و اینجا لازم نیستند —
+// عوض‌کردنشان فقط خروجی diff را تغییر می‌داد.
 //
 // چرا: git status/diff تنظیمات مخزن را می‌خوانند؛ اگر فایل .git/config (که
 // ایجنت با تأیید کاربر می‌تواند بنویسد) core.fsmonitor یا core.hooksPath را به
-// یک فرمان بیرونی اشاره دهد، اجرای آن فرمان همان اجرای کد است. با این پرچم‌ها
-// مقدار خط فرمان بر config مقدم می‌شود و مسیر اجرایی بسته می‌ماند.
+// یک فرمان بیرونی اشاره دهد، اجرای آن فرمان همان اجرای کد است. مقدار خط فرمان
+// بر config مقدم می‌شود و مسیر اجرایی بسته می‌ماند.
 func gitSafeArgs(ws string, args ...string) []string {
-	cfg := checkpointGitConfig()
-	out := make([]string, 0, len(args)+len(cfg)+2)
-	out = append(out, "-C", ws)
-	out = append(out, cfg...)
+	out := make([]string, 0, len(args)+6)
+	out = append(out, "-C", ws,
+		"-c", "core.fsmonitor=false",
+		"-c", "core.hooksPath="+os.DevNull,
+	)
 	return append(out, args...)
 }
 

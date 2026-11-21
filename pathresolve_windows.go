@@ -58,7 +58,7 @@ func finalPathOf(p string) (string, bool) {
 			return "", false
 		}
 		if int(n) < len(buf) {
-			return stringsTrimLongPath(syscall.UTF16ToString(buf[:n])), true
+			return trimLongPathPrefix(syscall.UTF16ToString(buf[:n])), true
 		}
 		if int(n) > 32*1024 { // سقف محافظتی
 			return "", false
@@ -67,9 +67,9 @@ func finalPathOf(p string) (string, bool) {
 	}
 }
 
-// stringsTrimLongPath پیشوند طولانی‌مسیر را حذف می‌کند تا مقایسه با مسیرهای
+// trimLongPathPrefix پیشوند طولانی‌مسیر را حذف می‌کند تا مقایسه با مسیرهای
 // معمولی درست باشد.
-func stringsTrimLongPath(p string) string {
+func trimLongPathPrefix(p string) string {
 	if strings.HasPrefix(p, `\\?\UNC\`) {
 		return `\\` + p[len(`\\?\UNC\`):]
 	}

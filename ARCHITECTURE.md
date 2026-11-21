@@ -460,9 +460,22 @@ Workspace (user-chosen): rule files `.kodyar/rules.md` → `AGENTS.md` →
 injected into the system prompt, UTF-8-safe cut; content cached by
 (workspace, path, size, mtime) under `a.mu` — `rulesCache`, Step 5 — so
 unchanged rule files are not re-read each turn). All model-supplied paths go
-through `resolveWorkspacePath` (clean + `withinDir` + symlink-aware
-`evalExisting`). Git tools are read-only, exec'd without a shell
-(ref whitelisted), 20s timeout.
+through `resolveWorkspacePath`: clean + `withinDir` (case-insensitive on
+Windows) + symlink-aware `evalExisting`, and on Windows a final-path check
+(`GetFinalPathNameByHandleW`, `pathresolve_windows.go`) that also catches
+junctions/reparse points — `EvalSymlinks` alone reports a junction as an
+ordinary directory, which would let a link inside the workspace point
+outside it. UNC, `\\?\`, `\.\`, drive-relative, 8.3, ADS and reserved names
+are covered by table tests (`workspace_guard*_test.go`).
+
+Git tools are read-only, exec'd without a shell (ref whitelisted), 20s
+timeout, and every call carries `-c core.fsmonitor=false -c
+core.hooksPath=os.DevNull` (`gitSafeArgs`) so a `.git/config` written through
+the agent cannot execute a command during `status`/`log`; `git diff`/`show`
+add `--no-ext-diff --no-textconv` for the same reason (a `diff=<driver>`
+attribute plus `diff.<driver>.textconv`, or `diff.external`, would otherwise
+run an external program), and the pager is pinned by `GIT_PAGER=cat` in
+`gitEnv`.
 
 ## CI
 

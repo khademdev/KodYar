@@ -14,7 +14,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -67,7 +66,7 @@ func TestCheckpointGitIgnoresRepoDrivers(t *testing.T) {
 	}
 	gitInForTest(t, ws, "config", "filter.evil.clean", filterScript)
 	gitInForTest(t, ws, "config", "filter.evil.required", "true")
-	gitInForTest(t, ws, "config", "core.pager", pagerScript+" "+strings.ReplaceAll(pagerScript, ".sh", ".SH"))
+	gitInForTest(t, ws, "config", "core.pager", pagerScript)
 	gitInForTest(t, ws, "config", "core.hooksPath", hooksDir)
 
 	clearMarkers := func() {
