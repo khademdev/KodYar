@@ -502,11 +502,16 @@ func interpreterPayloads(argv []string) []string {
 
 // ---------------------------------------------------------------- رد دستورهای اجراکننده‌ی درایور
 
-// gitDiffDriverReason دلیل رد شدن git diff/show/log از مسیر run_command.
-const gitDiffDriverReason = "git diff/show/log is not run through run_command: a .gitattributes " +
+// gitDiffDriverReason دلیل رد شدن خانواده‌ی diff از مسیر run_command.
+const gitDiffDriverReason = "The git diff family is not run through run_command: a .gitattributes " +
 	"plus diff.<driver>.textconv (or diff.external) in .git/config can make git execute an external " +
 	"program. Use the git_diff, git_show or git_log tools instead — they show the same content and " +
 	"always run with --no-ext-diff --no-textconv."
+
+// gitRepoWriteReason دلیل رد شدن زیرفرمان‌های نویسنده/آورنده‌ی محتوای مخزن.
+const gitRepoWriteReason = "git apply/am/submodule are not run through run_command: they write " +
+	"into the repository or fetch external code, outside the diff-confirm flow. Use write_file, " +
+	"edit_file or apply_patch for changes, and ask the user to handle submodules."
 
 // agentCommandBlocked (تابع خالص) بررسی می‌کند آیا این دستور باید از مسیر
 // run_command ایجنت رد شود. فقط زیرفرمان‌های diff/show/log را می‌گیرد؛ بقیه‌ی
@@ -523,8 +528,8 @@ func agentCommandBlocked(cmd string) (string, bool) {
 	}
 	for i := range pc.simples {
 		sc := &pc.simples[i]
-		if gitRunsDiffDriver(sc.argv) {
-			return gitDiffDriverReason, true
+		if reason, blocked := gitRunCommandBlocked(sc.argv); blocked {
+			return reason, true
 		}
 		// ‎sh -c "git diff"‎ و ‎$(git diff)‎ هم همان فرمان را اجرا می‌کنند.
 		for _, payload := range interpreterPayloads(sc.argv) {
@@ -556,23 +561,44 @@ var gitDriverSubs = map[string]bool{
 	"stash": true,
 }
 
-// gitRunsDiffDriver آیا argv یک زیرفرمان git با درایور diff است؟
-// اولین توکن غیرپرچم، زیرفرمان است (`git --no-pager diff` هم همین‌طور).
-func gitRunsDiffDriver(argv []string) bool {
+// gitRepoWriteSubs زیرفرمان‌هایی که فایل/محتوای مخزن را می‌نویسند (بدون عبور
+// از مودال diff) یا کد بیرونی را وارد مخزن می‌کنند.
+var gitRepoWriteSubs = map[string]bool{
+	"apply": true, "am": true, "submodule": true,
+}
+
+// gitSubcommand زیرفرمان یک فرمان git را برمی‌گرداند: اولین توکن غیرپرچم
+// (`git --no-pager diff` هم همین‌طور). argv0 باید git باشد.
+func gitSubcommand(argv []string) (string, bool) {
 	if len(argv) < 2 {
-		return false
+		return "", false
 	}
 	base := strings.ToLower(filepath.Base(strings.ReplaceAll(argv[0], `\`, "/")))
 	base = strings.TrimSuffix(base, ".exe")
 	if base != "git" {
-		return false
+		return "", false
 	}
 	for _, tok := range argv[1:] {
 		if !strings.HasPrefix(tok, "-") {
-			return gitDriverSubs[strings.ToLower(tok)]
+			return strings.ToLower(tok), true
 		}
 	}
-	return false
+	return "", false
+}
+
+// gitRunCommandBlocked آیا این argv از مسیر run_command رد می‌شود؟
+func gitRunCommandBlocked(argv []string) (string, bool) {
+	sub, ok := gitSubcommand(argv)
+	if !ok {
+		return "", false
+	}
+	if gitDriverSubs[sub] {
+		return gitDiffDriverReason, true
+	}
+	if gitRepoWriteSubs[sub] {
+		return gitRepoWriteReason, true
+	}
+	return "", false
 }
 
 // ---------------------------------------------------------------- ارزیابی کامل

@@ -29,8 +29,10 @@ var protectedModes = []protectedMode{
 // sanitizeProtectedPaths مسیرهای محافظت‌شده‌ای که این تست می‌نویسد.
 var protectedTargets = []string{
 	".gitattributes",
+	".gitmodules",
 	".git/config",
 	"sub/.gitattributes",
+	"sub/.gitmodules",
 	"sub/.git/config",
 }
 

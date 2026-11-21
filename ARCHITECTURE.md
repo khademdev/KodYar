@@ -196,13 +196,16 @@ a.checkpointMu, a.readStore.mu, a.factsCache.mu  (leaf locks — Mission 3)
    refuses `git` diff-family subcommands before the gate
    (`agentCommandBlocked` + `gitDriverSubs`: `diff`, `show`, `log`,
    `diff-tree`, `diff-index`, `diff-files`, `range-diff`, `format-patch`,
-   `whatchanged`, and `stash` because `stash show -p` diffs): they honour
+   `whatchanged`, and `stash` because `stash show -p` diffs — plus the
+   repo-writing `apply`, `am` and `submodule`): the diff family honours
    `diff=<driver>`/`diff.<driver>.textconv` from the repo and `diff.external`
    from `.git/config`, and would run an external program after a plain
    approval; the `git_diff`/`git_show`/`git_log` tools do the same job with
-   `--no-ext-diff --no-textconv`. `.gitattributes` is in
-   `defaultProtectedGlobs` (with `.git/**` and `**/.git/**`), so the config
-   half of that attack also needs confirmation in every edit mode. Then →
+   `--no-ext-diff --no-textconv`, while apply/am/submodule would write into the
+   repository or pull in external code outside the diff-confirm flow.
+   `.gitattributes` and `.gitmodules` are in `defaultProtectedGlobs` (with
+   `.git/**` and `**/.git/**`), so the config half of that attack also needs
+   confirmation in every edit mode. Then →
    `runShell` in `shell.go`
    (single runner: `cmd /S /C "chcp 65001 …"` + Job-Object tree kill on
    Windows, `sh -c` + Setpgid/SIGTERM→SIGKILL group kill on Unix; timeout

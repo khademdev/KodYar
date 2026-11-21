@@ -37,15 +37,21 @@ func TestAgentCommandBlockedGitDiffDrivers(t *testing.T) {
 		"git whatchanged",
 		"git stash show",
 		"git stash show -p",
+		// زیرفرمان‌های نویسنده/آورنده‌ی محتوای مخزن
+		"git apply fix.patch",
+		"git apply --index fix.patch",
+		"git am 0001-fix.patch",
+		"git submodule update --init",
+		"git submodule add https://example.com/x.git vendor/x",
 	}
 	for _, cmd := range blocked {
 		reason, ok := agentCommandBlocked(cmd)
 		if !ok {
-			t.Errorf("%q must be refused from run_command: it can run a diff driver", cmd)
+			t.Errorf("%q must be refused from run_command (diff driver or repo write)", cmd)
 			continue
 		}
-		if !strings.Contains(reason, "git_diff") {
-			t.Errorf("%q: the refusal must point at the git tools, got %q", cmd, reason)
+		if !strings.Contains(reason, "git_diff") && !strings.Contains(reason, "apply_patch") {
+			t.Errorf("%q: the refusal must point at the safe alternative, got %q", cmd, reason)
 		}
 	}
 

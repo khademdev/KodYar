@@ -673,7 +673,9 @@ var defaultProtectedGlobs = []string{
 	// .gitattributes نیمه‌ی دیگرِ همان حمله است: `*.txt diff=<driver>` یا
 	// `filter=<driver>` کافی است تا git درایور بیرونی را هنگام diff/add صدا
 	// بزند؛ پس حتی در حالت «ویرایش خودکار» هم بی‌تأیید نوشته نمی‌شود.
-	".gitattributes",
+	// .gitmodules همان ریسک را دارد: سابماژولِ تازه یعنی کد بیرونی در مسیر
+	// ساخت/اجرای بعدی.
+	".gitattributes", ".gitmodules",
 	".env*", "*.pem", "*.key", "*.pfx",
 	"package.json", "Makefile", "makefile", "*.mk", "justfile",
 	"Taskfile.y*ml", "*.csproj", "pom.xml", "build.gradle*",
