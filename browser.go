@@ -802,8 +802,12 @@ func (a *App) browserShotPath(relPath string) (string, error) {
 	if relPath == "" {
 		relPath = filepath.Join("screenshots", time.Now().Format("shot-20060102-150405")+".png")
 	}
-	if filepath.IsAbs(relPath) || strings.HasPrefix(relPath, "/") || strings.HasPrefix(relPath, "\\") {
-		return "", fmt.Errorf("screenshot path must be relative to the workspace")
+	// مستقل از سیستم‌عامل: مسیر مطلق POSIX، مسیر مطلق ویندوزی (C:\… یا
+	// \\server\…) و هر جداکننده‌ی ویندوزی رد می‌شود — وگرنه همان مسیر روی
+	// لینوکس به‌عنوان نام فایل نسبی پذیرفته می‌شد (باگ کشف‌شده در CI).
+	if filepath.IsAbs(relPath) || strings.HasPrefix(relPath, "/") || strings.HasPrefix(relPath, "\\") ||
+		strings.Contains(relPath, "\\") || strings.Contains(relPath, ":") {
+		return "", fmt.Errorf("screenshot path must be relative to the workspace (use forward slashes)")
 	}
 	full := filepath.Join(ws, relPath)
 	rel, err := filepath.Rel(ws, full)
