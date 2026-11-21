@@ -75,15 +75,21 @@ func checkpointGitEnv(indexFile string) []string {
 }
 
 // checkpointGitConfig پرچم‌هایی که هر فراخوانی git نقطه‌ی بازگشت را از
-// تبدیل‌های کاربر جدا می‌کند: CRLF، fsmonitor و hookها. (فیلترهای
+// تبدیل‌های کاربر جدا می‌کند: CRLF، fsmonitor، hookها و pager. (فیلترهای
 // .gitattributes/LFS هم با `--no-filters` در hash-object و خواندن خام
-// cat-file بی‌اثر می‌شوند.)
+// cat-file بی‌اثر می‌شوند؛ update-index --index-info شیء آماده را می‌پذیرد و
+// فیلتر اجرا نمی‌کند.)
+//
+// core.pager هم خنثی می‌شود: خروجی ما همیشه لوله است و pager اجرا نمی‌شود،
+// ولی این پرچم همان تضمین را صریح می‌کند تا اگر روزی خروجی به ترمینال برود
+// یک core.pager دستکاری‌شده فرمان اجرا نکند.
 func checkpointGitConfig() []string {
 	return []string{
 		"-c", "core.autocrlf=false",
 		"-c", "core.safecrlf=false",
 		"-c", "core.fsmonitor=false",
 		"-c", "core.hooksPath=" + os.DevNull,
+		"-c", "core.pager=cat",
 	}
 }
 
