@@ -508,10 +508,12 @@ const gitDiffDriverReason = "The git diff family is not run through run_command:
 	"program. Use the git_diff, git_show or git_log tools instead — they show the same content and " +
 	"always run with --no-ext-diff --no-textconv."
 
-// gitRepoWriteReason دلیل رد شدن زیرفرمان‌های نویسنده/آورنده‌ی محتوای مخزن.
-const gitRepoWriteReason = "git apply/am/submodule are not run through run_command: they write " +
-	"into the repository or fetch external code, outside the diff-confirm flow. Use write_file, " +
-	"edit_file or apply_patch for changes, and ask the user to handle submodules."
+// gitRepoWriteReason دلیل رد شدن زیرفرمان‌های نویسنده/آورنده/حذف‌کننده‌ی
+// محتوای مخزن.
+const gitRepoWriteReason = "git apply/am/submodule/checkout/restore/clean are not run through " +
+	"run_command: they write or delete files in the repository, or fetch external code, outside the " +
+	"diff-confirm flow. Use write_file, edit_file or apply_patch for changes; reverting a file goes " +
+	"through the file-changes/checkpoint flow, and submodules are the user's call."
 
 // agentCommandBlocked (تابع خالص) بررسی می‌کند آیا این دستور باید از مسیر
 // run_command ایجنت رد شود. فقط زیرفرمان‌های diff/show/log را می‌گیرد؛ بقیه‌ی
@@ -565,6 +567,9 @@ var gitDriverSubs = map[string]bool{
 // از مودال diff) یا کد بیرونی را وارد مخزن می‌کنند.
 var gitRepoWriteSubs = map[string]bool{
 	"apply": true, "am": true, "submodule": true,
+	// checkout/restore/clean پیش از این فقط «ask» بودند: پس از تأیید، فایل را
+	// بازنویسی یا حذف می‌کردند و هیچ diffی نشان نمی‌دادند.
+	"checkout": true, "restore": true, "clean": true,
 }
 
 // gitSubcommand زیرفرمان یک فرمان git را برمی‌گرداند: اولین توکن غیرپرچم

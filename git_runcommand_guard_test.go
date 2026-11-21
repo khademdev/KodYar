@@ -43,6 +43,14 @@ func TestAgentCommandBlockedGitDiffDrivers(t *testing.T) {
 		"git am 0001-fix.patch",
 		"git submodule update --init",
 		"git submodule add https://example.com/x.git vendor/x",
+		// بازنویسی/حذف فایل در مخزن، بدون diff
+		"git checkout main",
+		"git checkout -- .",
+		"git checkout -b feature",
+		"git restore .",
+		"git restore --staged a.txt",
+		"git clean -fd",
+		"git clean -fdx",
 	}
 	for _, cmd := range blocked {
 		reason, ok := agentCommandBlocked(cmd)
