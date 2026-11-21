@@ -500,32 +500,18 @@ func interpreterPayloads(argv []string) []string {
 	return nil
 }
 
-// ---------------------------------------------------------------- رد دستورهای اجراکننده‌ی درایور
-
-// gitRunCommandAllowSubs لیست سفیدِ کوچک زیرفرمان‌های git برای run_command
-// ایجنت. هر چیز دیگری رد می‌شود — به‌جای لیست سیاهِ فزاینده (که هر بار یک
-// زیرفرمان از قلم می‌افتاد). دروازه‌ی معمول (allow/ask) هم بعد از این لایه
-// همچنان اعمال می‌شود؛ این لیست فقط برای زیرفرمان‌هایی است که ایجنت اصلاً
-// نباید از مسیر shell اجرا کند:
-//   - خانواده‌ی diff (textconv/diff.external از مخزن اجرای فرمان می‌کند)
-//   - نویسنده/حذف‌کننده‌های مخزن (apply، am، checkout، reset، switch، …)
-//
-// status/rev-parse/remote/branch فقط-خواندنی‌های متداول ایجنت هستند و پرچم
-// خطرناکشان را همان دروازه (لیست سفید هر زیرفرمان) می‌گیرد.
-var gitRunCommandAllowSubs = map[string]bool{
-	"status": true, "rev-parse": true, "remote": true, "branch": true,
-}
+// ---------------------------------------------------------------- رد git از run_command
 
 // gitRunCommandReason پیام رد شدن یک زیرفرمان git دیگر از run_command.
 const gitRunCommandReason = "Only `git status`, `git rev-parse`, `git remote` and `git branch` run " +
-	"through run_command. Other git subcommands either can execute an external driver configured by " +
-	"the repo (diff/textconv/diff.external), or write/delete files or rewrite history outside the " +
-	"diff-confirm flow. Use git_diff/git_show/git_log for history, write_file/edit_file/apply_patch " +
-	"for changes, and the checkpoint/file-changes flow for reverts."
+	"through run_command; every other git subcommand can execute a repo-configured driver or change " +
+	"the repository outside the diff-confirm flow. Use git_diff/git_show/git_log for history, " +
+	"write_file/edit_file/apply_patch for changes, and the checkpoint flow for reverts."
 
 // agentCommandBlocked (تابع خالص) بررسی می‌کند آیا این دستور باید از مسیر
-// run_command ایجنت رد شود. فقط زیرفرمان‌های diff/show/log را می‌گیرد؛ بقیه‌ی
-// gitها (status، branch، rev-parse، …) مثل قبل از دروازه‌ی معمول می‌گذرند.
+// run_command ایجنت رد شود: زیرفرمان‌های git جز لیست سفید کوچک
+// (status/rev-parse/remote/branch) بسته‌اند، با بررسی بازگشتی ‎sh -c‎ و
+// ‎$(…)/backtick‎.
 //
 // چرا اینجا و نه در gateCommand: تصمیم allow/ask برای دستورهای کاربر عوض
 // نمی‌شود (تایپ مستقیم کاربر همان رفتار قبل را دارد)؛ فقط مسیری که ایجنت
@@ -578,13 +564,16 @@ func gitSubcommand(argv []string) (string, bool) {
 	return "", false
 }
 
-// gitRunCommandBlocked آیا این argv از مسیر run_command رد می‌شود؟
+// gitRunCommandBlocked آیا این argv از مسیر run_command رد می‌شود؟ لیست
+// سفیدِ کوچک عمداً fail-closed است: هر زیرفرمان تازه (یا فراموش‌شده) بسته
+// است، نه باز. پرچم خطرناکِ همین چهار مورد را دروازه‌ی allow/ask می‌گیرد.
 func gitRunCommandBlocked(argv []string) (string, bool) {
 	sub, ok := gitSubcommand(argv)
 	if !ok {
 		return "", false // بدون زیرفرمان (مثل git --version) → دروازه تصمیم می‌گیرد
 	}
-	if gitRunCommandAllowSubs[sub] {
+	switch sub {
+	case "status", "rev-parse", "remote", "branch":
 		return "", false
 	}
 	return gitRunCommandReason, true

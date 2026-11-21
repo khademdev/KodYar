@@ -194,7 +194,7 @@ a.checkpointMu, a.readStore.mu, a.factsCache.mu  (leaf locks — Mission 3)
    match wins, an explicit allow also skips risky-confirm) → risky
    patterns → safe allow-list → default **ask**). The agent's `run_command`
    allows only `git status`, `git rev-parse`, `git remote` and `git branch`
-   before the gate (`agentCommandBlocked` + `gitRunCommandAllowSubs`); every
+   before the gate (`agentCommandBlocked` → `gitRunCommandBlocked`); every
    other subcommand is refused. A deny list kept missing one (diff family ran
    repo textconv drivers, `apply`/`am`/`submodule`/`checkout`/`restore`/
    `clean`/`reset`/`switch` wrote or deleted files outside the diff-confirm
