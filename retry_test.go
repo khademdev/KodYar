@@ -538,6 +538,9 @@ func TestStreamChatNoRetryAfterFirstDelta(t *testing.T) {
 		t.Fatalf("no retry waits may happen after first delta; slept=%v", *slept)
 	}
 	waitErrorLogContains(t, logPath, "جریان پاسخ قطع شد")
+	// پیام باید قابل‌اقدام باشد: بخش دریافت‌شده ذخیره شده و «ادامه» کار را
+	// جلو می‌برد — متن خام unexpected EOF به کاربر نمی‌رسد.
+	waitErrorLogContains(t, logPath, "ادامه")
 	waitConversationUntil(t, a, conv.ID, func(c *Conversation) bool {
 		for _, m := range c.Messages {
 			if m.Role == "assistant" && m.Aborted && strings.Contains(m.Content, "تکه‌ی نخست فارسی") {
@@ -688,6 +691,43 @@ func TestDialStreamDNSRetriedAtMostOnce(t *testing.T) {
 	// اعلان تلاش مجدد هم «از ۲» می‌گوید نه «از ۴»
 	if len(notices) != 1 || !strings.Contains(notices[0], "از ۲") {
 		t.Fatalf("retry notice must reflect the DNS attempt cap: %v", notices)
+	}
+}
+
+// TestHumanizeNetErrorUnexpectedEOF — پیام واقعی لاگ: قطع اتصال پیش از پاسخ
+// به شکل `Post "…": unexpected EOF`. متن انگلیسی خام نباید به کاربر برسد و
+// پیام باید بگوید چه کاری انجام دهد.
+func TestHumanizeNetErrorUnexpectedEOF(t *testing.T) {
+	raw := `Post "https://zro.moonmath.ai/v1/chat/completions": unexpected EOF`
+	msg := humanizeNetError(errors.New(raw))
+	if strings.Contains(msg, "unexpected EOF") || msg == raw {
+		t.Fatalf("unexpected EOF must be humanized to Persian, got %q", msg)
+	}
+	if !strings.Contains(msg, "دوباره") || !strings.Contains(msg, "سرویس‌دهنده") {
+		t.Fatalf("message must be actionable Persian, got %q", msg)
+	}
+}
+
+// TestStreamReadErrorText — قطعِ بدنه‌ی SSE (وسط پاسخ) باید فارسی و
+// قابل‌اقدام باشد: بگوید بخش دریافت‌شده ذخیره شده و «ادامه» کار را جلو می‌برد؛
+// خطاهای دیگر همان متن خام خودشان را نگه می‌دارند.
+func TestStreamReadErrorText(t *testing.T) {
+	msg := streamReadErrorText(io.ErrUnexpectedEOF)
+	if msg == "" {
+		t.Fatal("unexpected EOF must produce a message")
+	}
+	if strings.Contains(msg, "EOF") {
+		t.Fatalf("message must not leak raw English EOF text: %q", msg)
+	}
+	if !strings.Contains(msg, "ادامه") || !strings.Contains(msg, "ذخیره") {
+		t.Fatalf("message must tell the user the partial answer was saved and to press continue: %q", msg)
+	}
+	other := errors.New("bufio.Scanner: token too long")
+	if got := streamReadErrorText(other); got != other.Error() {
+		t.Fatalf("non-EOF errors must keep their own text, got %q", got)
+	}
+	if streamReadErrorText(nil) != "" {
+		t.Fatalf("nil error must produce an empty text")
 	}
 }
 

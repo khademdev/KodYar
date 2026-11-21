@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // answerNextPermAsk به اولین درخواست دسترسی ثبت‌شده پاسخ می‌دهد (شبیه UI).
@@ -195,6 +196,31 @@ func TestAlwaysAllowPersistsRule(t *testing.T) {
 	if len(a2.settings.Permissions.CommandRules) != 1 ||
 		a2.settings.Permissions.CommandRules[0].Pattern != "cargo build*" {
 		t.Fatalf("rule not persisted on disk: %+v", a2.settings.Permissions.CommandRules)
+	}
+}
+
+// TestPermissionAskTimeoutForCountdown — مودال دسترسی برای شمارش معکوس به
+// مهلت واقعیِ بک‌اند نیاز دارد؛ مقدار باید همان confirmTimeout باشد تا UI و
+// بک‌اند از هم جدا نیفتند.
+func TestPermissionAskTimeoutForCountdown(t *testing.T) {
+	a := newTestApp(t)
+	a.ctx = context.Background()
+	asks := make(chan *permissionAsk, 1)
+	a.permAskEmit = func(ask *permissionAsk) { asks <- ask }
+	go func() {
+		_ = a.requestPermissionConfirm(context.Background(), &permissionAsk{ID: "perm-t", Kind: "command", Message: "m"})
+	}()
+	var ask *permissionAsk
+	select {
+	case ask = <-asks:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ask was never emitted")
+	}
+	if want := int(confirmTimeout / time.Second); ask.TimeoutSec != want {
+		t.Fatalf("ask.TimeoutSec = %d, want %d", ask.TimeoutSec, want)
+	}
+	if err := a.RespondPermissionConfirm(ask.ID, "reject"); err != nil {
+		t.Fatalf("answering the ask must work: %v", err)
 	}
 }
 

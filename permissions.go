@@ -287,6 +287,9 @@ type permissionAsk struct {
 	URL      string `json:"url,omitempty"`      // آدرس درخواستی (فقط ابزار web_fetch) — نمایش با ایزوله‌سازی bidi
 	Message  string `json:"message"`            // فارسی — نمایش به کاربر
 	At       int64  `json:"at"`
+	// TimeoutSec مهلت پاسخ (ثانیه) — UI با همین شمارش معکوس نشان می‌دهد تا
+	// کاربر پیش از ردِ خودکار بک‌اند بداند چقدر وقت دارد.
+	TimeoutSec int `json:"timeoutSec,omitempty"`
 }
 
 // requestPermissionConfirm رویداد agent:permission_ask را می‌فرستد و منتظر
@@ -323,6 +326,7 @@ func (a *App) requestPermissionConfirm(ctx context.Context, ask *permissionAsk) 
 		a.changes.mu.Unlock()
 	}()
 
+	ask.TimeoutSec = int(confirmTimeout / time.Second)
 	runtimeEmit(a, "agent:permission_ask", map[string]interface{}{"ask": ask})
 
 	// مشاهده‌گر تستی payload مودال (بدون UI واقعی) — مثل todosEmit باید

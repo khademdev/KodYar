@@ -24,13 +24,50 @@
     return (window.go && window.go.main && window.go.main.App) || null;
   }
 
+  var active = null; // مودال باز (برای بستن هنگام انقضا/پایان نوبت)
+
+  // notifyExpired پیام یکسانِ «پاسخ به بک‌اند نرسید» و «نوبت تمام شد».
+  function notifyExpired() {
+    if (window.toast) window.toast("این درخواست تأیید منقضی شد؛ دوباره بفرست", "err");
+  }
+
+  // faNum ارقام فارسی برای شمارش معکوس.
+  function faNum(v) {
+    return String(v).replace(/[0-9]/g, function (d) { return "۰۱۲۳۴۵۶۷۸۹"[+d]; });
+  }
+
+  // respondFailed تصمیم کاربر به بک‌اند نرسید (درخواست منقضی یا قبلاً پاسخ
+  // داده شده). خطا دیگر قورت داده نمی‌شود: مودال کهنه بسته می‌شود و کاربر
+  // می‌فهمد باید درخواست را دوباره بفرستد.
+  function respondFailed(id, decision) {
+    if (active && active.id === id) active.close(false);
+    // «رد» حتی با خطا همان نتیجه را دارد؛ پیام اضافه لازم نیست.
+    if (decision !== "reject") notifyExpired();
+  }
+
   function respond(id, decision) {
     var b = backend();
-    if (b && typeof b.RespondPermissionConfirm === "function") {
-      try {
-        b.RespondPermissionConfirm(id, decision).catch(function () { /* منقضی شده — بی‌خطر */ });
-      } catch (e) { /* noop */ }
+    if (!b || typeof b.RespondPermissionConfirm !== "function") return;
+    var p;
+    try {
+      p = b.RespondPermissionConfirm(id, decision);
+    } catch (e) {
+      respondFailed(id, decision);
+      return;
     }
+    if (p && p.catch) {
+      p.catch(function () {
+        respondFailed(id, decision);
+      });
+    }
+  }
+
+  // expireActive با پایان نوبت: بک‌اند دیگر منتظر این پاسخ نیست، پس مودالِ
+  // باز «کهنه» است و کلیک روی آن بی‌اثر می‌ماند. بسته می‌شود و پیام می‌دهد.
+  function expireActive() {
+    if (!active) return;
+    active.close(false);
+    notifyExpired();
   }
 
   function makeModal(ask) {
@@ -103,6 +140,16 @@
       body.appendChild(whint);
     }
 
+    // شمارش معکوس تا ردِ خودکار بک‌اند (ask.timeoutSec) — کاربر ببیند چقدر وقت دارد.
+    var leftSec = Number(ask.timeoutSec) || 0;
+    var countdown = null;
+    if (leftSec > 0) {
+      countdown = document.createElement("div");
+      countdown.className = "hint-row";
+      countdown.style.marginTop = "8px";
+      body.appendChild(countdown);
+    }
+
     // ---- پاورقی
     var foot = document.createElement("div");
     foot.className = "modal-foot";
@@ -155,12 +202,35 @@
     overlay.classList.add("open");
 
     var closed = false;
+    var ticker = null;
+    var handle = { id: ask.id, close: close_ };
     function close_(reject) {
       if (closed) return;
       closed = true;
+      if (ticker) {
+        clearInterval(ticker);
+        ticker = null;
+      }
+      if (active === handle) active = null;
       if (reject) respond(ask.id, "reject");
       document.removeEventListener("keydown", onKey);
       document.body.removeChild(overlay);
+    }
+    // tick هر ثانیه را از deadline واقعی می‌خواند تا با کندی صفحه عقب نماند.
+    function startCountdown(sec) {
+      var deadline = Date.now() + sec * 1000;
+      function paint() {
+        if (closed) return;
+        var left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+        var secs = left % 60;
+        countdown.textContent = "زمان باقی‌مانده: " + faNum(Math.floor(left / 60)) + ":" + faNum(secs < 10 ? "0" + secs : secs);
+        if (left <= 0) {
+          close_(false);
+          notifyExpired();
+        }
+      }
+      paint();
+      if (!closed) ticker = setInterval(paint, 1000);
     }
     function onKey(e) {
       if (e.key === "Escape") {
@@ -173,10 +243,10 @@
       if (e.target === overlay) close_(true);
     });
     document.addEventListener("keydown", onKey);
-    return { close: close_ };
+    if (countdown) startCountdown(leftSec);
+    return handle;
   }
 
-  var active = null;
   function onAsk(data) {
     var ask = data && data.ask;
     if (!ask || !ask.id) return;
@@ -187,5 +257,9 @@
 
   if (window.runtime && typeof window.runtime.EventsOn === "function") {
     window.runtime.EventsOn("agent:permission_ask", onAsk);
+    // پایان نوبت (خطا یا پایان عادی) یعنی هیچ درخواست تأییدی در انتظار نیست؛
+    // مودالی که باز مانده منقضی است.
+    window.runtime.EventsOn("chat:error", function () { expireActive(); });
+    window.runtime.EventsOn("chat:done", function () { expireActive(); });
   }
 })();

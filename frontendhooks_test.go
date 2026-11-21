@@ -109,6 +109,49 @@ func TestFrontendMCPSaveRefreshesSnapshot(t *testing.T) {
 	}
 }
 
+// TestFrontendPermissionModalExpiresSafely — رگرسیون باگ «اجازه می‌دهم ولی
+// عملیات رد می‌شود»: مودال دسترسی باید با پایان نوبت (chat:error/chat:done)
+// خودش بسته شود، پیام «منقضی شد، دوباره بفرست» بدهد و خطای
+// RespondPermissionConfirm را نبلعد. پیش‌تر پاسخ در یک catch خالی قورت
+// داده می‌شد و مودالِ منقضی روی صفحه می‌ماند.
+func TestFrontendPermissionModalExpiresSafely(t *testing.T) {
+	raw, err := os.ReadFile("frontend/dist/assets/js/permissions.js")
+	if err != nil {
+		t.Fatalf("read permissions.js: %v", err)
+	}
+	s := string(raw)
+	for _, want := range []string{
+		`EventsOn("chat:error"`,
+		`EventsOn("chat:done"`,
+		"منقضی شد",
+		"دوباره بفرست",
+		"expireActive",
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("permissions.js must contain %q so an expired ask closes itself and says so", want)
+		}
+	}
+	if strings.Contains(s, "/* منقضی شده — بی‌خطر */") {
+		t.Fatal("permissions.js must not swallow RespondPermissionConfirm errors")
+	}
+}
+
+// TestFrontendPermissionModalShowsCountdown — مودال دسترسی باید مهلت واقعی
+// بک‌اند (ask.timeoutSec) را به شمارش معکوس تبدیل کند تا کاربر پیش از ردِ
+// خودکار بداند چقدر وقت دارد؛ تایمر هم با بسته‌شدن مودال پاک شود.
+func TestFrontendPermissionModalShowsCountdown(t *testing.T) {
+	raw, err := os.ReadFile("frontend/dist/assets/js/permissions.js")
+	if err != nil {
+		t.Fatalf("read permissions.js: %v", err)
+	}
+	s := string(raw)
+	for _, want := range []string{"ask.timeoutSec", "زمان باقی‌مانده", "setInterval", "clearInterval"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("permissions.js must contain %q for the expiry countdown", want)
+		}
+	}
+}
+
 // ---------------------------------------------------------------- امنیت مرز داده
 
 // TestSettingsSanitizesMaliciousProviderFields — رگرسیون امنیتی: فایل

@@ -195,6 +195,10 @@ func humanizeNetError(err error) string {
 			return "اتصال به پروکسی رد شد؛ مطمئن شوید نرم‌افزار پروکسی روشن است یا در تنظیمات پروکسی را خاموش کنید"
 		}
 		return "اتصال به سرویس‌دهنده رد شد؛ آدرس Base URL و شبکه را بررسی کنید"
+	case isEOFText(s):
+		// سرویس‌دهنده اتصال را پیش از ارسال پاسخ بست (لاگ واقعی:
+		// `Post "…/chat/completions": unexpected EOF`).
+		return "سرویس‌دهنده پیش از ارسال پاسخ اتصال را بست. دوباره بفرستید؛ اگر تکرار شد، Provider، پروکسی یا شبکه را بررسی کنید"
 	case strings.Contains(s, "timeout"), strings.Contains(s, "deadline exceeded"), strings.Contains(s, "i/o timeout"):
 		return "زمان اتصال به پایان رسید؛ شبکه، فایروال یا پروکسی را بررسی کنید"
 	case strings.Contains(s, "no such host"):
@@ -216,6 +220,13 @@ func fatalNetErrorText(err error) string {
 		return "آدرس سرویس‌دهنده (Base URL) نامعتبر است؛ آن را در تنظیمات درست کنید (تلاش مجدد انجام نشد)"
 	}
 	return "اتصال ناموفق بود و تلاش مجدد ممکن نیست"
+}
+
+// isEOFText آیا متن خطا همان قطعِ اتصال/استریم است (EOF یا unexpected EOF)؟
+// هم فاز اتصال (url.Error) و هم خواندن بدنهٔ SSE این شکل را دارند.
+func isEOFText(s string) bool {
+	s = strings.ToLower(s)
+	return strings.Contains(s, "unexpected eof") || s == "eof" || strings.HasSuffix(s, ": eof")
 }
 
 // dialStream فاز اتصال یک دور از استریم را با تلاش مجدد اجرا می‌کند.

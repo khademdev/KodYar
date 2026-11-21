@@ -335,6 +335,21 @@ func readSSEChunks(ctx context.Context, r io.Reader, onChunk func(sseChunk) (sto
 	return scanner.Err()
 }
 
+// streamReadErrorText متن خطای خواندن بدنهٔ استریم را فارسی و قابل‌اقدام
+// می‌کند. قطعِ نیمه‌کاره (unexpected EOF) یعنی سرویس‌دهنده یا پروکسی اتصال را
+// وسط پاسخ بست؛ بخش دریافت‌شده از قبل با savePartial ذخیره شده و «ادامه» کار
+// را از همان‌جا جلو می‌برد. خطاهای دیگر متن خودشان را نگه می‌دارند تا علت فنی
+// پنهان نشود.
+func streamReadErrorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	if isEOFText(err.Error()) {
+		return "پاسخ سرویس‌دهنده نیمه‌کاره ماند (اتصال بسته شد). بخش دریافت‌شده ذخیره شد؛ «ادامه» را بزنید. اگر تکرار شد، Provider یا پروکسی/شبکه را بررسی کنید"
+	}
+	return err.Error()
+}
+
 // pingHTTPClient برای «تست اتصال» — مشترک بین فراخوانی‌ها تا هر تست
 // یک http.Client جدید نسازد (هر Client مجموعه اتصال خودش را نگه می‌دارد).
 var pingTransport = &http.Transport{
@@ -1697,7 +1712,7 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 			completionTokens += roundCompletion
 			a.savePartial(convID, allContent.String()[persistedLen:]+roundContent.String(), promptTokens, completionTokens, model)
 			a.emitTurnSummary(convID, turnID, turnRec, promptTokens, completionTokens)
-			a.emitChatError(myGen, "جریان پاسخ قطع شد: "+scanErr.Error())
+			a.emitChatError(myGen, "جریان پاسخ قطع شد: "+streamReadErrorText(scanErr))
 			return
 		}
 		if ctx.Err() != nil {
