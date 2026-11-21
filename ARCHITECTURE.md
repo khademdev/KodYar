@@ -122,7 +122,9 @@ a.checkpointMu, a.readStore.mu, a.factsCache.mu  (leaf locks — Mission 3)
    (mtime-desc ordering), `run_command` (foreground; `background:true`
    returns a process id), `process_output/process_stop/process_list`
    (incremental log tail, tree kill, status — `processes.go`),
-   `git_status/git_diff/git_log/git_show`, `task`, `todo_write`,
+   `git_status/git_diff/git_log/git_show`, `git_create_branch`/
+   `git_commit` (modal-gated writes: `kind=git_write`, no always option,
+   hooks/clean-filters bypassed, never push), `task`, `todo_write`,
    `web_fetch`, `diagnostics`) plus custom user tools
    and `mcp_<server>_<tool>` tools from enabled MCP servers
    (`mcpmanager.go`; lazy parallel start with a 15 s budget, backoff
@@ -203,7 +205,10 @@ a.checkpointMu, a.readStore.mu, a.factsCache.mu  (leaf locks — Mission 3)
    `diff.<driver>.textconv` and `diff.external` and would run an external
    program after a plain approval — the `git_diff`/`git_show`/`git_log` tools
    do the same job with `--no-ext-diff --no-textconv`, changes go through
-   write_file/edit_file/apply_patch, and reverts through the checkpoint flow.
+   write_file/edit_file/apply_patch, branches and commits through the
+   modal-gated `git_create_branch`/`git_commit` (stage via `hash-object
+   --no-filters` + `update-index`, hooks neutralised, no push), and reverts
+   through the checkpoint flow.
    The gate still applies afterwards (its own per-subcommand flag whitelist),
    and the user's own `RunCommand` keeps the old ask/allow behaviour.
    `.gitattributes` and `.gitmodules` are in `defaultProtectedGlobs` (with

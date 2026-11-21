@@ -132,6 +132,13 @@
   اجرا نمی‌شوند تا نوبت معطل نماند. خروجی با نگه‌داشتن سر و انتها بریده می‌شود و
   نام تست‌های شکست‌خورده جدا در پیام به مدل می‌آید (تست‌های
   `TestAutoVerifyTurnRunsAndReportsFailingTest` و `TestAutoVerifyWatchScriptsAreNotRun`).
+- **ابزارهای نوشتنی git با مودال تأیید:** `git_create_branch` (ساخت شاخه و
+  سوییچ، با اعتبارسنجی نام) و `git_commit` (stage با `hash-object --no-filters`
+  + `update-index`، سپس کامیت روی شاخهٔ فعلی) — هر دو پیش از هر تغییری مودال
+  `git_write` با پیش‌نمایش دستور و فهرست فایل نشان می‌دهند، «همیشه اجازه» و
+  override سراسری ندارند، hook و filterهای مخزن اجرا نمی‌شوند و هیچ‌وقت push
+  نمی‌شود (تست‌های `TestGitCommitStagesAndCommits`،
+  `TestGitCommitDoesNotRunRepoHooks` و `TestGitWriteToolsAlwaysAskEvenIfAllowed`).
 - **دکمهٔ «بازگردانی این نوبت» در کارت خلاصه برگشت:** پیش‌نمایش فایل‌های
   بازنویسی و انتقال‌به‌سبد زباله (`PreviewCheckpointRestore`)، تأیید کاربر و
   سپس بازگردانی با همان بک‌اند موجود (`RestoreCheckpoint`). هیچ فایلی حذف

@@ -207,6 +207,14 @@ var toolArgSpecs = map[string][]toolArgSpec{
 	"git_show": {
 		{key: "ref", typ: "string", required: true, nonEmpty: true},
 	},
+	"git_create_branch": {
+		{key: "name", typ: "string", required: true, nonEmpty: true},
+		{key: "from", typ: "string"},
+	},
+	"git_commit": {
+		{key: "message", typ: "string", required: true, nonEmpty: true},
+		{key: "paths", typ: "paths"},
+	},
 	"task": {
 		{key: "description", typ: "string", required: true, nonEmpty: true},
 	},
@@ -255,6 +263,27 @@ func jsonTypeName(v interface{}) string {
 }
 
 // ---------------------------------------------------------------- تبدیل نوع مشترک
+
+// coercePathList فهرست مسیرهای آرگومان را به []string تبدیل می‌کند
+// (آرایه یا رشتهٔ JSON حاوی آرایه؛ آیتم‌های غیررشته‌ای نادیده گرفته می‌شوند —
+// اعتبارسنجی سخت‌گیرانه‌تر در validateToolArgs است).
+func coercePathList(v interface{}) []string {
+	arr, ok := coerceJSONArray(v)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, it := range arr {
+		s, ok := coerceString(it)
+		if !ok {
+			continue
+		}
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
 
 // coerceString/coerceInt/coerceBool تنها مرجع تبدیل نوعِ مقدارهای آرگومان ابزار
 // هستند — هم validateToolArgs (اینجا) و هم gs/gi/gb در execToolCtx (agent.go)
@@ -364,6 +393,17 @@ func validateToolArgs(name string, args map[string]interface{}) error {
 			// عمق اعتبارسنجی در parseEditOps است (agent.go).
 			if _, ok := coerceJSONArray(v); !ok {
 				return fmt.Errorf("ERROR: invalid arguments for %s: field %q must be an array of edit items (a JSON string containing the array is also accepted), got %s.", name, sp.key, jsonTypeName(v))
+			}
+		case "paths":
+			// فهرست مسیر: آرایهٔ رشته (رشتهٔ JSON هم قبول — همان تحمل ابزارهای دیگر).
+			arr, ok := coerceJSONArray(v)
+			if !ok {
+				return fmt.Errorf("ERROR: invalid arguments for %s: field %q must be an array of path strings, got %s.", name, sp.key, jsonTypeName(v))
+			}
+			for _, it := range arr {
+				if _, ok := coerceString(it); !ok {
+					return fmt.Errorf("ERROR: invalid arguments for %s: field %q must contain only strings, got %s.", name, sp.key, jsonTypeName(it))
+				}
 			}
 		}
 		if sp.nonEmpty {

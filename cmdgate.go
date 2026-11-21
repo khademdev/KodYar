@@ -506,6 +506,7 @@ func interpreterPayloads(argv []string) []string {
 const gitRunCommandReason = "Only `git status`, `git rev-parse`, `git remote` and `git branch` run " +
 	"through run_command; every other git subcommand can execute a repo-configured driver or change " +
 	"the repository outside the diff-confirm flow. Use git_diff/git_show/git_log for history, " +
+	"git_create_branch and git_commit for branches/commits (they ask the user with a modal), " +
 	"write_file/edit_file/apply_patch for changes, and the checkpoint flow for reverts."
 
 // agentCommandBlocked (تابع خالص) بررسی می‌کند آیا این دستور باید از مسیر

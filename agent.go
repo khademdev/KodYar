@@ -80,6 +80,14 @@ func propBool(desc string) map[string]interface{} {
 	return map[string]interface{}{"type": "boolean", "description": desc}
 }
 
+func propStrArray(desc string) map[string]interface{} {
+	return map[string]interface{}{
+		"type":        "array",
+		"items":       map[string]interface{}{"type": "string"},
+		"description": desc,
+	}
+}
+
 func schemaObj(props map[string]interface{}, required []string) map[string]interface{} {
 	return normalizeParametersSchema(map[string]interface{}{
 		"type":       "object",
@@ -415,6 +423,31 @@ func agentToolDefs() []toolDef {
 		{
 			Type: "function",
 			Function: toolFunctionDef{
+				Name: "git_create_branch",
+				Description: "Create a new git branch from the current HEAD and switch to it. " +
+					"The user sees a confirmation modal first and can reject it; nothing is ever pushed.",
+				Parameters: schemaObj(map[string]interface{}{
+					"name": propStr("New branch name, e.g. 'fix/login-timeout'."),
+					"from": propStr("Optional starting ref (branch, tag or commit). Default: current HEAD."),
+				}, []string{"name"}),
+			},
+		},
+		{
+			Type: "function",
+			Function: toolFunctionDef{
+				Name: "git_commit",
+				Description: "Stage and commit changes on the current branch, after the user confirms a modal that lists every file. " +
+					"Default: all changed files (including untracked); pass paths to limit it. Hooks and clean/smudge filters are not run " +
+					"and nothing is pushed — never use run_command for git add/commit.",
+				Parameters: schemaObj(map[string]interface{}{
+					"message": propStr("Commit message (first line is the subject)."),
+					"paths":   propStrArray("Optional relative paths to commit. Default: every changed file."),
+				}, []string{"message"}),
+			},
+		},
+		{
+			Type: "function",
+			Function: toolFunctionDef{
 				Name: "web_search",
 				Description: "Search the web for sources (documentation, references, error explanations) and return a ranked list of results, " +
 					"each with a title, URL and snippet, wrapped in a <search_results untrusted=\"true\"> envelope. Use it when you need to FIND a page " +
@@ -560,7 +593,7 @@ func agentSystemPromptForOS(workspace, goos string) string {
 		" desktop app on the user's machine (similar to OpenCode / Claude Code).\n\n")
 	b.WriteString("Workspace directory (file tools are relative to it and confined to it; run_command is permission-gated but NOT sandboxed — a command can touch the whole machine, so state exactly what a command will do before running it):\n")
 	b.WriteString(workspace + "\n\n")
-	b.WriteString("Available tools: list_dir, read_file, write_file, edit_file, apply_patch, move_path, delete_path, create_dir, search_files, glob, find_symbol, find_references, run_command, process_output, process_stop, process_list, git_status, git_diff, git_log, git_show, diagnostics, task, todo_write, web_search, web_fetch.\n\n")
+	b.WriteString("Available tools: list_dir, read_file, write_file, edit_file, apply_patch, move_path, delete_path, create_dir, search_files, glob, find_symbol, find_references, run_command, process_output, process_stop, process_list, git_status, git_diff, git_log, git_show, git_create_branch, git_commit, diagnostics, task, todo_write, web_search, web_fetch.\n\n")
 	b.WriteString("Operating rules:\n")
 	b.WriteString("1. Behave like a real agent: explore with list_dir / search_files / glob, read the relevant files, then create or edit them with write_file / edit_file. Do not ask the user to paste file contents. " +
 		"Narrow text searches with search_files' include (e.g. '*.go' or 'src/**/*.ts') and context (surrounding lines) instead of reading whole files; " +
@@ -574,6 +607,7 @@ func agentSystemPromptForOS(workspace, goos string) string {
 	b.WriteString("5. Never invent file contents or results: base every statement on real tool output. If a tool returns an error, analyze it and try a different approach.\n")
 	b.WriteString("6. Keep going with consecutive tool calls until the task is fully done, then stop calling tools and write the final summary.\n")
 	b.WriteString("7. Git: use git_status / git_diff / git_log / git_show to understand the repository — never guess history or diffs. " +
+		"To work on a branch use git_create_branch, and to save work use git_commit (both show a confirmation modal; they never push). " +
 		"If the user asks for a commit message, run git_status and git_diff (staged=true), then write a concise Conventional Commits message. " +
 		"Do NOT run mutating git commands (commit/push/checkout/reset) unless the user explicitly asks; they go through run_command and its safety gates.\n")
 	b.WriteString("8. Delegation: for broad, self-contained EXPLORATION or ANALYSIS work (mapping a feature across the repo, auditing usages, " +
@@ -961,6 +995,10 @@ func (a *App) execToolCtx(ctx context.Context, name, argsJSON string) (string, b
 		return a.toolGitLog(ctx, gs("path"), gi("limit"))
 	case "git_show":
 		return a.toolGitShow(ctx, gs("ref"))
+	case "git_create_branch":
+		return a.toolGitCreateBranch(ctx, gs("name"), gs("from"))
+	case "git_commit":
+		return a.toolGitCommit(ctx, gs("message"), coercePathList(args["paths"]))
 	case "task":
 		return a.toolTask(ctx, gs("description"))
 	case "web_search":
@@ -984,7 +1022,8 @@ func (a *App) execToolCtx(ctx context.Context, name, argsJSON string) (string, b
 // دستور) و ابزارهای سفارشی (سوییچ Confirm خودشان) مستثنی‌اند.
 func needsToolModalAsk(name string) bool {
 	switch name {
-	case "write_file", "edit_file", "apply_patch", "move_path", "delete_path", "run_command":
+	case "write_file", "edit_file", "apply_patch", "move_path", "delete_path", "run_command",
+		"git_create_branch", "git_commit": // مودال اختصاصی git_write دارند
 		return false
 	}
 	return !strings.HasPrefix(name, "custom_")

@@ -93,6 +93,10 @@ func toolDefaultDecision(tool string, confirmWrites bool) permDecision {
 		return permAllow
 	case "run_command":
 		return permAsk // دروازه‌ی دستور (لیست‌سفید/قواعد) تصمیم نهایی را می‌دهد
+	case "git_create_branch", "git_commit":
+		// نوشتن در مخزن git — همیشه با مودال (override «allow» هم بی‌اثر است؛
+		// نگاه کنید به gitWriteGatedTool).
+		return permAsk
 	case "task":
 		// — زیرایجنت فقط‌خواندنی است ولی چند فراخوانی مدل و مصرف توکن
 		// دارد؛ پیش‌فرض محتاطانه «بپرس» (با گزینه‌ی همیشه‌اجازه در همان مودال).
@@ -129,6 +133,11 @@ func (a *App) toolPermDecisionLocked(tool string) permDecision {
 		case "allow":
 			// ابزارهای وب هرگز اجازه‌ی سراسری نمی‌گیرند (فایل قدیمی/دستکاری)
 			if webHostGatedTool(tool) {
+				d = permAsk
+				break
+			}
+			// نوشتن git همیشه مودال دارد — «allow» آن را حذف نمی‌کند.
+			if gitWriteGatedTool(tool) {
 				d = permAsk
 				break
 			}
@@ -284,9 +293,12 @@ type permissionAsk struct {
 	Pattern  string `json:"pattern,omitempty"`  // الگوی «همیشه اجازه» (فقط kind=command)
 	NoAlways bool   `json:"noAlways,omitempty"` // حساس: بدون گزینه‌ی «همیشه/نشست»
 	Path     string `json:"path,omitempty"`     // فایل حساس (فقط kind=sensitive_read)
-	URL      string `json:"url,omitempty"`      // آدرس درخواستی (فقط ابزار web_fetch) — نمایش با ایزوله‌سازی bidi
-	Message  string `json:"message"`            // فارسی — نمایش به کاربر
-	At       int64  `json:"at"`
+	// Detail فهرست فایل‌های درگیر است (kind=git_write) — UI به‌صورت لیست
+	// LTR نمایش می‌دهد؛ برای پیام‌های دیگر خالی است.
+	Detail  []string `json:"detail,omitempty"`
+	URL     string   `json:"url,omitempty"` // آدرس درخواستی (فقط ابزار web_fetch) — نمایش با ایزوله‌سازی bidi
+	Message string   `json:"message"`       // فارسی — نمایش به کاربر
+	At      int64    `json:"at"`
 	// TimeoutSec مهلت پاسخ (ثانیه) — UI با همین شمارش معکوس نشان می‌دهد تا
 	// کاربر پیش از ردِ خودکار بک‌اند بداند چقدر وقت دارد.
 	TimeoutSec int `json:"timeoutSec,omitempty"`
@@ -486,7 +498,7 @@ func sensitiveFileReason(name string, globs []string) string {
 // agentToolNames ابزارهای داخلی ایجنت به‌ترتیب نمایش در تنظیمات.
 var agentToolNames = []string{
 	"list_dir", "read_file", "search_files", "glob", "create_dir",
-	"git_status", "git_diff", "git_log", "git_show",
+	"git_status", "git_diff", "git_log", "git_show", "git_create_branch", "git_commit",
 	"write_file", "edit_file", "apply_patch", "move_path", "delete_path",
 	"run_command", "task",
 }

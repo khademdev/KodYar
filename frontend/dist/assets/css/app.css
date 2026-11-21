@@ -3806,3 +3806,27 @@ input::-webkit-strong-password-auto-fill-button {
   visibility: hidden;
   pointer-events: none;
 }
+
+/* ---------- مودال تأیید نوشتن git (kind=git_write) ---------- */
+.perm-file-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 160px;
+  overflow: auto;
+}
+.perm-file-item {
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: left;
+  font-family: var(--font-code);
+  font-size: 12px;
+  color: var(--text2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

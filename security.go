@@ -77,7 +77,8 @@ var riskyPatterns = []*regexp.Regexp{
 // ---------------------------------------------------------------- ابزار سفارشی
 // توجه: تأیید دستورات پرریسک/دسترسی از به مودال یکپارچه‌ی
 // agent:permission_ask (permissions.go) رفته است؛ مودال قدیمی kind=command
-// دیگر از بک‌اند emit نمی‌شود.
+// دیگر از بک‌اند emit نمی‌شود. نوشتن git (git_create_branch/git_commit)
+// همان مودال را با kind=git_write و فهرست فایل‌ها استفاده می‌کند.
 
 // customToolDefs توصیف ابزارهای سفارشی برای پارامتر tools.
 func customToolDefs(tools []CustomTool) []toolDef {

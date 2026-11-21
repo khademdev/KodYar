@@ -8,6 +8,9 @@
  *   - kind=tool          → «اجازه اجرای ابزار / رد»
  *   - kind=web_host      → web_fetch: «یک‌بار / در این نشست / همیشه برای
  *     همین دامنه / رد» — هرگز اجازه‌ی سراسری برای کل ابزار (C.1)
+ *   - kind=git_write     → نوشتن git (git_create_branch/git_commit): «اجازه / رد»
+ *     با پیش‌نمایش دستور و فهرست فایل‌ها؛ همیشه، بدون «همیشه اجازه» و بدون
+ *     اجازه‌ی سراسری.
  *
  * پاسخ از طریق RespondPermissionConfirm(id, decision) برمی‌گردد:
  *   allow | session | always | reject
@@ -115,8 +118,24 @@
       detail.textContent = ask.url;
     } else if (ask.kind === "tool" && ask.command) {
       detail.textContent = ask.command;
+    } else if (ask.kind === "git_write" && ask.command) {
+      detail.textContent = "$ " + ask.command;
     }
     body.appendChild(detail);
+
+    // فهرست فایل‌های درگیر نوشتن git — LTR و ایزوله، همه با textContent.
+    if (ask.kind === "git_write" && Array.isArray(ask.detail) && ask.detail.length) {
+      var list = document.createElement("div");
+      list.className = "perm-file-list";
+      ask.detail.slice(0, 40).forEach(function (p) {
+        var it = document.createElement("div");
+        it.className = "perm-file-item";
+        it.setAttribute("dir", "ltr");
+        it.textContent = p;
+        list.appendChild(it);
+      });
+      body.appendChild(list);
+    }
 
     if (ask.kind === "command" && ask.pattern) {
       var hint = document.createElement("div");

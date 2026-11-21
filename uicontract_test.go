@@ -267,6 +267,13 @@ func TestUIContract(t *testing.T) {
 		t.Fatal("turnsummary.css must style the restore button and preview modal")
 	}
 	perm := findSrc(js, "permissions.js")
+	// نوشتن git (git_create_branch/git_commit) مودال اختصاصی با فهرست فایل دارد.
+	if !strings.Contains(perm, "git_write") || !strings.Contains(perm, "perm-file-item") {
+		t.Fatal("permissions.js must render the git_write modal with its file list")
+	}
+	if !strings.Contains(css, ".perm-file-item") {
+		t.Fatal("app.css must style the git_write file list")
+	}
 	if !strings.Contains(perm, "web_host") {
 		t.Fatal("permission modal must handle the web_host kind (C.1)")
 	}
