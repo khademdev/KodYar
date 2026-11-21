@@ -111,4 +111,27 @@ func TestCheckpointGitIgnoresRepoDrivers(t *testing.T) {
 	if exists(pagerMarker) {
 		t.Fatalf("checkpoint ran core.pager from .git/config (marker %s)", pagerMarker)
 	}
+
+	// همان بررسی برای مسیر بازگردانی: بعد از یک تغییر، RestoreCheckpoint باید
+	// بایت‌ها را از cat-file خام بنویسد و هیچ درایوری اجرا نکند.
+	clearMarkers()
+	if err := os.WriteFile(filepath.Join(ws, "a.txt"), []byte("changed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rrep := a.RestoreCheckpoint("conv-driver", 1)
+	if len(rrep.Restored) == 0 {
+		t.Fatalf("restore did not restore anything: %+v", rrep)
+	}
+	if got, _ := os.ReadFile(filepath.Join(ws, "a.txt")); string(got) != "one\n" {
+		t.Fatalf("restored content = %q, want the snapshot bytes", got)
+	}
+	if filterFires && exists(filterMarker) {
+		t.Fatalf("restore ran filter.evil.clean (marker %s)", filterMarker)
+	}
+	if hookFires && exists(hookMarker) {
+		t.Fatalf("restore ran the reference-transaction hook via core.hooksPath (marker %s)", hookMarker)
+	}
+	if exists(pagerMarker) {
+		t.Fatalf("restore ran core.pager from .git/config (marker %s)", pagerMarker)
+	}
 }
