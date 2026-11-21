@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseDevToolsURL(t *testing.T) {
@@ -81,6 +82,38 @@ func TestBrowserMissingMessage(t *testing.T) {
 func runtimeHasBrowser() bool {
 	_, err := findBrowserExecutable()
 	return err == nil
+}
+
+// TestBrowserCloseIsBoundedAndCleansTemp: بستن مرورگر باید کران‌دار باشد و
+// پوشه‌ی موقت را پاک کند؛ فراخوانی دوباره هم نباید معطل کند.
+func TestBrowserCloseIsBoundedAndCleansTemp(t *testing.T) {
+	if !runtimeHasBrowser() {
+		t.Skip("no Chrome/Edge/Chromium found; skipping the shutdown check")
+	}
+	a := newTestApp(t)
+	if _, err := a.browserEnsure(); err != nil {
+		t.Fatalf("start browser: %v", err)
+	}
+	a.browserMu.Lock()
+	dir := a.browser.dir
+	a.browserMu.Unlock()
+	if dir == "" {
+		t.Fatal("browser session has no temp dir")
+	}
+	start := time.Now()
+	a.browserShutdown()
+	if d := time.Since(start); d > 8*time.Second {
+		t.Fatalf("browser shutdown blocked for %s", d)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("browser temp dir was not removed: %s", dir)
+	}
+	// idempotent: دوباره صدا زدن نباید hang یا panic بدهد
+	start = time.Now()
+	a.browserShutdown()
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("second shutdown took %s", d)
+	}
 }
 
 // TestBrowserEndToEnd: صفحه‌ی واقعی محلی → عنوان، کنسول/خطای شبکه، PNG.

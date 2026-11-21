@@ -138,7 +138,7 @@ func (s *cdpSession) shutdown(err error) {
 	s.closeOnce.Do(func() {
 		s.readErr = err
 		close(s.done)
-		_ = s.ws.Close()
+		_ = s.ws.CloseAbrupt()
 		s.mu.Lock()
 		for id, ch := range s.waiters {
 			delete(s.waiters, id)
@@ -224,11 +224,13 @@ func (s *cdpSession) takeEvents(clear bool) []cdpEvent {
 // ---------------------------------------------------------------- مرورگر
 
 type browserSession struct {
-	proc  *exec.Cmd
-	conn  *cdpSession
-	dir   string
-	port  string
-	wsURL string
+	proc     *exec.Cmd
+	conn     *cdpSession
+	dir      string
+	port     string
+	wsURL    string
+	waitDone chan struct{} // پس از خروج واقعی proc بسته می‌شود
+	closeOne sync.Once
 }
 
 // browserExecutableCandidates مسیرهای متعارف کروم/اج/کرومیوم.
@@ -358,9 +360,11 @@ func startBrowser() (*browserSession, error) {
 		os.RemoveAll(dir)
 		return nil, fmt.Errorf("start browser: %w", err)
 	}
-	sess := &browserSession{proc: cmd, dir: dir}
-	// مرگ مرورگر نباید فرزندی جامانده بگذارد.
+	sess := &browserSession{proc: cmd, dir: dir, waitDone: make(chan struct{})}
+	// مرگ مرورگر نباید فرزندی جامانده بگذارد؛ waitDone به Close اجازه می‌دهد
+	// تا خروج واقعی صبر کند و بعد پوشهٔ موقت را پاک کند.
 	go func() {
+		defer close(sess.waitDone)
 		_ = cmd.Wait()
 		cancel()
 	}()
@@ -436,22 +440,59 @@ func startBrowser() (*browserSession, error) {
 	return sess, nil
 }
 
+// Close مرورگر را می‌بندد و پوشهٔ موقت را پاک می‌کند. هر بار به‌طور کران‌دار
+// برمی‌گردد: قتل پروسه، انتظار حداکثر ۳ ثانیه برای خروج، و پاک‌سازی با تلاش
+// مجدد (ویندوز تا لحظه‌ای فایل‌های user-data-dir را قفل نگه می‌دارد).
+// Close idempotent است و هرگز بیش از چند ثانیه معطل نمی‌ماند.
 func (b *browserSession) Close() {
 	if b == nil {
 		return
 	}
-	if b.conn != nil {
-		b.conn.shutdown(nil)
-		b.conn = nil
-	}
-	if b.proc != nil && b.proc.Process != nil {
-		_ = b.proc.Process.Kill()
+	b.closeOne.Do(func() {
+		if b.conn != nil {
+			b.conn.shutdown(nil)
+			b.conn = nil
+		}
+		if b.proc != nil && b.proc.Process != nil {
+			_ = b.proc.Process.Kill()
+		}
+		if b.waitDone != nil {
+			select {
+			case <-b.waitDone:
+			case <-time.After(3 * time.Second):
+				// پروسه پاسخ نداد؛ پاک‌سازی با تلاش مجدد ادامه می‌یابد
+			}
+		}
 		b.proc = nil
+		if b.dir != "" {
+			removeBrowserTempDir(b.dir)
+			b.dir = ""
+		}
+	})
+}
+
+// removeBrowserTempDir پوشهٔ موقت را با تلاش مجدد پاک می‌کند (قفل کوتاه
+// ویندوز روی فایل‌های Chrome). حداکثر ~۳ ثانیه، هرگز بی‌پایان.
+func removeBrowserTempDir(dir string) {
+	for i := 0; i < 15; i++ {
+		if err := os.RemoveAll(dir); err == nil {
+			if _, statErr := os.Stat(dir); os.IsNotExist(statErr) {
+				return
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
-	if b.dir != "" {
-		_ = os.RemoveAll(b.dir)
-		b.dir = ""
-	}
+	// آخرین تلاش در پس‌زمینه تا خروج برنامه بیش از این معطل نشود.
+	go func() {
+		for i := 0; i < 10; i++ {
+			time.Sleep(500 * time.Millisecond)
+			if err := os.RemoveAll(dir); err == nil {
+				if _, statErr := os.Stat(dir); os.IsNotExist(statErr) {
+					return
+				}
+			}
+		}
+	}()
 }
 
 // browserEnsure یک مرورگر را start-once نگه می‌دارد؛ شکست = پیام روشن.

@@ -216,6 +216,13 @@ func (c *wsConn) Close() error {
 	return c.conn.Close()
 }
 
+// CloseAbrupt اتصال را بدون handshake بستن قطع می‌کند. برای خاموش‌کردن مرورگر
+// عمداً همین استفاده می‌شود: فرستادن close frame به پروسه‌ی در حال مرگ می‌تواند
+// تا مهلت نوشتن (۵ ثانیه) منتظر بماند و خروج برنامه را کند کند.
+func (c *wsConn) CloseAbrupt() error {
+	return c.conn.Close()
+}
+
 // wsIsLocalURL فقط آدرس‌های http(s) را می‌پذیرد (بدون file:/javascript:).
 func wsIsLocalURL(raw string) bool {
 	u, err := url.Parse(strings.TrimSpace(raw))
