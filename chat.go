@@ -283,6 +283,8 @@ type genState struct {
 	convID string
 	// thinking متن استدلال مدل (reasoning / <think>) — فقط برای نمایش UI
 	thinking string
+	// thinkMs مجموع مدت «فکر کردن» دورهای این نوبت (میلی‌ثانیه) — با پیام ذخیره می‌شود
+	thinkMs int64
 	// unfinished یعنی این نوبت به‌خاطر سقف دورهای ابزار نیمه‌کاره رها شد
 	// (نه با توقف کاربر) — در پیام نهایی ذخیره می‌شود تا UI «ادامه بده» بدهد.
 	unfinished bool
@@ -1137,7 +1139,7 @@ func (a *App) savePartial(convID, content string, promptTokens, completionTokens
 
 // persistAgentRound پیام دستیار (با فراخوانی‌های ابزار) و نتایج ابزار را
 // در میانه‌ی کار ایجنت روی دیسک ذخیره می‌کند.
-func (a *App) persistAgentRound(convID, assistantContent string, calls []apiToolCall, toolMsgs []Message) bool {
+func (a *App) persistAgentRound(convID, assistantContent string, calls []apiToolCall, toolMsgs []Message, thinkMs int64) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	conv, err := a.loadConversation(convID)
@@ -1150,14 +1152,20 @@ func (a *App) persistAgentRound(convID, assistantContent string, calls []apiTool
 			recs[i] = toolCallRecord{ID: c.ID, Name: c.Function.Name, Args: c.Function.Arguments}
 		}
 		vis, th := cleanAssistantContent(assistantContent)
+		tk := int64(0)
+		if th != "" {
+			tk = estimateTokens(th)
+		}
 		conv.Messages = append(conv.Messages, Message{
-			ID:        newID(),
-			Role:      "assistant",
-			Content:   vis,
-			Thinking:  th,
-			At:        time.Now().Unix(),
-			ToolCalls: recs,
-			Mode:      "agent",
+			ID:             newID(),
+			Role:           "assistant",
+			Content:        vis,
+			Thinking:       th,
+			ThinkingMs:     thinkMs,
+			ThinkingTokens: tk,
+			At:             time.Now().Unix(),
+			ToolCalls:      recs,
+			Mode:           "agent",
 		})
 	}
 	conv.Messages = append(conv.Messages, toolMsgs...)
@@ -1566,6 +1574,9 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		// ---------- استریم یک مرحله ----------
 		var roundContent strings.Builder
 		var roundThinking strings.Builder
+		// زمان‌سنج «فکر کردن» همین دور: از اولین دلتای استدلال تا اولین متن/ابزار
+		// (یا پایان دور). سمت سرور اندازه‌گیری می‌شود تا در فایل گفتگو بماند.
+		var roundThinkStart, roundThinkEnd time.Time
 		visEmitted, thinkEmitted := 0, 0
 		// «فکر کردن» فقط در حالت ایجنت معنا دارد؛ در چت معمولی نه ارسال و نه
 		// ذخیره می‌شود. دلتاها هم دسته‌ای (هر ۴۰ms) فرستاده می‌شوند: تمیزکاری
@@ -1585,6 +1596,9 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 				thinkEmitted = len(th)
 			}
 			if showThinking && roundThinking.Len() > thinkSent {
+				if roundThinkStart.IsZero() {
+					roundThinkStart = time.Now()
+				}
 				runtimeEmit(a, "chat:thinking", map[string]interface{}{
 					"conversationId": convID,
 					"delta":          roundThinking.String()[thinkSent:],
@@ -1593,6 +1607,9 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 				thinkSent = roundThinking.Len()
 			}
 			if len(vis) > visEmitted {
+				if !roundThinkStart.IsZero() && roundThinkEnd.IsZero() {
+					roundThinkEnd = time.Now()
+				}
 				runtimeEmit(a, "chat:delta", map[string]interface{}{
 					"conversationId": convID,
 					"delta":          vis[visEmitted:],
@@ -1749,6 +1766,18 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		}
 		if ctx.Err() != nil {
 			aborted = true
+		}
+		// مدت «فکر کردن» این دور؛ اگر متنی نیامده باشد تا پایان دور حساب می‌شود.
+		var roundThinkMs int64
+		if !roundThinkStart.IsZero() {
+			endThink := roundThinkEnd
+			if endThink.IsZero() {
+				endThink = time.Now()
+			}
+			if d := endThink.Sub(roundThinkStart).Milliseconds(); d > 0 {
+				roundThinkMs = d
+				myGen.thinkMs += d
+			}
 		}
 
 		promptTokens += roundPrompt
@@ -1921,7 +1950,7 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 
 		if round >= maxRounds {
 			pc, _ := cleanAssistantContent(roundContent.String())
-			a.persistAgentRound(convID, pc, nil, nil)
+			a.persistAgentRound(convID, pc, nil, nil, roundThinkMs)
 			// سقف دورها: نوبت با توقف کاربر یکی نیست؛ پرچم جدا می‌شود تا UI
 			// به‌جای «متوقف شد» دکمهٔ «ادامه بده» نشان دهد.
 			myGen.unfinished = true
@@ -2027,7 +2056,7 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		}
 
 		pc, _ := cleanAssistantContent(roundContent.String())
-		if !a.persistAgentRound(convID, pc, calls, toolMsgs) {
+		if !a.persistAgentRound(convID, pc, calls, toolMsgs, roundThinkMs) {
 			a.emitTurnSummary(convID, turnID, turnRec, promptTokens, completionTokens)
 			a.emitChatError(myGen, "ذخیره‌ی نتیجه‌ی ابزار ناموفق بود (گفتگو حذف شد یا دیسک در دسترس نیست).")
 			return
@@ -2112,6 +2141,13 @@ func (a *App) finishChat(myGen *genState, model, content string, aborted bool, p
 		Role:       "assistant",
 		Content:    vis,
 		Thinking:   th,
+		ThinkingMs: myGen.thinkMs,
+		ThinkingTokens: func() int64 {
+			if th == "" {
+				return 0
+			}
+			return estimateTokens(th)
+		}(),
 		At:         time.Now().Unix(),
 		Tokens:     completionTokens,
 		Aborted:    aborted,

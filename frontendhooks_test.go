@@ -210,6 +210,8 @@ func TestFrontendThinkingPanelLiveSummary(t *testing.T) {
 		`window.KodYarLastThink`,
 		`thinkLabelSync();`,
 		`r.thinkStartedAt||(r.thinkStartedAt=Date.now())`,
+		`e.thinkingMs`,
+		`e.thinkingTokens`,
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("app.js is missing %q (live thinking panel)", want)
