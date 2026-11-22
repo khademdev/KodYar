@@ -3830,3 +3830,18 @@ input::-webkit-strong-password-auto-fill-button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* اسکرین‌شات ضمیمه‌شده به مدل (browser_screenshot) — همان تصویری که مدل
+   دیده است، در کارت ابزار؛ قبل از باز شدن نتیجه و مستقل از کلیک. */
+.tool-card .tool-shots {
+  padding: 0 10px 10px;
+}
+.tool-card .tool-shots img {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #fff;
+  object-fit: contain;
+}

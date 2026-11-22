@@ -133,6 +133,31 @@ func TestFrontendVisionSwitchContract(t *testing.T) {
 	}
 }
 
+// TestFrontendToolCardShowsAttachedScreenshot — تصویری که به مدل رفت باید
+// در کارت ابزار هم دیده شود (نه فقط مسیر فایل در متن نتیجه).
+func TestFrontendToolCardShowsAttachedScreenshot(t *testing.T) {
+	js, err := os.ReadFile("frontend/dist/assets/js/app.js")
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	for _, want := range []string{
+		`Array.isArray(e.images)`,
+		`shots.className="tool-shots"`,
+		`im.alt="browser_screenshot"`,
+	} {
+		if !strings.Contains(string(js), want) {
+			t.Fatalf("tool card must render attached screenshots; app.js is missing %q", want)
+		}
+	}
+	css, err := os.ReadFile("frontend/dist/assets/css/app.css")
+	if err != nil {
+		t.Fatalf("read app.css: %v", err)
+	}
+	if !strings.Contains(string(css), ".tool-card .tool-shots img") {
+		t.Fatal("app.css must style .tool-card .tool-shots img")
+	}
+}
+
 // TestFrontendPermissionModalExpiresSafely — رگرسیون باگ «اجازه می‌دهم ولی
 // عملیات رد می‌شود»: مودال دسترسی باید با پایان نوبت (chat:error/chat:done)
 // خودش بسته شود، پیام «منقضی شد، دوباره بفرست» بدهد و خطای
