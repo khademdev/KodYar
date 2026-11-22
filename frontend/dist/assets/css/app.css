@@ -1124,6 +1124,21 @@ svg {
   color: var(--text3);
   font-family: var(--font-code);
 }
+/* نشان می‌دهد تصویر اسکرین‌شات واقعاً به مدل رسیده یا فقط برای کاربر ذخیره شده */
+.tool-card .tool-vision {
+  font-size: calc(var(--ui-size) - 3.5px);
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text3);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.tool-card .tool-vision.model {
+  color: var(--ok);
+  border-color: rgba(63, 185, 132, 0.45);
+  background: var(--ok-soft);
+}
 .tool-card .tool-result {
   border: 1px solid var(--border);
   background: var(--bg-code);

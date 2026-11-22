@@ -138,7 +138,9 @@ a.checkpointMu, a.readStore.mu, a.factsCache.mu  (leaf locks — Mission 3)
    see the screenshot. The policy is editable in the app (model tab, "screenshot
    images for the model" select) through `SetVisionImages`/`SettingsView`
    (`agentsettings.js`, three states), not only in settings.json. The attached
-   PNG is also rendered inside the tool card (`.tool-shots`, app.css), and
+   PNG is also rendered inside the tool card (`.tool-shots`, app.css) with a
+   badge saying whether the model saw it or it exists only for the user
+   (`.tool-vision`, driven by the tool message's images), and
    `vision_live_test.go` proves the round trip against a real provider when
    `KODYAR_VISION_*` env vars are set (skipped otherwise),
    `git_status/git_diff/git_log/git_show`, `git_create_branch`/

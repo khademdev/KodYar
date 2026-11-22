@@ -144,17 +144,22 @@ func TestFrontendToolCardShowsAttachedScreenshot(t *testing.T) {
 		`Array.isArray(e.images)`,
 		`shots.className="tool-shots"`,
 		`im.alt="browser_screenshot"`,
+		`vb.className="tool-vision "`,
+		`دیده‌شده توسط مدل`,
+		`فقط برای کاربر ذخیره شد`,
 	} {
 		if !strings.Contains(string(js), want) {
-			t.Fatalf("tool card must render attached screenshots; app.js is missing %q", want)
+			t.Fatalf("tool card must render attached screenshots and their vision state; app.js is missing %q", want)
 		}
 	}
 	css, err := os.ReadFile("frontend/dist/assets/css/app.css")
 	if err != nil {
 		t.Fatalf("read app.css: %v", err)
 	}
-	if !strings.Contains(string(css), ".tool-card .tool-shots img") {
-		t.Fatal("app.css must style .tool-card .tool-shots img")
+	for _, want := range []string{".tool-card .tool-shots img", ".tool-card .tool-vision"} {
+		if !strings.Contains(string(css), want) {
+			t.Fatalf("app.css is missing %q", want)
+		}
 	}
 }
 
