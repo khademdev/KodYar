@@ -11,6 +11,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	"image/png"
@@ -42,9 +43,9 @@ const (
 // مقدار ناشناخته (و خالی) = auto.
 func normalizeVisionMode(s string) string {
 	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "on", "always", "true", "1", "yes":
+	case visionModeOn:
 		return visionModeOn
-	case "off", "never", "false", "0", "no":
+	case visionModeOff:
 		return visionModeOff
 	default:
 		return visionModeAuto
@@ -78,8 +79,8 @@ func modelSupportsVision(model string) bool {
 	if m == "" {
 		return false
 	}
-	// استثناهای صریح: سری o فقط مدل‌های غیر-mini تصویر می‌گیرند.
-	for _, no := range []string{"o1-mini", "o3-mini", "gpt-4.1-nano-preview"} {
+	// استثناهای صریح: از سری o فقط نسخه‌های غیر-mini تصویر می‌گیرند.
+	for _, no := range []string{"o1-mini", "o3-mini"} {
 		if strings.Contains(m, no) {
 			return false
 		}
@@ -131,33 +132,24 @@ func visionImageDataURL(path string) (string, error) {
 	if !strings.EqualFold(filepath.Ext(path), ".png") {
 		return "", fmt.Errorf("%s is not a .png file", filepath.Base(path))
 	}
-	st, err := os.Stat(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("screenshot file is unreadable: %v", err)
 	}
-	if st.Size() <= 0 {
+	if len(data) == 0 {
 		return "", fmt.Errorf("screenshot file is empty")
 	}
-	if st.Size() > visionMaxBytes {
+	if len(data) > visionMaxBytes {
 		return "", fmt.Errorf("screenshot is too large to attach (%d KB > %d KB); capture the viewport (full_page=false) instead",
-			st.Size()/1024, visionMaxBytes/1024)
+			len(data)/1024, visionMaxBytes/1024)
 	}
-	f, err := os.Open(path)
-	if err != nil {
-		return "", fmt.Errorf("screenshot file is unreadable: %v", err)
-	}
-	defer f.Close()
-	cfg, err := png.DecodeConfig(f)
+	cfg, err := png.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
 		return "", fmt.Errorf("screenshot is not a valid PNG: %v", err)
 	}
 	if cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width > visionMaxSide || cfg.Height > visionMaxSide {
 		return "", fmt.Errorf("screenshot dimensions %dx%d are outside the attachable range (max %d per side)",
 			cfg.Width, cfg.Height, visionMaxSide)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("screenshot file is unreadable: %v", err)
 	}
 	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(data), nil
 }

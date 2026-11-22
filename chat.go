@@ -887,12 +887,8 @@ func (a *App) prepareStream(conv *Conversation, planMode bool, gitLine string) (
 	// تصویری فرستاده می‌شود: تصویر قدیمی هم توکن می‌خورد و هم کهنه است.
 	visionOn := visionImagesEnabled(a.settings.VisionImages, model)
 	trailingToolStart := len(window)
-	for i := len(window) - 1; i >= 0; i-- {
-		if window[i].Role != "tool" {
-			trailingToolStart = i + 1
-			break
-		}
-		trailingToolStart = i
+	for trailingToolStart > 0 && window[trailingToolStart-1].Role == "tool" {
+		trailingToolStart--
 	}
 	var toolShots []string
 
@@ -930,7 +926,7 @@ func (a *App) prepareStream(conv *Conversation, planMode bool, gitLine string) (
 				cm.Content = "(empty)"
 			}
 			cm.ToolCallID = m.ToolCallID
-			if visionOn && i >= trailingToolStart && len(m.Images) > 0 {
+			if visionOn && i >= trailingToolStart {
 				for _, img := range m.Images {
 					if len(toolShots) >= visionMaxShots {
 						break
@@ -1223,6 +1219,8 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 	maxRounds := clampMaxAgentRounds(a.settings.MaxAgentRounds)
 	// سقف مصرف توکن هر نوبت (A.4) — ۰ = خاموش؛ برای کل نوبت ثابت.
 	turnTokenCap := a.settings.MaxTurnTokens
+	// سیاست تصویر برای کل نوبت ثابت است (مدل در param آمده است).
+	visionOn := visionImagesEnabled(a.settings.VisionImages, model)
 	// مهلت بیکاری استریم (Stage 2) — تنظیم پنهان؛ برای کل نوبت ثابت.
 	streamIdleSec := clampStreamIdleSeconds(a.settings.StreamIdleTimeoutSec)
 	streamIdleTimeout := time.Duration(streamIdleSec) * time.Second
@@ -1949,11 +1947,7 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		// تغییردهنده‌ها ترتیبی و مثل سد می‌مانند. outcomeها همیشه به
 		// ترتیب اصلی‌اند (جزئیات و تضمین‌ها: toolbatch.go).
 		outcomes := a.executeToolCalls(ctx, convID, tasks, truncated, a.execToolCtx)
-		a.mu.Lock()
-		visionOn := visionImagesEnabled(a.settings.VisionImages, model)
-		a.mu.Unlock()
 		toolMsgs := make([]Message, 0, len(calls))
-		var shotPaths []string
 		var shotURLs []string
 		for i, c := range calls {
 			o := outcomes[i]
@@ -1964,10 +1958,9 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 				result, shotPath = splitShotMarker(result)
 			}
 			var images []string
-			if shotPath != "" && o.ok && visionOn {
+			if shotPath != "" && o.ok && visionOn && len(shotURLs) < visionMaxShots {
 				if url, ierr := visionImageDataURL(shotPath); ierr == nil {
 					images = []string{url}
-					shotPaths = append(shotPaths, shotPath)
 					shotURLs = append(shotURLs, url)
 				} else {
 					result += "\n(note: the screenshot could not be attached to the conversation: " + ierr.Error() + ")"
@@ -1991,19 +1984,16 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 				ToolCallID: c.ID,
 			})
 		}
-		if len(shotPaths) > 0 && ctx.Err() == nil {
-			parts := make([]contentPart, 0, len(shotPaths)+1)
+		if len(shotURLs) > 0 {
+			// پروتکل tool فقط متن می‌پذیرد؛ PNG در یک پیام کاربریِ چندبخشی
+			// ضمیمه می‌شود تا مدل خودِ تصویر را ببیند.
+			parts := make([]contentPart, 0, len(shotURLs)+1)
 			parts = append(parts, contentPart{Type: "text",
-				Text: "Screenshot(s) captured by browser_screenshot this turn: " + strings.Join(shotPaths, ", ") +
-					". Inspect the attached image and describe only what you can actually see."})
-			for i := 0; i < len(shotURLs) && i < visionMaxShots; i++ {
-				if shotURLs[i] != "" {
-					parts = append(parts, contentPart{Type: "image_url", ImageURL: &imageRef{URL: shotURLs[i]}})
-				}
+				Text: "Screenshot(s) captured by browser_screenshot this turn are attached. Inspect the image(s) directly and describe only what you can actually see."})
+			for _, u := range shotURLs {
+				parts = append(parts, contentPart{Type: "image_url", ImageURL: &imageRef{URL: u}})
 			}
-			if len(parts) > 1 {
-				history = append(history, chatMessage{Role: "user", Content: parts})
-			}
+			history = append(history, chatMessage{Role: "user", Content: parts})
 		}
 
 		// ---------- راستی‌آزمایی خودکار (گام ۵) ----------
