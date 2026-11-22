@@ -194,6 +194,33 @@ func TestFrontendActivityLiveDetails(t *testing.T) {
 	}
 }
 
+// TestFrontendThinkingPanelLiveSummary — «فکر کردن» در طول نوبت باز و زنده
+// می‌ماند، زمان و توکن تقریبی نشان می‌دهد و بعد از پایان جمع می‌شود.
+func TestFrontendThinkingPanelLiveSummary(t *testing.T) {
+	raw, err := os.ReadFile("frontend/dist/assets/js/app.js")
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	js := string(raw)
+	for _, want := range []string{
+		`thinkStartedAt:0,thinkEndedAt:0`,
+		`function thinkInfo(`,
+		`function thinkLabelSync(`,
+		`n(tok)+" توکن"`,
+		`window.KodYarLastThink`,
+		`thinkLabelSync();`,
+		`r.thinkStartedAt||(r.thinkStartedAt=Date.now())`,
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("app.js is missing %q (live thinking panel)", want)
+		}
+	}
+	// بلوک فکر کردنِ پیام‌های ذخیره‌شده باید بسته باشد (جمع‌شده پس از پایان).
+	if strings.Contains(js, `class="think-block"`+" open") {
+		t.Fatal("saved thinking blocks must stay collapsed (no open attribute)")
+	}
+}
+
 // TestFrontendPermissionModalExpiresSafely — رگرسیون باگ «اجازه می‌دهم ولی
 // عملیات رد می‌شود»: مودال دسترسی باید با پایان نوبت (chat:error/chat:done)
 // خودش بسته شود، پیام «منقضی شد، دوباره بفرست» بدهد و خطای
