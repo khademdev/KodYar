@@ -350,6 +350,14 @@
 			appendText(txt, v.run + (r.detail ? " " : ""));
 			appendDetail(txt, r.detail);
 			appendText(txt, "…");
+			if (r.live) {
+				// آخرین خط خروجی دستور، همان‌جا در ردیف (زنده).
+				var lv = document.createElement("span");
+				lv.className = "act-live";
+				lv.textContent = r.live;
+				lv.setAttribute("dir", "ltr");
+				txt.appendChild(lv);
+			}
 		} else if (r.state === "failed") {
 			appendText(txt, v.fail + (r.detail ? " " : ""));
 			appendDetail(txt, r.detail);
@@ -362,7 +370,11 @@
 
 		var ms = document.createElement("span");
 		ms.className = "act-time";
-		if (r.state !== "running" && r.ms > 0) {
+		if (r.state === "running") {
+			// زمان‌سنج زنده — tickTimes هر ثانیه همین گره را به‌روز می‌کند.
+			ms.setAttribute("data-start", String(r.startedAt || Date.now()));
+			ms.textContent = fa(((Date.now() - (r.startedAt || Date.now())) / 1000).toFixed(1)) + "s";
+		} else if (r.ms > 0) {
 			ms.textContent = fa((r.ms / 1000).toFixed(1)) + "s";
 		}
 
@@ -376,8 +388,31 @@
 			li.appendChild(chip);
 		}
 		li.appendChild(txt);
+		if (r.diff) {
+			var df = document.createElement("span");
+			df.className = "act-diff";
+			df.textContent = r.diff;
+			li.appendChild(df);
+		}
 		li.appendChild(ms);
 		return li;
+	}
+
+	// زمان‌سنج زندهٔ ردیف‌های در حال اجرا: هر ثانیه فقط متن گره‌های .act-time
+	// را عوض می‌کند (بدون بازسازی ردیف).
+	var tick = null;
+	function ensureTick(on) {
+		if (on && !tick) tick = setInterval(tickTimes, 1000);
+		if (!on && tick) { clearInterval(tick); tick = null; }
+	}
+	function tickTimes() {
+		if (!listEl) return;
+		var els = listEl.querySelectorAll(".act-time[data-start]");
+		var now = Date.now();
+		for (var i = 0; i < els.length; i++) {
+			var start = Number(els[i].getAttribute("data-start")) || now;
+			els[i].textContent = fa(((now - start) / 1000).toFixed(1)) + "s";
+		}
 	}
 
 	// به‌روزرسانی سربرگ/شمارنده — ارزان و بدون دست‌زدن به ردیف‌ها.
@@ -404,6 +439,7 @@
 			else if (rows[i].state === "failed") failed++;
 		}
 		panel.classList.toggle("busy", running > 0);
+		ensureTick(running > 0);
 		// «عملیات» به‌جای «کار» تا با «برنامهٔ کار» (فهرست وظایف) اشتباه نشود.
 		countEl.textContent = failed > 0
 			? fa(n) + " عملیات · " + fa(failed) + " ناموفق"
@@ -518,6 +554,9 @@
 			state: "running",
 			ms: 0,
 			error: "",
+			startedAt: Date.now(), // برای زمان‌سنج زندهٔ ردیف در حال اجرا
+			diff: "",              // «+۱۲ −۳» بعد از اعمال تغییر فایل
+			live: "",              // آخرین خط خروجی زندهٔ دستور
 			task: task,
 			taskText: task && window.KodYarTodos && typeof window.KodYarTodos.currentTask === "function"
 				? (window.KodYarTodos.currentTask() || {}).content || ""
@@ -674,6 +713,34 @@
 			try {
 				rt.EventsOn("chat:tool", onToolStart);
 				rt.EventsOn("chat:tool_result", onToolResult);
+				// خروجی زندهٔ دستور: آخرین خط، بدون بازسازی ردیف.
+				rt.EventsOn("chat:tool_output", function (p) {
+					if (!p || p.conversationId !== activeId()) return;
+					var r = p.callId ? byCall[p.callId] : null;
+					if (!r) return;
+					var lines = String(p.chunk || "").split(/\r?\n/);
+					var last = "";
+					for (var i = lines.length - 1; i >= 0; i--) { if (lines[i].trim()) { last = lines[i].trim(); break; } }
+					if (!last) return;
+					r.live = last.slice(0, 80);
+					var el = r.node && r.node.querySelector(".act-live");
+					if (el) { el.textContent = r.live; return; }
+					refreshRow(r);
+				});
+				// آمار diff بعد از اعمال تغییر: «+۱۲ −۳» روی ردیف همان فایل.
+				// (در حالت «ویرایش خودکار» هم agent:change_applied می‌آید.)
+				rt.EventsOn("agent:change_applied", function (p) {
+					var ch = p && p.change;
+					if (!ch || !ch.path) return;
+					for (var i = rows.length - 1; i >= 0; i--) {
+						var r = rows[i];
+						if (r.name !== "edit_file" && r.name !== "write_file" && r.name !== "apply_patch") continue;
+						if (r.detail && r.detail.indexOf(ch.path) === -1) continue;
+						r.diff = "+" + fa(Number(ch.added) || 0) + " −" + fa(Number(ch.removed) || 0);
+						refreshRow(r);
+						break;
+					}
+				});
 				rt.EventsOn("chat:start", function () {
 					// نوبت تازه: باز و تازه (انتخاب دستی قبلی معتبر نیست)
 					manualCollapse = false;

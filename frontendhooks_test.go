@@ -163,6 +163,37 @@ func TestFrontendToolCardShowsAttachedScreenshot(t *testing.T) {
 	}
 }
 
+// TestFrontendActivityLiveDetails — «عملیات زندهٔ دقیق‌تر»: زمان‌سنج ردیف
+// در حال اجرا، آخرین خط خروجی دستور و آمار diff بعد از ویرایش.
+func TestFrontendActivityLiveDetails(t *testing.T) {
+	js, err := os.ReadFile("frontend/dist/assets/js/activity.js")
+	if err != nil {
+		t.Fatalf("read activity.js: %v", err)
+	}
+	for _, want := range []string{
+		`startedAt: Date.now()`,
+		`function ensureTick(`,
+		`data-start`,
+		`chat:tool_output`,
+		`agent:change_applied`,
+		`act-live`,
+		`act-diff`,
+	} {
+		if !strings.Contains(string(js), want) {
+			t.Fatalf("activity.js is missing %q (live ops detail)", want)
+		}
+	}
+	css, err := os.ReadFile("frontend/dist/assets/css/activity.css")
+	if err != nil {
+		t.Fatalf("read activity.css: %v", err)
+	}
+	for _, want := range []string{".act-live", ".act-diff"} {
+		if !strings.Contains(string(css), want) {
+			t.Fatalf("activity.css is missing %q", want)
+		}
+	}
+}
+
 // TestFrontendPermissionModalExpiresSafely — رگرسیون باگ «اجازه می‌دهم ولی
 // عملیات رد می‌شود»: مودال دسترسی باید با پایان نوبت (chat:error/chat:done)
 // خودش بسته شود، پیام «منقضی شد، دوباره بفرست» بدهد و خطای

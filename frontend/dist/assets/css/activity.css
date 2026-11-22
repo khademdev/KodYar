@@ -171,3 +171,31 @@
     animation: none;
   }
 }
+
+/* آخرین خط خروجی زندهٔ دستور روی ردیف در حال اجرا */
+.act-live {
+  display: inline-block;
+  max-width: 260px;
+  margin-inline-start: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  font-family: var(--font-code);
+  font-size: calc(var(--ui-size) - 3.5px);
+  color: var(--text3);
+  background: var(--bg-soft);
+  border-radius: var(--radius-xs);
+  padding: 0 4px;
+}
+/* آمار خطوط تغییرکرده بعد از اعمال ویرایش: +۱۲ −۳ */
+.act-diff {
+  flex: none;
+  margin-inline-start: 8px;
+  font-family: var(--font-code);
+  font-size: calc(var(--ui-size) - 3.5px);
+  color: var(--ok);
+  background: var(--ok-soft);
+  border-radius: var(--radius-xs);
+  padding: 0 5px;
+}
