@@ -109,6 +109,30 @@ func TestFrontendMCPSaveRefreshesSnapshot(t *testing.T) {
 	}
 }
 
+// TestFrontendVisionSwitchContract — سوئیچ تصویر در تب «مدل و رفتار»:
+// سه حالت auto/on/off، ذخیره از طریق SetVisionImages و خواندن مقدار از
+// KodYarState.view.visionImages؛ بدون این، کاربر مجبور بود settings.json را
+// دستی ویرایش کند.
+func TestFrontendVisionSwitchContract(t *testing.T) {
+	raw, err := os.ReadFile("frontend/dist/assets/js/agentsettings.js")
+	if err != nil {
+		t.Fatalf("read agentsettings.js: %v", err)
+	}
+	js := string(raw)
+	for _, want := range []string{
+		`id: "gen-vision"`,
+		`SetVisionImages`,
+		`["on", "همیشه بفرست`, `["off", "هرگز`,
+		`visionImages`,
+		`saveVision();`,
+		`populateVision();`,
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("agentsettings.js is missing %q (vision switch contract)", want)
+		}
+	}
+}
+
 // TestFrontendPermissionModalExpiresSafely — رگرسیون باگ «اجازه می‌دهم ولی
 // عملیات رد می‌شود»: مودال دسترسی باید با پایان نوبت (chat:error/chat:done)
 // خودش بسته شود، پیام «منقضی شد، دوباره بفرست» بدهد و خطای

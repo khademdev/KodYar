@@ -28,6 +28,10 @@
   // (سرویس‌دهنده‌ی واسط/مدل reasoning با سکوت >۲ دقیقه) از همین می‌آمد.
   var IDLE = { id: "gen-streamidle", view: "streamIdleTimeoutSec", set: "SetStreamIdleTimeout", def: 180, min: 30, max: 900, label: "مهلت سکون پاسخ (ثانیه)" };
 
+  // سیاست ارسال تصویر (اسکرین‌شات) به مدل — سه حالت، پیش‌فرض auto.
+  // auto = فقط مدل‌های تصویری شناخته‌شده؛ on = اجبار؛ off = هرگز.
+  var VISION = { id: "gen-vision", view: "visionImages", set: "SetVisionImages", def: "auto", label: "تصاویر اسکرین‌شات برای مدل" };
+
   function backend() {
     return (window.go && window.go.main && window.go.main.App) || null;
   }
@@ -263,12 +267,106 @@
     if (sw) sw.classList.toggle("on", on !== false);
   }
 
+  // فیلد انتخاب سیاست تصویر — با ساختار .field/.input-wrap و <select> خودِ
+  // استایل سراسری، بدون دست‌زدن به index.html مینیفای.
+  function buildVisionField() {
+    if (document.getElementById(VISION.id)) return;
+    var host = document.querySelector("#model-panel .form-card");
+    if (!host) return;
+    var field = document.createElement("div");
+    field.className = "field";
+    var label = document.createElement("label");
+    label.className = "field-label";
+    label.textContent = VISION.label;
+    var opt = document.createElement("span");
+    opt.className = "optional";
+    opt.textContent = " (browser_screenshot)";
+    label.appendChild(opt);
+
+    var wrap = document.createElement("div");
+    wrap.className = "input-wrap";
+    var ic = document.createElement("span");
+    ic.id = "gen-vision-ic";
+    var sel = document.createElement("select");
+    sel.id = VISION.id;
+    [
+      ["auto", "خودکار — فقط مدل‌های تصویری شناخته‌شده"],
+      ["on", "همیشه بفرست — مدل تصویر را می‌بیند"],
+      ["off", "هرگز — فقط کاربر تصویر را می‌بیند"],
+    ].forEach(function (pair) {
+      var o = document.createElement("option");
+      o.value = pair[0];
+      o.textContent = pair[1];
+      sel.appendChild(o);
+    });
+    sel.value = VISION.def;
+    wrap.appendChild(ic);
+    wrap.appendChild(sel);
+
+    var hint = document.createElement("div");
+    hint.className = "hint-row";
+    var hic = document.createElement("span");
+    hic.id = "gen-vision-hint-ic";
+    var ht = document.createElement("span");
+    ht.textContent =
+      "اگر مدل ورودی تصویر داشته باشد، PNG اسکرین‌شات مستقیماً به مدل می‌رود تا صفحه را ببیند؛ وگرنه ابزار صریح می‌گوید فقط کاربر تصویر را می‌بیند. «خودکار» برای مدل‌های ناشناخته تصویر نمی‌فرستد تا نوبت با خطای سرویس‌دهنده نشکند.";
+    hint.appendChild(hic);
+    hint.appendChild(ht);
+    field.appendChild(label);
+    field.appendChild(wrap);
+    field.appendChild(hint);
+
+    var anchor = document.getElementById("gen-autoverify-hint");
+    if (anchor && anchor.parentElement === host) {
+      host.insertBefore(field, anchor.nextSibling);
+    } else {
+      host.appendChild(field);
+    }
+    if (window.Icons) {
+      if (ic) ic.innerHTML = Icons.get("image", 15);
+      if (hic) hic.innerHTML = Icons.get("info", 14);
+    }
+  }
+
+  function visionValue() {
+    var v = String(((window.KodYarState && window.KodYarState.view) || {}).visionImages || "").toLowerCase();
+    return v === "on" || v === "off" ? v : VISION.def;
+  }
+
+  function populateVision() {
+    var el = document.getElementById(VISION.id);
+    if (el) el.value = visionValue();
+  }
+
+  function saveVision() {
+    var el = document.getElementById(VISION.id);
+    if (!el) return;
+    var mode = el.value === "on" || el.value === "off" ? el.value : "auto";
+    var be = backend();
+    if (!be || typeof be[VISION.set] !== "function") {
+      if (window.toast) window.toast("در حالت پیش‌نمایش مرورگر، «" + VISION.label + "» ذخیره نمی‌شود", "info");
+      return;
+    }
+    be[VISION.set](mode)
+      .then(function () {
+        if (window.KodYarState && window.KodYarState.view) window.KodYarState.view[VISION.view] = mode;
+        el.value = mode;
+      })
+      .catch(function (err) {
+        if (window.toast) {
+          window.toast("ذخیره‌ی " + VISION.label + " ناموفق بود: " + (err && err.message ? err.message : err), "err");
+        }
+      });
+  }
+
   function init() {
     buildIdleField();
     buildCacheRow();
     syncCacheSwitch((window.KodYarState && window.KodYarState.view || {}).promptCache);
     buildAutoVerifyRow();
     syncAutoVerifySwitch((window.KodYarState && window.KodYarState.view || {}).autoVerify);
+    buildVisionField();
+    populateVision();
     // آیکون فیلدها — slots.js (minified) از IDهای شناخته‌شده آیکون می‌گذارد؛
     // فیلدهای جدید مال ما هستند، پس آیکونشان را همین‌جا می‌گذاریم (الگوی
     // permsettings.js). زیرایجنت آیکون «map» دارد (همان آیکون کارت ابزار task).
@@ -288,6 +386,7 @@
         populate(IDLE);
         syncCacheSwitch((window.KodYarState && window.KodYarState.view || {}).promptCache);
         syncAutoVerifySwitch((window.KodYarState && window.KodYarState.view || {}).autoVerify);
+        populateVision();
       });
     populate(AGENT);
     populate(SUB);
@@ -299,6 +398,7 @@
         save(AGENT);
         save(SUB);
         save(IDLE);
+        saveVision();
       });
   }
 

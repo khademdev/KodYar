@@ -135,6 +135,28 @@ func TestVisionImagesEnabled(t *testing.T) {
 	}
 }
 
+func TestSetVisionImages(t *testing.T) {
+	a := newTestApp(t)
+	if got := a.SettingsView()["visionImages"]; got != "auto" {
+		t.Fatalf("default view value = %v, want auto", got)
+	}
+	for _, tc := range []struct{ in, want string }{
+		{"on", "on"},
+		{" OFF ", "off"},
+		{"nonsense", "auto"},
+	} {
+		if err := a.SetVisionImages(tc.in); err != nil {
+			t.Fatalf("SetVisionImages(%q): %v", tc.in, err)
+		}
+		if got := a.settings.VisionImages; got != tc.want {
+			t.Fatalf("SetVisionImages(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+		if got := a.SettingsView()["visionImages"]; got != tc.want {
+			t.Fatalf("view after SetVisionImages(%q) = %v, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestSplitShotMarker(t *testing.T) {
 	in := "OK: screenshot saved to screenshots/a.png (123 bytes, viewport)\n" +
 		shotMarkerPrefix + `C:\ws\screenshots\a.png` + "\nThe image is attached to this turn."

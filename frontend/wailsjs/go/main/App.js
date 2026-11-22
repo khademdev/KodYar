@@ -214,6 +214,10 @@ export function SetStreamIdleTimeout(arg1) {
   return window['go']['main']['App']['SetStreamIdleTimeout'](arg1);
 }
 
+export function SetVisionImages(arg1) {
+  return window['go']['main']['App']['SetVisionImages'](arg1);
+}
+
 export function SetShowActivity(arg1) {
   return window['go']['main']['App']['SetShowActivity'](arg1);
 }

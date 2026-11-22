@@ -725,6 +725,16 @@ func (a *App) SetShowActivity(on bool) error {
 
 // SetPromptCache کش پرامپت را روشن/خاموش می‌کند و انتخاب کاربر را ماندگار
 // می‌کند (پیش‌فرض نصب تازه: روشن).
+// SetVisionImages سیاست ارسال تصویر به مدل را ذخیره می‌کند (auto|on|off).
+// مقدار ناشناخته به auto برمی‌گردد؛ همان نرمال‌سازی مسیر بارگذاری.
+func (a *App) SetVisionImages(mode string) error {
+	defer a.recoverBound("SetVisionImages")
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.settings.VisionImages = normalizeVisionMode(mode)
+	return a.saveSettings()
+}
+
 func (a *App) SetPromptCache(on bool) error {
 	defer a.recoverBound("SetPromptCache")
 	a.mu.Lock()
@@ -966,6 +976,7 @@ func (a *App) SettingsView() map[string]interface{} {
 		"maxTurnTokens":         clampMaxTurnTokens(s.MaxTurnTokens),
 		"planMode":              s.PlanMode,
 		"promptCache":           s.PromptCache || !s.PromptCacheTouched,
+		"visionImages":          normalizeVisionMode(s.VisionImages),
 		"autoVerify":            !s.AutoVerifyOff,
 		"showActivity":          s.ShowActivity,
 		// مقدار مؤثر (پیش‌فرض ۱۸۰) — UI عدد قابل‌نمایش می‌خواهد، نه صفر.

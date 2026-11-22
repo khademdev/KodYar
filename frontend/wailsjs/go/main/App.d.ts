@@ -108,6 +108,8 @@ export function SetAllowCommands(arg1:boolean):Promise<void>;
 
 export function SetStreamIdleTimeout(arg1:number):Promise<void>;
 
+export function SetVisionImages(arg1:string):Promise<void>;
+
 export function SetShowActivity(arg1:boolean):Promise<void>;
 
 export function SetPromptCache(arg1:boolean):Promise<void>;
