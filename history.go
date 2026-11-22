@@ -179,6 +179,7 @@ func (a *App) compactConversationLocked(c *Conversation) {
 			if seen < fullFrom {
 				m.Content = compactToolResult(m.Content)
 				m.Compacted = true
+				m.Images = nil // اسکرین‌شات قدیمی حجم بی‌مصرف است
 			}
 			seen++
 		case "user":

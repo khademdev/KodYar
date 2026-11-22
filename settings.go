@@ -145,6 +145,11 @@ type Settings struct {
 	// برای «کاوش با مدل ارزان، اجرا با مدل قوی» است و Provider همان Provider فعال است.
 	SubagentModel string `json:"subagentModel,omitempty"`
 
+	// VisionImages سیاست ارسال تصویر (اسکرین‌شات browser_screenshot) به مدل:
+	// auto (پیش‌فرض؛ فقط مدل شناخته‌شدهٔ تصویری) | on (اجبار) | off (هرگز).
+	// در حالت غیرفعال، ابزار صریح می‌گوید فقط کاربر تصویر را می‌بیند.
+	VisionImages string `json:"visionImages,omitempty"`
+
 	// SkillsDisabled خاموش‌کننده‌ی کشف فایل‌های SKILL.md است. فیلد منفی است
 	// تا settings.jsonهای قدیمی (بدون این کلید) پیش‌فرض روشن بمانند.
 	SkillsDisabled bool         `json:"skillsDisabled,omitempty"`
@@ -235,6 +240,7 @@ func defaultSettings() *Settings {
 		PromptCache:       true,
 		MaxAgentRounds:    defaultMaxAgentRounds,
 		MaxSubagentRounds: defaultMaxSubagentRounds,
+		VisionImages:      visionModeAuto,
 		Theme:             "dark",
 		FontSize:          14,
 		Density:           "normal",
@@ -507,6 +513,8 @@ func (a *App) loadSettings() error {
 	s.MaxAgentRounds = clampMaxAgentRounds(s.MaxAgentRounds)
 	// سقف دورهای زیرایجنت — همان سازگاری با فایل‌های قدیمی
 	s.MaxSubagentRounds = clampMaxSubagentRounds(s.MaxSubagentRounds)
+	// سیاست ارسال تصویر به مدل؛ فایل‌های قدیمی (خالی) = auto.
+	s.VisionImages = normalizeVisionMode(s.VisionImages)
 	if s.Theme != "light" && s.Theme != "dark" {
 		s.Theme = "dark"
 	}

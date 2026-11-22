@@ -2,6 +2,11 @@
 package main
 
 import (
+	"bytes"
+	"image"
+	"image/png"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -76,6 +81,153 @@ func TestVisionMultimodalHistory(t *testing.T) {
 	}
 	if !foundOld {
 		t.Fatal("older user message must stay plain text")
+	}
+}
+
+func TestModelSupportsVision(t *testing.T) {
+	cases := []struct {
+		model string
+		want  bool
+	}{
+		{"gpt-4o", true},
+		{"openai/gpt-4.1-mini", true},
+		{"gpt-5", true},
+		{"claude-3-5-sonnet", true},
+		{"claude-sonnet-4-5", true},
+		{"gemini-2.5-pro", true},
+		{"qwen2.5-vl:7b", true},
+		{"llava:13b", true},
+		// مدل‌های متنی/ناشناخته نباید تصویر بگیرند (درخواست ۴۰۰).
+		{"llama3.2", false},
+		{"qwen2.5-coder", false},
+		{"deepseek-coder", false},
+		{"my-local-llm", false},
+		{"o3-mini", false},
+		{"o1-mini", false},
+		{"o3", true},
+		{"", false},
+	}
+	for _, c := range cases {
+		if got := modelSupportsVision(c.model); got != c.want {
+			t.Errorf("modelSupportsVision(%q) = %v, want %v", c.model, got, c.want)
+		}
+	}
+}
+
+func TestVisionImagesEnabled(t *testing.T) {
+	if !visionImagesEnabled("on", "my-local-llm") {
+		t.Fatal("mode on must force images even for an unknown model")
+	}
+	if visionImagesEnabled("off", "gpt-4o") {
+		t.Fatal("mode off must never send images")
+	}
+	if !visionImagesEnabled("", "gpt-4o") {
+		t.Fatal("empty mode is auto and gpt-4o has vision")
+	}
+	if visionImagesEnabled("auto", "my-local-llm") {
+		t.Fatal("auto must stay conservative for unknown models")
+	}
+	if mode := normalizeVisionMode(" OFF "); mode != "off" {
+		t.Fatalf("normalizeVisionMode = %q", mode)
+	}
+	if mode := normalizeVisionMode("whatever"); mode != "auto" {
+		t.Fatalf("unknown mode must fall back to auto, got %q", mode)
+	}
+}
+
+func TestSplitShotMarker(t *testing.T) {
+	in := "OK: screenshot saved to screenshots/a.png (123 bytes, viewport)\n" +
+		shotMarkerPrefix + `C:\ws\screenshots\a.png` + "\nThe image is attached to this turn."
+	clean, path := splitShotMarker(in)
+	if path != `C:\ws\screenshots\a.png` {
+		t.Fatalf("path = %q", path)
+	}
+	if strings.Contains(clean, "KODYAR_SHOT_FILE") {
+		t.Fatalf("marker leaked into tool text: %q", clean)
+	}
+	if !strings.Contains(clean, "OK: screenshot saved") || !strings.Contains(clean, "attached") {
+		t.Fatalf("clean text lost content: %q", clean)
+	}
+	if _, p := splitShotMarker("no marker here"); p != "" {
+		t.Fatalf("unexpected path %q", p)
+	}
+}
+
+func TestVisionImageDataURL(t *testing.T) {
+	dir := t.TempDir()
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 8, 8))); err != nil {
+		t.Fatal(err)
+	}
+	good := filepath.Join(dir, "shot.png")
+	if err := os.WriteFile(good, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	url, err := visionImageDataURL(good)
+	if err != nil {
+		t.Fatalf("valid png rejected: %v", err)
+	}
+	if !strings.HasPrefix(url, "data:image/png;base64,") {
+		t.Fatalf("not a png data URL: %.40q", url)
+	}
+
+	big := filepath.Join(dir, "big.png")
+	if err := os.WriteFile(big, make([]byte, visionMaxBytes+1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := visionImageDataURL(big); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("oversized png must be refused with a clear error, got %v", err)
+	}
+
+	notPNG := filepath.Join(dir, "shot.jpg")
+	if err := os.WriteFile(notPNG, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := visionImageDataURL(notPNG); err == nil {
+		t.Fatal("non-png paths must be refused")
+	}
+}
+
+func TestHistoryAttachesToolScreenshotOnlyForVisionModels(t *testing.T) {
+	conv := &Conversation{ID: "t", Messages: []Message{
+		{ID: "u1", Role: "user", Content: "check the page"},
+		{ID: "a1", Role: "assistant", ToolCalls: []toolCallRecord{{ID: "c1", Name: "browser_screenshot", Args: "{}"}}},
+		{ID: "t1", Role: "tool", Content: "OK: screenshot saved", ToolCallID: "c1", ToolName: "browser_screenshot", Images: []string{testPNGData}},
+	}}
+
+	a := newTestApp(t)
+	a.settings.Providers[0].Models = []string{"gpt-4o"}
+	a.settings.Model = "gpt-4o"
+	_, _, _, _, hist, err := a.prepareStream(conv, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := hist[len(hist)-1]
+	parts, ok := last.Content.([]contentPart)
+	if !ok {
+		t.Fatalf("vision model must get an image-bearing message, got %T (%v)", last.Content, last.Content)
+	}
+	images := 0
+	for _, p := range parts {
+		if p.Type == "image_url" && p.ImageURL != nil && p.ImageURL.URL == testPNGData {
+			images++
+		}
+	}
+	if images != 1 {
+		t.Fatalf("expected exactly one attached screenshot, got %d", images)
+	}
+
+	// همان تاریخچه با مدل بدون vision: هیچ تصویری ارسال نمی‌شود.
+	a.settings.Providers[0].Models = []string{"my-local-llm"}
+	a.settings.Model = "my-local-llm"
+	_, _, _, _, hist, err = a.prepareStream(conv, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range hist {
+		if _, isParts := m.Content.([]contentPart); isParts {
+			t.Fatalf("text-only model must not receive image parts: %+v", m.Content)
+		}
 	}
 }
 

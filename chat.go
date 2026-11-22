@@ -883,6 +883,19 @@ func (a *App) prepareStream(conv *Conversation, planMode bool, gitLine string) (
 		}
 	}
 
+	// تصویر اسکرین‌شات فقط از آخرین دستهٔ نتایج ابزار و فقط برای مدل
+	// تصویری فرستاده می‌شود: تصویر قدیمی هم توکن می‌خورد و هم کهنه است.
+	visionOn := visionImagesEnabled(a.settings.VisionImages, model)
+	trailingToolStart := len(window)
+	for i := len(window) - 1; i >= 0; i-- {
+		if window[i].Role != "tool" {
+			trailingToolStart = i + 1
+			break
+		}
+		trailingToolStart = i
+	}
+	var toolShots []string
+
 	seenTools := 0
 	for i, m := range window {
 		if m.Role == "assistant" && strings.TrimSpace(m.Content) == "" && len(m.ToolCalls) == 0 {
@@ -917,6 +930,16 @@ func (a *App) prepareStream(conv *Conversation, planMode bool, gitLine string) (
 				cm.Content = "(empty)"
 			}
 			cm.ToolCallID = m.ToolCallID
+			if visionOn && i >= trailingToolStart && len(m.Images) > 0 {
+				for _, img := range m.Images {
+					if len(toolShots) >= visionMaxShots {
+						break
+					}
+					if img != "" {
+						toolShots = append(toolShots, img)
+					}
+				}
+			}
 		case "assistant":
 			if len(m.ToolCalls) > 0 {
 				cm.ToolCalls = make([]apiToolCall, len(m.ToolCalls))
@@ -929,6 +952,17 @@ func (a *App) prepareStream(conv *Conversation, planMode bool, gitLine string) (
 			}
 		}
 		history = append(history, cm)
+	}
+	// اسکرین‌شات‌های همین دسته به‌صورت یک پیام کاربریِ چندبخشی ضمیمه می‌شوند
+	// (پروتکل tool فقط متن می‌پذیرد؛ تصویر در پیام کاربر امن است).
+	if len(toolShots) > 0 {
+		parts := make([]contentPart, 0, len(toolShots)+1)
+		parts = append(parts, contentPart{Type: "text",
+			Text: "Attached screenshot(s) captured by browser_screenshot in this turn. Inspect the image(s) directly and describe only what you can actually see."})
+		for _, u := range toolShots {
+			parts = append(parts, contentPart{Type: "image_url", ImageURL: &imageRef{URL: u}})
+		}
+		history = append(history, chatMessage{Role: "user", Content: parts})
 	}
 	return baseURL, key, model, temperature, history, nil
 }
@@ -1915,13 +1949,35 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		// تغییردهنده‌ها ترتیبی و مثل سد می‌مانند. outcomeها همیشه به
 		// ترتیب اصلی‌اند (جزئیات و تضمین‌ها: toolbatch.go).
 		outcomes := a.executeToolCalls(ctx, convID, tasks, truncated, a.execToolCtx)
+		a.mu.Lock()
+		visionOn := visionImagesEnabled(a.settings.VisionImages, model)
+		a.mu.Unlock()
 		toolMsgs := make([]Message, 0, len(calls))
+		var shotPaths []string
+		var shotURLs []string
 		for i, c := range calls {
 			o := outcomes[i]
+			result := o.result
+			var shotPath string
+			if c.Function.Name == "browser_screenshot" {
+				// نشانهٔ اسکرین‌شات از متن ابزار حذف می‌شود؛ تصویر جدا ضمیمه می‌شود.
+				result, shotPath = splitShotMarker(result)
+			}
+			var images []string
+			if shotPath != "" && o.ok && visionOn {
+				if url, ierr := visionImageDataURL(shotPath); ierr == nil {
+					images = []string{url}
+					shotPaths = append(shotPaths, shotPath)
+					shotURLs = append(shotURLs, url)
+				} else {
+					result += "\n(note: the screenshot could not be attached to the conversation: " + ierr.Error() + ")"
+				}
+			}
 			toolMsgs = append(toolMsgs, Message{
 				ID:         newID(),
 				Role:       "tool",
-				Content:    o.result,
+				Content:    result,
+				Images:     images,
 				At:         time.Now().Unix(),
 				ToolName:   c.Function.Name,
 				ToolArgs:   c.Function.Arguments,
@@ -1931,9 +1987,23 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 			})
 			history = append(history, chatMessage{
 				Role:       "tool",
-				Content:    o.result,
+				Content:    result,
 				ToolCallID: c.ID,
 			})
+		}
+		if len(shotPaths) > 0 && ctx.Err() == nil {
+			parts := make([]contentPart, 0, len(shotPaths)+1)
+			parts = append(parts, contentPart{Type: "text",
+				Text: "Screenshot(s) captured by browser_screenshot this turn: " + strings.Join(shotPaths, ", ") +
+					". Inspect the attached image and describe only what you can actually see."})
+			for i := 0; i < len(shotURLs) && i < visionMaxShots; i++ {
+				if shotURLs[i] != "" {
+					parts = append(parts, contentPart{Type: "image_url", ImageURL: &imageRef{URL: shotURLs[i]}})
+				}
+			}
+			if len(parts) > 1 {
+				history = append(history, chatMessage{Role: "user", Content: parts})
+			}
 		}
 
 		// ---------- راستی‌آزمایی خودکار (گام ۵) ----------

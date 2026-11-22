@@ -225,6 +225,7 @@ func (s *cdpSession) takeEvents(clear bool) []cdpEvent {
 
 type browserSession struct {
 	proc     *exec.Cmd
+	tree     *procTree // درخت فرایند مرورگر (کودکان هم می‌میرند تا پوشهٔ موقت آزاد شود)
 	conn     *cdpSession
 	dir      string
 	port     string
@@ -321,6 +322,26 @@ type devtoolsTarget struct {
 	WebSocketDebuggerUrl string `json:"webSocketDebuggerUrl"`
 }
 
+// devToolsURLFromPortFile آدرس WebSocket مرورگر را از فایل DevToolsActivePort
+// می‌سازد (خط اول پورت، خط دوم مسیر /devtools/browser/…). این قرارداد پایدار
+// CDP است و به نسخهٔ کروم وابسته نیست.
+func devToolsURLFromPortFile(dir string) string {
+	data, err := os.ReadFile(filepath.Join(dir, "DevToolsActivePort"))
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) < 2 {
+		return ""
+	}
+	port := strings.TrimSpace(lines[0])
+	path := strings.TrimSpace(lines[1])
+	if port == "" || !strings.HasPrefix(path, "/devtools/") {
+		return ""
+	}
+	return "ws://127.0.0.1:" + port + path
+}
+
 // startBrowser مرورگر headless را اجرا و به تب about:blank وصل می‌شود.
 func startBrowser() (*browserSession, error) {
 	exe, err := findBrowserExecutable()
@@ -348,6 +369,9 @@ func startBrowser() (*browserSession, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, exe, args...)
 	hideConsoleWindow(cmd) // بدون این، ویندوز پنجرهٔ سیاه مرورگر را چشمک می‌زند
+	// درخت فرایند: کروم چند کودک (renderer/gpu) می‌سازد که فایل‌های
+	// user-data-dir را باز نگه می‌دارند؛ بدون کشتن آن‌ها RemoveAll ویندوز شکست می‌خورد.
+	tree, _ := prepareProcessTree(cmd)
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		cancel()
@@ -360,7 +384,10 @@ func startBrowser() (*browserSession, error) {
 		os.RemoveAll(dir)
 		return nil, fmt.Errorf("start browser: %w", err)
 	}
-	sess := &browserSession{proc: cmd, dir: dir, waitDone: make(chan struct{})}
+	sess := &browserSession{proc: cmd, tree: tree, dir: dir, waitDone: make(chan struct{})}
+	if tree != nil {
+		_ = tree.attach(cmd) // خطا مانع ادامه نیست؛ فقط بازگشت به Kill ساده
+	}
 	// مرگ مرورگر نباید فرزندی جامانده بگذارد؛ waitDone به Close اجازه می‌دهد
 	// تا خروج واقعی صبر کند و بعد پوشهٔ موقت را پاک کند.
 	go func() {
@@ -383,12 +410,28 @@ func startBrowser() (*browserSession, error) {
 		}
 	}()
 
+	// دو مسیر موازی: نسخه‌های قدیمی‌تر کروم «DevTools listening on ws://…»
+	// را روی stderr چاپ می‌کنند؛ نسخه‌های تازه فقط فایل DevToolsActivePort را
+	// می‌نویسند. هر کدام زودتر رسید، همان است (وگرنه ۳۰ ثانیه تایم‌اوت).
 	var wsURL string
-	select {
-	case wsURL = <-devURL:
-	case <-time.After(browserStartTimeout):
-		sess.Close()
-		return nil, fmt.Errorf("browser did not report a DevTools endpoint within %s (is it running with --remote-debugging enabled?)", browserStartTimeout)
+	timeout := time.NewTimer(browserStartTimeout)
+	defer timeout.Stop()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+waitStart:
+	for {
+		select {
+		case wsURL = <-devURL:
+			break waitStart
+		case <-ticker.C:
+			if u := devToolsURLFromPortFile(dir); u != "" {
+				wsURL = u
+				break waitStart
+			}
+		case <-timeout.C:
+			sess.Close()
+			return nil, fmt.Errorf("browser did not report a DevTools endpoint within %s (is it running with --remote-debugging enabled?)", browserStartTimeout)
+		}
 	}
 	sess.wsURL = wsURL
 
@@ -453,7 +496,9 @@ func (b *browserSession) Close() {
 			b.conn.shutdown(nil)
 			b.conn = nil
 		}
-		if b.proc != nil && b.proc.Process != nil {
+		if b.tree != nil {
+			b.tree.kill() // کل درخت، نه فقط پروسهٔ اصلی
+		} else if b.proc != nil && b.proc.Process != nil {
 			_ = b.proc.Process.Kill()
 		}
 		if b.waitDone != nil {
@@ -462,6 +507,10 @@ func (b *browserSession) Close() {
 			case <-time.After(3 * time.Second):
 				// پروسه پاسخ نداد؛ پاک‌سازی با تلاش مجدد ادامه می‌یابد
 			}
+		}
+		if b.tree != nil {
+			b.tree.close()
+			b.tree = nil
 		}
 		b.proc = nil
 		if b.dir != "" {
@@ -786,8 +835,25 @@ func (a *App) toolBrowserScreenshot(rawURL string, fullPage bool, relPath string
 		rel = path
 	}
 	pageURL, _ := browserEval(s, "location.href")
-	return fmt.Sprintf("OK: screenshot saved to %s (%d bytes, %s)\nurl: %s\nOpen the image to review layout, colors and overflow.",
-		filepath.ToSlash(rel), len(data), map[bool]string{true: "full page", false: "viewport"}[fullPage], pageURL), true
+	a.mu.Lock()
+	model := strings.TrimSpace(a.settings.Model)
+	mode := a.settings.VisionImages
+	a.mu.Unlock()
+	var b strings.Builder
+	fmt.Fprintf(&b, "OK: screenshot saved to %s (%d bytes, %s)\nurl: %s\n",
+		filepath.ToSlash(rel), len(data), map[bool]string{true: "full page", false: "viewport"}[fullPage], pageURL)
+	if visionImagesEnabled(mode, model) {
+		// حلقه این خط را جدا می‌کند و PNG را واقعاً به پیام مدل ضمیمه می‌کند.
+		b.WriteString("The image is attached to this turn: look at the picture itself for layout, colors and overflow.\n")
+		b.WriteString(shotMarkerPrefix + path + "\n")
+	} else {
+		label := model
+		if label == "" {
+			label = "the selected model"
+		}
+		fmt.Fprintf(&b, "This model (%s) has no image input, so you CANNOT see this screenshot — only the user can open the file. Do not describe the image from imagination; use browser_console output or ask the user.\n", label)
+	}
+	return b.String(), true
 }
 
 // browserShotPath مسیر نهایی PNG را داخل workspace اعتبارسنجی می‌کند.

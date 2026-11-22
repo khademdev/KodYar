@@ -33,6 +33,27 @@ func TestParseDevToolsURL(t *testing.T) {
 }
 
 // TestBrowserToolsRejectNonHTTP: فقط http(s) — قبل از هر اجرای مرورگر.
+func TestDevToolsURLFromPortFile(t *testing.T) {
+	dir := t.TempDir()
+	if got := devToolsURLFromPortFile(dir); got != "" {
+		t.Fatalf("missing file must yield empty URL, got %q", got)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "DevToolsActivePort"), []byte("9222\n/devtools/browser/abc-123\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want := "ws://127.0.0.1:9222/devtools/browser/abc-123"
+	if got := devToolsURLFromPortFile(dir); got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	// فایل نیمه‌کاره/نامعتبر نباید آدرس جعلی بسازد.
+	if err := os.WriteFile(filepath.Join(dir, "DevToolsActivePort"), []byte("9222"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := devToolsURLFromPortFile(dir); got != "" {
+		t.Fatalf("incomplete file must yield empty URL, got %q", got)
+	}
+}
+
 func TestBrowserToolsRejectNonHTTP(t *testing.T) {
 	a := newTestApp(t)
 	for _, u := range []string{"file:///C:/Windows/win.ini", "javascript:alert(1)", "ftp://x/y", ""} {
@@ -159,6 +180,11 @@ func TestBrowserEndToEnd(t *testing.T) {
 	if !ok {
 		t.Fatalf("browser_screenshot failed: %s", shot)
 	}
+	// مدل تست (llama3.2) تصویر نمی‌گیرد: نتیجه باید صریح بگوید فقط کاربر
+	// می‌بیند و هیچ نشانهٔ ضمیمه‌ای نداشته باشد.
+	if !strings.Contains(shot, "CANNOT see") || strings.Contains(shot, shotMarkerPrefix) {
+		t.Fatalf("non-vision result must refuse the image explicitly:\n%s", shot)
+	}
 	full := filepath.Join(a.settings.WorkspacePath, "screenshots", "view.png")
 	data, err := os.ReadFile(full)
 	if err != nil {
@@ -169,6 +195,23 @@ func TestBrowserEndToEnd(t *testing.T) {
 	}
 	if string(data[:8]) != "\x89PNG\r\n\x1a\n" {
 		t.Fatalf("screenshot is not a PNG (first bytes %q)", data[:8])
+	}
+
+	// مدل تصویری: همان فایل باید به data URL تبدیل‌شدنی و نشانه‌دار باشد.
+	a.settings.Providers[0].Models = []string{"gpt-4o"}
+	a.settings.Model = "gpt-4o"
+	visionShot, ok := a.toolBrowserScreenshot("", false, "screenshots/view.png")
+	if !ok {
+		t.Fatalf("vision screenshot failed: %s", visionShot)
+	}
+	if !strings.Contains(visionShot, "attached") {
+		t.Fatalf("vision result must say the image is attached:\n%s", visionShot)
+	}
+	if _, markerPath := splitShotMarker(visionShot); markerPath == "" {
+		t.Fatalf("vision result must carry the screenshot marker:\n%s", visionShot)
+	}
+	if _, err := visionImageDataURL(full); err != nil {
+		t.Fatalf("saved screenshot must be attachable: %v", err)
 	}
 
 	fullShot, ok := a.toolBrowserScreenshot("", true, "screenshots/full.png")
