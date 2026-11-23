@@ -295,7 +295,7 @@ wails dev
 wails build
 
 # کامپایل متقاطع برای ویندوز از لینوکس/مک (بدون نیاز به MinGW — خالص Go)
-wails build -platform windows/amd64 -skipbindings -ldflags "-s -w -X main.version=1.0.1"
+wails build -platform windows/amd64 -skipbindings -ldflags "-s -w -X main.version=1.0.2"
 
 # خروجی این‌جا ساخته می‌شود:
 #   ویندوز: build/bin/KodYar.exe
