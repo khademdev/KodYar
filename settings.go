@@ -133,11 +133,15 @@ type Settings struct {
 	// بازه‌ی مجاز ۳۰..۹۰۰). پنهان است و UI ندارد — فقط برای پایداری/دیباگ.
 	StreamIdleTimeoutSec int `json:"streamIdleTimeoutSec"`
 
-	PlanMode          bool   `json:"planMode"`          // حالت برنامه‌ریزی قبل از اجرا
-	ContextFiles      int    `json:"contextFiles"`      // سقف فایل‌های خودکار افزوده به کانتکست @
-	ProjectRules      string `json:"projectRules"`      // قوانین پروژه تعریف‌شده از داخل اپ
-	RulesEnabled      bool   `json:"rulesEnabled"`      // خواندن خودکار.kodyar/rules.md و مشابه
-	MaxTokens         int    `json:"maxTokens"`         // سقف توکن خروجی (۰ = بدون محدودیت)
+	PlanMode     bool   `json:"planMode"`     // حالت برنامه‌ریزی قبل از اجرا
+	ContextFiles int    `json:"contextFiles"` // سقف فایل‌های خودکار افزوده به کانتکست @
+	ProjectRules string `json:"projectRules"` // قوانین پروژه تعریف‌شده از داخل اپ
+	RulesEnabled bool   `json:"rulesEnabled"` // خواندن خودکار.kodyar/rules.md و مشابه
+	MaxTokens    int    `json:"maxTokens"`    // سقف توکن خروجی (۰ = بدون محدودیت)
+	// ThinkingEffort سقف «فکر کردن» مدل برای Providerهایی که reasoning_effort را
+	// می‌پذیرند: low (پیش‌فرض) | medium | high | auto (پارامتر فرستاده نشود).
+	// استدلال اضافی توکن می‌سوزاند بدون آنکه کارِ انجام‌شده بیشتر شود.
+	ThinkingEffort    string `json:"thinkingEffort,omitempty"`
 	MaxAgentRounds    int    `json:"maxAgentRounds"`    // سقف دورهای اجرای ابزار ایجنت در یک پاسخ (پیش‌فرض ۲۵، محدوده ۵ تا ۲۰۰)
 	MaxSubagentRounds int    `json:"maxSubagentRounds"` // سقف دورهای ابزار زیرایجنتِ task پیش‌فرض ۸، محدوده ۳ تا ۵۰)
 
@@ -239,6 +243,7 @@ func defaultSettings() *Settings {
 		MaxConvKB:         2048,
 		PromptCache:       true,
 		MaxAgentRounds:    defaultMaxAgentRounds,
+		ThinkingEffort:    thinkingEffortLow,
 		MaxSubagentRounds: defaultMaxSubagentRounds,
 		VisionImages:      visionModeAuto,
 		Theme:             "dark",
@@ -511,6 +516,7 @@ func (a *App) loadSettings() error {
 	// سقف دورهای ایجنت — فایل‌های قدیمی فیلد را ندارند (صفر) و به پیش‌فرض
 	// برمی‌گردند؛ مقادیر خارج از محدوده به نزدیک‌ترین حد مجاز می‌چسبند.
 	s.MaxAgentRounds = clampMaxAgentRounds(s.MaxAgentRounds)
+	s.ThinkingEffort = normalizeThinkingEffort(s.ThinkingEffort)
 	// سقف دورهای زیرایجنت — همان سازگاری با فایل‌های قدیمی
 	s.MaxSubagentRounds = clampMaxSubagentRounds(s.MaxSubagentRounds)
 	// سیاست ارسال تصویر به مدل؛ فایل‌های قدیمی (خالی) = auto.
@@ -988,6 +994,7 @@ func (a *App) SettingsView() map[string]interface{} {
 		"toolResultKeep":       s.ToolResultKeep,
 		"maxConvKb":            s.MaxConvKB,
 		"maxAgentRounds":       clampMaxAgentRounds(s.MaxAgentRounds),
+		"thinkingEffort":       normalizeThinkingEffort(s.ThinkingEffort),
 		"maxSubagentRounds":    clampMaxSubagentRounds(s.MaxSubagentRounds),
 		"maxHistory":           s.MaxHistory,
 		"theme":                s.Theme,
@@ -1228,6 +1235,25 @@ const (
 
 // clampMaxAgentRounds مقدار را به محدوده‌ی مجاز می‌آورد؛ صفر/منفی یعنی
 // «تنظیم نشده» و به پیش‌فرض (۲۵) برمی‌گردد — سازگار با settings.json قدیمی.
+// مقدارهای مجاز «میزان فکر کردن» — پارامتر reasoning_effort در درخواست
+// OpenAI-compatible؛ auto یعنی هیچ پارامتری فرستاده نشود.
+const (
+	thinkingEffortLow    = "low"
+	thinkingEffortMedium = "medium"
+	thinkingEffortHigh   = "high"
+	thinkingEffortAuto   = "auto"
+)
+
+// normalizeThinkingEffort فایل‌های قدیمی (بدون فیلد) را روی low می‌آورد؛
+// مقدار ناشناخته هم به همان پیش‌فرض برمی‌گردد تا درخواست هرگز ۴۰۰ ندهد.
+func normalizeThinkingEffort(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case thinkingEffortLow, thinkingEffortMedium, thinkingEffortHigh, thinkingEffortAuto:
+		return strings.ToLower(strings.TrimSpace(v))
+	}
+	return thinkingEffortLow
+}
+
 func clampMaxAgentRounds(n int) int {
 	if n <= 0 {
 		return defaultMaxAgentRounds
@@ -1249,6 +1275,15 @@ func (a *App) SetMaxAgentRounds(rounds int) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.settings.MaxAgentRounds = clampMaxAgentRounds(rounds)
+	return a.saveSettings()
+}
+
+// SetThinkingEffort «میزان فکر کردن» مدل را ذخیره می‌کند (low|medium|high|auto).
+func (a *App) SetThinkingEffort(mode string) error {
+	defer a.recoverBound("SetThinkingEffort")
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.settings.ThinkingEffort = normalizeThinkingEffort(mode)
 	return a.saveSettings()
 }
 

@@ -31,6 +31,9 @@
   // سیاست ارسال تصویر (اسکرین‌شات) به مدل — سه حالت، پیش‌فرض auto.
   // auto = فقط مدل‌های تصویری شناخته‌شده؛ on = اجبار؛ off = هرگز.
   var VISION = { id: "gen-vision", view: "visionImages", set: "SetVisionImages", def: "auto", label: "تصاویر اسکرین‌شات برای مدل" };
+  // «میزان فکر کردن» — پارامتر reasoning_effort؛ پیش‌فرض کم تا استدلال طولانی
+  // توکن نسوزاند. Provider ناشناس یک‌بار ۴۰۰ می‌دهد و بعد از آن حذف می‌شود.
+  var EFFORT = { id: "gen-effort", view: "thinkingEffort", set: "SetThinkingEffort", def: "low", label: "میزان فکر کردن مدل" };
 
   function backend() {
     return (window.go && window.go.main && window.go.main.App) || null;
@@ -359,6 +362,89 @@
       });
   }
 
+  function buildEffortField() {
+    if (document.getElementById(EFFORT.id)) return;
+    var host = document.querySelector("#model-panel .form-card");
+    if (!host) return;
+    var field = document.createElement("div");
+    field.className = "field";
+    var label = document.createElement("label");
+    label.className = "field-label";
+    label.textContent = EFFORT.label;
+    var opt = document.createElement("span");
+    opt.className = "optional";
+    opt.textContent = " (توکن کمتر)";
+    label.appendChild(opt);
+
+    var wrap = document.createElement("div");
+    wrap.className = "input-wrap";
+    var sel = document.createElement("select");
+    sel.id = EFFORT.id;
+    [
+      ["low", "کم — پیش‌فرض؛ سریع و کم‌هزینه"],
+      ["medium", "متوسط"],
+      ["high", "زیاد — فقط برای مسائل پیچیده"],
+      ["auto", "خودکار — پارامتر فرستاده نشود"],
+    ].forEach(function (pair) {
+      var o = document.createElement("option");
+      o.value = pair[0];
+      o.textContent = pair[1];
+      sel.appendChild(o);
+    });
+    sel.value = EFFORT.def;
+    wrap.appendChild(sel);
+
+    var hint = document.createElement("div");
+    hint.className = "hint-row";
+    var ht = document.createElement("span");
+    ht.textContent =
+      "مدل کمتر فکر می‌کند و مستقیم سراغ ابزار/کد می‌رود، پس توکن استدلال کم می‌شود بدون آنکه کارِ انجام‌شده کم شود. فقط برای Providerهایی فرستاده می‌شود که پارامتر reasoning_effort را می‌شناسند؛ اگر سرویس‌دهنده آن را رد کند، همان یک‌بار بدون پارامتر تکرار می‌شود.";
+    hint.appendChild(ht);
+    field.appendChild(label);
+    field.appendChild(wrap);
+    field.appendChild(hint);
+
+    var vision = document.getElementById(VISION.id);
+    var visionField = vision && vision.closest ? vision.closest(".field") : null;
+    if (visionField && visionField.parentElement === host) {
+      host.insertBefore(field, visionField.nextSibling);
+    } else {
+      host.appendChild(field);
+    }
+  }
+
+  function effortValue() {
+    var v = String(((window.KodYarState && window.KodYarState.view) || {}).thinkingEffort || "").toLowerCase();
+    return ["low", "medium", "high", "auto"].indexOf(v) >= 0 ? v : EFFORT.def;
+  }
+
+  function populateEffort() {
+    var el = document.getElementById(EFFORT.id);
+    if (el) el.value = effortValue();
+  }
+
+  function saveEffort() {
+    var el = document.getElementById(EFFORT.id);
+    if (!el) return;
+    var mode = el.value;
+    if (["low", "medium", "high", "auto"].indexOf(mode) < 0) mode = EFFORT.def;
+    var be = backend();
+    if (!be || typeof be[EFFORT.set] !== "function") {
+      if (window.toast) window.toast("در حالت پیش‌نمایش مرورگر، «" + EFFORT.label + "» ذخیره نمی‌شود", "info");
+      return;
+    }
+    be[EFFORT.set](mode)
+      .then(function () {
+        if (window.KodYarState && window.KodYarState.view) window.KodYarState.view[EFFORT.view] = mode;
+        el.value = mode;
+      })
+      .catch(function (err) {
+        if (window.toast) {
+          window.toast("ذخیره‌ی " + EFFORT.label + " ناموفق بود: " + (err && err.message ? err.message : err), "err");
+        }
+      });
+  }
+
   function init() {
     buildIdleField();
     buildCacheRow();
@@ -367,6 +453,8 @@
     syncAutoVerifySwitch((window.KodYarState && window.KodYarState.view || {}).autoVerify);
     buildVisionField();
     populateVision();
+    buildEffortField();
+    populateEffort();
     // آیکون فیلدها — slots.js (minified) از IDهای شناخته‌شده آیکون می‌گذارد؛
     // فیلدهای جدید مال ما هستند، پس آیکونشان را همین‌جا می‌گذاریم (الگوی
     // permsettings.js). زیرایجنت آیکون «map» دارد (همان آیکون کارت ابزار task).
@@ -387,6 +475,7 @@
         syncCacheSwitch((window.KodYarState && window.KodYarState.view || {}).promptCache);
         syncAutoVerifySwitch((window.KodYarState && window.KodYarState.view || {}).autoVerify);
         populateVision();
+        populateEffort();
       });
     populate(AGENT);
     populate(SUB);
@@ -399,6 +488,7 @@
         save(SUB);
         save(IDLE);
         saveVision();
+        saveEffort();
       });
   }
 

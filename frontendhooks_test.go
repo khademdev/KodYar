@@ -223,6 +223,28 @@ func TestFrontendThinkingPanelLiveSummary(t *testing.T) {
 	}
 }
 
+// TestFrontendThinkingEffortSetting — فیلد «میزان فکر کردن» در تب مدل با
+// ذخیرهٔ واقعی (SetThinkingEffort) و مقدار پیش‌فرض low.
+func TestFrontendThinkingEffortSetting(t *testing.T) {
+	raw, err := os.ReadFile("frontend/dist/assets/js/agentsettings.js")
+	if err != nil {
+		t.Fatalf("read agentsettings.js: %v", err)
+	}
+	js := string(raw)
+	for _, want := range []string{
+		`id: "gen-effort"`,
+		`"SetThinkingEffort"`,
+		`"thinkingEffort"`,
+		`function buildEffortField(`,
+		`function saveEffort(`,
+		`saveEffort();`,
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("agentsettings.js is missing %q (thinking effort setting)", want)
+		}
+	}
+}
+
 // TestFrontendPermissionModalExpiresSafely — رگرسیون باگ «اجازه می‌دهم ولی
 // عملیات رد می‌شود»: مودال دسترسی باید با پایان نوبت (chat:error/chat:done)
 // خودش بسته شود، پیام «منقضی شد، دوباره بفرست» بدهد و خطای

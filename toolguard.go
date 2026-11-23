@@ -579,6 +579,47 @@ func restoreStreamUsageMemoryForTest(old map[string]bool) {
 	streamUsageMem.mu.Unlock()
 }
 
+// ---------------------------------------------------------------- حافظه‌ی reasoning_effort per-provider
+
+// reasoningEffortMem «این سرویس‌دهنده reasoning_effort را نمی‌پذیرد»؛ مثل
+// stream_options فقط تا restart عمر دارد و از ۴۰۰ بعدی جلوگیری می‌کند.
+var reasoningEffortMem struct {
+	mu     sync.Mutex
+	broken map[string]bool
+}
+
+// providerSupportsReasoningEffort آیا برای این سرویس‌دهنده هنوز
+// reasoning_effort می‌فرستیم؟ (پیش‌فرض بله تا اولین ۴۰۰ِ مربوط به آن.)
+func providerSupportsReasoningEffort(baseURL string) bool {
+	k := streamUsageProviderKey(baseURL)
+	reasoningEffortMem.mu.Lock()
+	defer reasoningEffortMem.mu.Unlock()
+	if reasoningEffortMem.broken == nil {
+		return true
+	}
+	return !reasoningEffortMem.broken[k]
+}
+
+// markReasoningEffortBroken سرویس‌دهنده را در حافظه نشانه‌گذاری می‌کند.
+func markReasoningEffortBroken(baseURL string) {
+	k := streamUsageProviderKey(baseURL)
+	reasoningEffortMem.mu.Lock()
+	defer reasoningEffortMem.mu.Unlock()
+	if reasoningEffortMem.broken == nil {
+		reasoningEffortMem.broken = map[string]bool{}
+	}
+	reasoningEffortMem.broken[k] = true
+}
+
+// isReasoningEffortUnsupported آیا این ۴۰۰ به‌خاطر reasoning_effort است؟
+func isReasoningEffortUnsupported(status int, body string) bool {
+	if status != 400 {
+		return false
+	}
+	b := strings.ToLower(body)
+	return strings.Contains(b, "reasoning_effort") || strings.Contains(b, "reasoning effort")
+}
+
 // isStreamOptionsUnsupported آیا این پاسخ ۴۰۰ دقیقاً به‌خاطر stream_options
 // است؟ (متن خطا باید به آن اشاره کند — همان قرارداد isMaxTokensError برای
 // max_tokens در quickPing.)

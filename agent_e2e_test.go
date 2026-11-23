@@ -53,8 +53,10 @@ type scenarioStep struct {
 	// Stall پس از نوشتن محتوای مرحله، اتصال را باز نگه می‌دارد و دیگر هیچ
 	// بایتی نمی‌فرستد (تزریق سکون وسط استریم — نگهبان Stage 2).
 	Status int
-	Raw    string
-	Stall  bool
+	// StatusBody بدنه‌ی JSON همان پاسخ خطاست (پیش‌فرض: پیام تزریقی).
+	StatusBody string
+	Raw        string
+	Stall      bool
 }
 
 // addSteps مراحل بیشتری به فیلم‌نامه اضافه می‌کند (soak و تزریق خرابی).
@@ -137,7 +139,11 @@ func (m *scriptedModel) handle(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Retry-After", "0")
 		}
 		w.WriteHeader(step.Status)
-		fmt.Fprintf(w, `{"error":{"message":"injected status %d"}}`, step.Status)
+		if step.StatusBody != "" {
+			fmt.Fprint(w, step.StatusBody)
+		} else {
+			fmt.Fprintf(w, `{"error":{"message":"injected status %d"}}`, step.Status)
+		}
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")

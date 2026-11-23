@@ -191,13 +191,16 @@ type imageRef struct {
 const streamDeltaFlushEvery = 40 * time.Millisecond
 
 type chatRequest struct {
-	Model         string             `json:"model"`
-	Messages      []chatMessage      `json:"messages"`
-	Stream        bool               `json:"stream"`
-	Temperature   *float64           `json:"temperature,omitempty"`
-	MaxTokens     int                `json:"max_tokens,omitempty"`
-	Tools         []toolDef          `json:"tools,omitempty"`
-	StreamOptions *chatStreamOptions `json:"stream_options,omitempty"`
+	Model       string        `json:"model"`
+	Messages    []chatMessage `json:"messages"`
+	Stream      bool          `json:"stream"`
+	Temperature *float64      `json:"temperature,omitempty"`
+	MaxTokens   int           `json:"max_tokens,omitempty"`
+	// ReasoningEffort فقط برای Providerهایی که آن را می‌شناسند فرستاده می‌شود؛
+	// ۴۰۰ِ مربوط به آن یک‌بار بدون پارامتر تکرار می‌شود (toolguard).
+	ReasoningEffort string             `json:"reasoning_effort,omitempty"`
+	Tools           []toolDef          `json:"tools,omitempty"`
+	StreamOptions   *chatStreamOptions `json:"stream_options,omitempty"`
 }
 
 // chatStreamOptions — با include_usage توکن‌های واقعیِ مصرف‌شده در آخرین
@@ -1222,6 +1225,7 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 	}
 	customTools := copyCustomTools(a.settings.CustomTools)
 	maxTokens := a.settings.MaxTokens
+	thinkingEffort := normalizeThinkingEffort(a.settings.ThinkingEffort)
 	// سقف دورهای ابزار — تنظیم قابل‌تغییر کاربر (پیش‌فرض ۲۵، محدوده‌ی ۵ تا ۲۰۰)؛
 	// زیر همان قفلِ بقیه‌ی تنظیمات خوانده و برای کل نوبت ثابت می‌شود.
 	maxRounds := clampMaxAgentRounds(a.settings.MaxAgentRounds)
@@ -1411,6 +1415,11 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		if maxTokens > 0 {
 			reqBody.MaxTokens = maxTokens
 		}
+		// «میزان فکر کردن» — پیش‌فرض low تا استدلال اضافی توکن نسوزاند؛
+		// Provider ناشناس یک‌بار ۴۰۰ می‌دهد و بعد از آن پارامتر حذف می‌شود.
+		if thinkingEffort != thinkingEffortAuto && providerSupportsReasoningEffort(baseURL) {
+			reqBody.ReasoningEffort = thinkingEffort
+		}
 		if supportsTemperature(model) {
 			t := temperature
 			reqBody.Temperature = &t
@@ -1516,6 +1525,12 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 			// این عقب‌نشینی دور را مصرف نمی‌کند و حلقه‌ی بی‌پایان ممکن نیست.
 			if cacheHints && isPromptCacheUnsupported(resp.StatusCode, reason) {
 				markPromptCacheBroken(baseURL)
+				round--
+				continue
+			}
+			// ۴۰۰ِ مربوط به reasoning_effort → یک‌بار بدون آن؛ مثل بقیه، دور مصرف نمی‌شود.
+			if reqBody.ReasoningEffort != "" && isReasoningEffortUnsupported(resp.StatusCode, reason) {
+				markReasoningEffortBroken(baseURL)
 				round--
 				continue
 			}
