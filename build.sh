@@ -54,8 +54,17 @@ cat > "$VERDIR/versioninfo.json" <<EOF
   "VarFileInfo": {"Translation": {"LangID": "0409", "CharsetID": "04B0"}}
 }
 EOF
+# مانیفست Wails یک قالب است ({{.Name}}, {{.Info.ProductVersion}}) که خود Wails
+# پیش از جاسازی رندر می‌کرد. حالا که بیلد با -nopackage است، خودمان رندر
+# می‌کنیم — مانیفست خامِ قالب‌دار باعث خطای side-by-side می‌شود.
+sed -e "s/{{.Name}}/KodYar/g" \
+    -e "s/{{.Info.ProductVersion}}/${VERSION}/g" \
+    build/windows/wails.exe.manifest > "$VERDIR/wails.exe.manifest"
+
 go run github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0 -64 \
-    -icon build/windows/icon.ico -o resource.syso "$VERDIR/versioninfo.json"
+    -icon build/windows/icon.ico \
+    -manifest "$VERDIR/wails.exe.manifest" \
+    -o resource.syso "$VERDIR/versioninfo.json"
 
 # -nopackage: Wails خودش یک بخش .rsrc می‌سازد (آیکون + نسخهٔ ناخوانا) و Go با دو
 # بخش .rsrc خطای «too many .rsrc sections» می‌دهد؛ پس resource ما تنها منبع است.
