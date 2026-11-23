@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
@@ -104,5 +106,99 @@ func TestAgentDropsThinkingEffortOnRejection(t *testing.T) {
 	}
 	if providerSupportsReasoningEffort(env.model.URL()) {
 		t.Fatalf("expected provider memory to avoid resending later (key %q)", env.model.URL())
+	}
+}
+
+// TestLegacySettingsFileGetsLowThinkingEffort — settings.json قدیمی که فیلد
+// thinkingEffort را ندارد باید بعد از بارگذاری low شود و نوبت بعدی واقعاً
+// پارامتر را بفرستد (اگر این دو از هم جدا شوند، صرفه‌جویی فقط روی کاغذ است).
+func TestLegacySettingsFileGetsLowThinkingEffort(t *testing.T) {
+	a := newTestApp(t)
+	path, err := a.settingsPath()
+	if err != nil {
+		t.Fatalf("settingsPath: %v", err)
+	}
+	// فایل قدیمی: فقط کلیدهای زمان خودش (بدون thinkingEffort) — ساخت با همان
+	// تگ‌های واقعی Provider تا خطای فرمت، نتیجه را الکی خراب نکند.
+	legacy, err := json.Marshal(map[string]interface{}{
+		"provider":  "pw",
+		"model":     "m1",
+		"workspace": a.settings.WorkspacePath,
+		"providers": []Provider{{
+			ID: "pw", Name: "PW", BaseURL: "http://localhost:9/v1",
+			NoKey: true, Models: []string{"m1"}, ContextWindow: 128000,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("build legacy settings: %v", err)
+	}
+	if err := os.WriteFile(path, legacy, 0o600); err != nil {
+		t.Fatalf("write legacy settings: %v", err)
+	}
+	if err := a.loadSettings(); err != nil {
+		t.Fatalf("load legacy settings: %v", err)
+	}
+	if len(a.settings.Providers) != 1 {
+		t.Fatalf("legacy settings were not loaded (providers=%d)", len(a.settings.Providers))
+	}
+	if got := a.settings.ThinkingEffort; got != thinkingEffortLow {
+		t.Fatalf("legacy settings loaded with thinkingEffort=%q, want low", got)
+	}
+	if got := a.SettingsView()["thinkingEffort"]; got != thinkingEffortLow {
+		t.Fatalf("SettingsView thinkingEffort = %v, want low", got)
+	}
+
+	// نوبت بعدی روی همان اپ بارگذاری‌شده: پارامتر باید واقعاً برود.
+	var sent string
+	model := newScriptedModel(t, scenarioStep{
+		Text:  "تمام شد.",
+		Check: func(t *testing.T, req chatRequest) { sent = req.ReasoningEffort },
+	})
+	a.mu.Lock()
+	a.settings.Providers[0].BaseURL = model.URL()
+	a.mu.Unlock()
+	env := initE2E(t, a)
+	env.model = model
+	defer env.shutdown()
+	env.send("سلام")
+	if sent != thinkingEffortLow {
+		t.Fatalf("next turn after legacy load sent reasoning_effort=%q, want low", sent)
+	}
+}
+
+// TestSubagentRequestCarriesThinkingEffort — زیرایجنت (task) هم همان
+// reasoning_effort نوبت والد را می‌فرستد؛ بیشترین استدلال معمولاً همین‌جاست.
+func TestSubagentRequestCarriesThinkingEffort(t *testing.T) {
+	var subEffort, mainEffort string
+	subSeen, mainSeen := 0, 0
+	env := newE2E(t,
+		stepTool("c1", "task", `{"description":"بررسی ساختار پروژه"}`),
+		stepText("تمام شد."),
+	)
+	defer env.shutdown()
+	env.model.route = func(req chatRequest) *scenarioStep {
+		sys := ""
+		if len(req.Messages) > 0 {
+			sys = strings.TrimSpace(historyContentString(req.Messages[0].Content))
+		}
+		if strings.HasPrefix(sys, "You are KodYar's read-only sub-agent") {
+			subEffort, subSeen = req.ReasoningEffort, subSeen+1
+			return &scenarioStep{Text: "گزارش زیرایجنت."}
+		}
+		mainEffort, mainSeen = req.ReasoningEffort, mainSeen+1
+		return nil
+	}
+	env.send("بررسی کن")
+	if subSeen == 0 {
+		t.Fatal("the sub-agent request never reached the provider")
+	}
+	if mainSeen == 0 {
+		t.Fatal("the main turn never reached the provider")
+	}
+	if subEffort != thinkingEffortLow {
+		t.Fatalf("sub-agent reasoning_effort = %q, want low", subEffort)
+	}
+	if mainEffort != thinkingEffortLow {
+		t.Fatalf("main turn reasoning_effort = %q, want low", mainEffort)
 	}
 }

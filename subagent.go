@@ -382,6 +382,7 @@ func (a *App) runSubagent(ctx context.Context, task string) (report string, ok b
 	temperature := a.settings.Temperature
 	maxTokens := a.settings.MaxTokens
 	maxRounds := clampMaxSubagentRounds(a.settings.MaxSubagentRounds)
+	thinkingEffort := normalizeThinkingEffort(a.settings.ThinkingEffort)
 	workspace := strings.TrimSpace(a.settings.WorkspacePath)
 	skillsBlock := a.skillsPromptBlockLocked()
 	cw := 0
@@ -423,6 +424,7 @@ func (a *App) runSubagent(ctx context.Context, task string) (report string, ok b
 		temperature:         temperature,
 		maxTokens:           maxTokens,
 		supportsTemperature: supportsTemperature(model),
+		thinkingEffort:      thinkingEffort,
 	}
 
 	var promptTokens, completionTokens int64
@@ -466,6 +468,11 @@ func (a *App) runSubagent(ctx context.Context, task string) (report string, ok b
 				// همان عقب‌نشینی‌های بدون هزینه‌ی دور: یک‌بار در نوبت.
 				if res.streamOptions && isStreamOptionsUnsupported(httpErr.status, reason) {
 					markStreamUsageBroken(baseURL)
+					round--
+					continue
+				}
+				if res.reasoningEffort && isReasoningEffortUnsupported(httpErr.status, reason) {
+					markReasoningEffortBroken(baseURL)
 					round--
 					continue
 				}
@@ -583,6 +590,8 @@ type subagentSession struct {
 	temperature         float64
 	maxTokens           int
 	supportsTemperature bool
+	// thinkingEffort همان تنظیم نوبت والد است؛ زیرایجنت‌ها هم کم‌فکر می‌کنند.
+	thinkingEffort string
 }
 
 // subagentRound نتیجه‌ی یک دور کامل مدل (استریم + فراخوانی‌های جمع‌آوری‌شده).
@@ -595,6 +604,9 @@ type subagentRound struct {
 	// streamOptions یعنی این درخواست stream_options داشت — برای عقب‌نشینی
 	// یک‌باره‌ی حلقه در پاسخ ۴۰۰ مربوط به آن.
 	streamOptions bool
+	// reasoningEffort یعنی درخواست reasoning_effort داشت — برای عقب‌نشینی
+	// یک‌باره‌ی حلقه در ۴۰۰ِ مربوط به آن (مثل stream_options).
+	reasoningEffort bool
 }
 
 // subagentHTTPError پاسخ غیر-۲۰۰ سرویس‌دهنده در یک دور.
@@ -650,7 +662,11 @@ func (a *App) subagentRequest(ctx context.Context, s *subagentSession, history [
 	if providerSupportsStreamUsage(s.baseURL) {
 		reqBody.StreamOptions = &chatStreamOptions{IncludeUsage: true}
 	}
+	if s.thinkingEffort != thinkingEffortAuto && providerSupportsReasoningEffort(s.baseURL) {
+		reqBody.ReasoningEffort = s.thinkingEffort
+	}
 	out.streamOptions = reqBody.StreamOptions != nil
+	out.reasoningEffort = reqBody.ReasoningEffort != ""
 	body, _ := json.Marshal(reqBody)
 	// نگهبان سکون — همان سیاست گفتگوی اصلی؛ زیرایجنت هم نباید بی‌پایان
 	// «فکر کند». مهلت در شروع درخواست خوانده می‌شود.

@@ -128,3 +128,24 @@ test("turn-summary card: after an agent turn it is visible with files, protectio
   expect(await bridgeCalls(page, "RestoreCheckpoint")).toBe(1);
 });
 
+
+test("settings: thinking-effort select is built, defaults to low and saves through SetThinkingEffort", async ({ page }) => {
+  await primeMockState(page, { agentMode: true });
+  await spyBridge(page, "SetThinkingEffort");
+  await page.click("#btn-settings");
+  await page.click('.modal-tab[data-tab="model"]');
+
+  const sel = page.locator("#gen-effort");
+  await expect(sel).toBeVisible();
+  await expect(sel).toHaveValue("low");                       // پیش‌فرض کم‌مصرف
+  await expect(sel.locator("option")).toHaveCount(4);         // کم/متوسط/زیاد/خودکار
+
+  await sel.selectOption("high");
+  await page.click("#gen-save");
+  expect(await bridgeCalls(page, "SetThinkingEffort")).toBe(1);
+  const persisted = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem("kodyar-mock-v1") || "{}");
+    return s.settings && s.settings.thinkingEffort;
+  });
+  expect(persisted).toBe("high");
+});
