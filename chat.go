@@ -355,6 +355,17 @@ func streamReadErrorText(err error) string {
 	return err.Error()
 }
 
+// streamClosedAfterFinishNotice پیام خنثی برای استریمی که پس از رسیدن
+// finish_reason بدون [DONE] بسته شد — پاسخ کامل است و «ادامه» لازم نیست.
+func streamClosedAfterFinishNotice(finishReason string) string {
+	reason := strings.TrimSpace(finishReason)
+	if reason == "" {
+		reason = "stop"
+	}
+	return "اتصال استریم بدون سیگنال پایان ([DONE]) بسته شد، اما مدل پاسخ را کامل کرده بود (finish_reason: " +
+		reason + "). پاسخ کامل ذخیره شد؛ نیازی به «ادامه» نیست."
+}
+
 // pingHTTPClient برای «تست اتصال» — مشترک بین فراخوانی‌ها تا هر تست
 // یک http.Client جدید نسازد (هر Client مجموعه اتصال خودش را نگه می‌دارد).
 var pingTransport = &http.Transport{
@@ -1773,10 +1784,36 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		if scanErr != nil && ctx.Err() == nil {
 			promptTokens += roundPrompt
 			completionTokens += roundCompletion
-			a.savePartial(convID, allContent.String()[persistedLen:]+roundContent.String(), promptTokens, completionTokens, model)
-			a.emitTurnSummary(convID, turnID, turnRec, promptTokens, completionTokens)
-			a.emitChatError(myGen, "جریان پاسخ قطع شد: "+streamReadErrorText(scanErr))
-			return
+			// لاگ تشخیصیِ قطع استریم — همان داده‌ای که برای تفکیک «باگ اپ» از
+			// «Provider/پروکسی» لازم است: Provider، مدل، بایت‌های محتوا و
+			// استدلالِ دریافت‌شده، finish_reason و متن خطای شبکه.
+			a.mu.Lock()
+			providerID := a.settings.Provider
+			a.mu.Unlock()
+			logAppErrorFor(a, "stream", fmt.Sprintf(
+				"stream cut: provider=%s model=%s bytes=%d finish=%q reason=%s",
+				providerID, model, roundContent.Len()+roundThinking.Len(), roundFinish,
+				sanitizeErrorSnippet(scanErr.Error(), 160)))
+			switch {
+			case roundFinish == "":
+				// مدل هیچ سیگنال پایانی نفرستاد → واقعاً نیمه‌کاره؛ «ادامه» لازم است.
+				a.savePartial(convID, allContent.String()[persistedLen:]+roundContent.String(), promptTokens, completionTokens, model)
+				a.emitTurnSummary(convID, turnID, turnRec, promptTokens, completionTokens)
+				a.emitChatError(myGen, "جریان پاسخ قطع شد: "+streamReadErrorText(scanErr))
+				return
+			case roundFinish == "tool_calls" && len(pend) > 0:
+				// دورِ ابزار کامل شده و فقط بستن استریم غیراستاندارد بود؛ حلقه
+				// باید بدون خطا فراخوانی‌ها را اجرا کند (فروافتادن به مسیر عادی).
+			default:
+				// مدل پاسخ را تمام کرده بود (finish_reason رسید) و اتصال فقط
+				// بدون [DONE] بسته شد → پیام خنثی، ذخیرهٔ کامل و بدون «ادامه».
+				runtimeEmit(a, "chat:notice", map[string]interface{}{
+					"conversationId": convID,
+					"text":           streamClosedAfterFinishNotice(roundFinish),
+				})
+				finalize(allContent.String()[persistedLen:]+roundContent.String(), false)
+				return
+			}
 		}
 		if ctx.Err() != nil {
 			aborted = true
