@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -152,5 +153,19 @@ func TestStreamCutAfterLengthStaysTruncated(t *testing.T) {
 	logText, _ := env.app.GetErrorLog()
 	if !strings.Contains(logText, `finish="length"`) {
 		t.Fatalf("diagnostic log must record finish=length, got %q", logText)
+	}
+}
+
+// TestStreamCutText — یک پیام یکتا برای هر دو حالت نیمه‌کاره: سقف توکن خروجی
+// راه‌حل مشخص می‌دهد و بقیه به پیام فارسیِ EOF می‌رسند (خطاهای دیگر خام می‌مانند).
+func TestStreamCutText(t *testing.T) {
+	if got := streamCutText(io.ErrUnexpectedEOF, "length"); !strings.Contains(got, "length") || !strings.Contains(got, "ادامه") {
+		t.Fatalf("length cut message = %q", got)
+	}
+	if got := streamCutText(io.ErrUnexpectedEOF, ""); !strings.Contains(got, "نیمه‌کاره") {
+		t.Fatalf("eof cut message = %q", got)
+	}
+	if got := streamCutText(errors.New("boom"), ""); got != "boom" {
+		t.Fatalf("other errors must stay raw, got %q", got)
 	}
 }

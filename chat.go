@@ -355,11 +355,14 @@ func streamReadErrorText(err error) string {
 	return err.Error()
 }
 
-// streamCutLengthText پیام قطعی استریم وقتی finish_reason=length است: پاسخ به
-// سقف توکن خروجی خورده و «کامل» نیست، پس «ادامه» (یا سقف بیشتر) لازم است.
-func streamCutLengthText() string {
-	return "مدل به سقف توکن خروجی خورد و پاسخ نیمه‌کاره ماند (finish_reason: length)؛ بخش دریافت‌شده ذخیره شد. " +
-		"«ادامه» را بزنید یا سقف خروجی را در تنظیمات («مدل و رفتار») بیشتر کنید."
+// streamCutText پیام یکتای «قطع استریم» — برای سقف توکن خروجی راه‌حل مشخص
+// می‌دهد و بقیه را به streamReadErrorText (که پس از EOF پیام فارسی می‌سازد) می‌سپارد.
+func streamCutText(err error, finishReason string) string {
+	if finishReason == "length" {
+		return "مدل به سقف توکن خروجی خورد و پاسخ نیمه‌کاره ماند (finish_reason: length)؛ بخش دریافت‌شده ذخیره شد؛ " +
+			"«ادامه» را بزنید یا سقف خروجی را در تنظیمات («مدل و رفتار») بیشتر کنید."
+	}
+	return streamReadErrorText(err)
 }
 
 // streamClosedAfterFinishNotice پیام خنثی برای استریمی که پس از رسیدن
@@ -1801,31 +1804,24 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 				"stream cut: provider=%s model=%s bytes=%d finish=%q reason=%s",
 				providerID, model, roundContent.Len()+roundThinking.Len(), roundFinish,
 				sanitizeErrorSnippet(scanErr.Error(), 160)))
+			// سه حالت ممکن بعد از قطع استریم:
+			//  ۱) دورِ ابزارِ کامل (finish_reason=tool_calls) → حلقه عادی ادامه می‌دهد،
+			//  ۲) پاسخ کامل (پایانی غیر از length) → پیام خنثی و ذخیرهٔ کامل،
+			//  ۳) نیمه‌کاره (بدون finish_reason یا سقف توکن خروجی) → ذخیرهٔ بخش + «ادامه».
 			switch {
-			case roundFinish == "":
-				// مدل هیچ سیگنال پایانی نفرستاد → واقعاً نیمه‌کاره؛ «ادامه» لازم است.
-				a.savePartial(convID, allContent.String()[persistedLen:]+roundContent.String(), promptTokens, completionTokens, model)
-				a.emitTurnSummary(convID, turnID, turnRec, promptTokens, completionTokens)
-				a.emitChatError(myGen, "جریان پاسخ قطع شد: "+streamReadErrorText(scanErr))
-				return
-			case roundFinish == "length":
-				// سقف توکن خروجی: finish_reason رسیده اما پاسخ واقعاً بریده است —
-				// نباید «کامل» شمرده شود؛ «ادامه» یا افزایش سقف خروجی لازم است.
-				a.savePartial(convID, allContent.String()[persistedLen:]+roundContent.String(), promptTokens, completionTokens, model)
-				a.emitTurnSummary(convID, turnID, turnRec, promptTokens, completionTokens)
-				a.emitChatError(myGen, "جریان پاسخ قطع شد: "+streamCutLengthText())
-				return
 			case roundFinish == "tool_calls" && len(pend) > 0:
-				// دورِ ابزار کامل شده و فقط بستن استریم غیراستاندارد بود؛ حلقه
-				// باید بدون خطا فراخوانی‌ها را اجرا کند (فروافتادن به مسیر عادی).
-			default:
-				// مدل پاسخ را تمام کرده بود (finish_reason رسید) و اتصال فقط
-				// بدون [DONE] بسته شد → پیام خنثی، ذخیرهٔ کامل و بدون «ادامه».
+				// فقط بستن غیراستاندارد استریم پس از یک دور کامل؛ بدون خطا ادامه بده.
+			case roundFinish != "" && roundFinish != "length":
 				runtimeEmit(a, "chat:notice", map[string]interface{}{
 					"conversationId": convID,
 					"text":           streamClosedAfterFinishNotice(roundFinish),
 				})
 				finalize(allContent.String()[persistedLen:]+roundContent.String(), false)
+				return
+			default:
+				a.savePartial(convID, allContent.String()[persistedLen:]+roundContent.String(), promptTokens, completionTokens, model)
+				a.emitTurnSummary(convID, turnID, turnRec, promptTokens, completionTokens)
+				a.emitChatError(myGen, "جریان پاسخ قطع شد: "+streamCutText(scanErr, roundFinish))
 				return
 			}
 		}
