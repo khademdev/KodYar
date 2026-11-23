@@ -107,3 +107,50 @@ func TestStreamCutWithoutFinishStaysTruncated(t *testing.T) {
 		t.Fatalf("diagnostic log must show an empty finish_reason, got %q", logText)
 	}
 }
+
+// TestStreamCutAfterLengthStaysTruncated — finish_reason=length یعنی پاسخ به
+// سقف توکن خروجی خورده؛ هرچند finish_reason رسیده، «کامل» نیست و باید هشدار
+// نیمه‌کاره + «ادامه» بدهد، نه پیام خنثی.
+func TestStreamCutAfterLengthStaysTruncated(t *testing.T) {
+	raw := strings.Replace(sseSeq(
+		`{"choices":[{"delta":{"content":"متن بریده"}}]}`,
+		`{"choices":[{"delta":{},"finish_reason":"length"}]}`,
+	), "data: [DONE]\n\n", "", 1)
+
+	env := truncatedSSEEnv(t, raw)
+	env.send("سلام")
+
+	errs := env.eventsByName("chat:error")
+	if len(errs) == 0 {
+		t.Fatal("finish_reason=length must raise the truncated-stream warning")
+	}
+	msg := ""
+	if len(errs[0].data) > 0 {
+		if m, ok := errs[0].data[0].(map[string]interface{}); ok {
+			msg, _ = m["error"].(string)
+		}
+	}
+	if !strings.Contains(msg, "نیمه‌کاره") || !strings.Contains(msg, "ادامه") {
+		t.Fatalf("length cut must ask to continue, got %q", msg)
+	}
+	if strings.Contains(strings.Join(env.noticesText(), "\n"), "نیازی به «ادامه» نیست") {
+		t.Fatal("length cut must not get the neutral 'no need to continue' notice")
+	}
+	conv := env.lastConv(t)
+	var partial *Message
+	for i := range conv.Messages {
+		if strings.Contains(conv.Messages[i].Content, "متن بریده") {
+			partial = &conv.Messages[i]
+		}
+	}
+	if partial == nil {
+		t.Fatal("received part must be saved")
+	}
+	if !partial.Aborted {
+		t.Fatal("length cut must be saved as aborted so «ادامه» works")
+	}
+	logText, _ := env.app.GetErrorLog()
+	if !strings.Contains(logText, `finish="length"`) {
+		t.Fatalf("diagnostic log must record finish=length, got %q", logText)
+	}
+}
