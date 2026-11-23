@@ -154,7 +154,8 @@
       wtxt.textContent =
         "اجازه فقط برای دامنه‌ی «" +
         ask.pattern +
-        "» ذخیره می‌شود (نه برای همه‌ی آدرس‌ها)؛ «در این نشست» تا بستن برنامه فعال می‌ماند.";
+        "» ذخیره می‌شود (نه برای همه‌ی آدرس‌ها)؛ «در این نشست» تا بستن برنامه فعال می‌ماند. " +
+        "«تا پایان این درخواست» یک‌بار می‌پرسد و بقیه‌ی دامنه‌های همین نوبت (مثل نتایج یک جست‌وجو) را هم بی‌مودال می‌گیرد.";
       whint.appendChild(wtxt);
       body.appendChild(whint);
     }
@@ -200,6 +201,10 @@
     } else if (ask.kind === "web_host") {
       // C.1: گزینه‌ی سراسری وجود ندارد؛ فقط همین دامنه
       foot.appendChild(btn("رد", "btn btn-danger", "reject"));
+      if (ask.allowTurn) {
+        // یک تأیید برای همه‌ی دامنه‌های همین نوبت (جست‌وجو + نتایج).
+        foot.appendChild(btn("تا پایان این درخواست", "btn btn-ghost", "turn"));
+      }
       if (ask.pattern) {
         foot.appendChild(btn("در این نشست", "btn btn-ghost", "session"));
         foot.appendChild(btn("همیشه برای این دامنه", "btn btn-ghost", "always"));

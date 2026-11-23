@@ -263,3 +263,45 @@ func TestGateWebFetchInvalidURLSkipsModal(t *testing.T) {
 		t.Fatalf("no modal may be shown for an unparsable URL (got %d)", len(*asks))
 	}
 }
+
+// TestGateWebFetchTurnAllow — «تا پایان این درخواست» یک مودال برای اولین دامنه
+// است و بقیه‌ی دامنه‌های همان نوبت (نتیجه‌های یک جست‌وجو) بی‌مودال عبور می‌کنند؛
+// هیچ قاعده‌ای ذخیره نمی‌شود و نوبت بعد دوباره می‌پرسد.
+func TestGateWebFetchTurnAllow(t *testing.T) {
+	a := newTestApp(t)
+	asks, _ := createAskResponder(t, a, []string{"turn", "allow"})
+
+	ctx := context.Background()
+	if ok, msg := a.gateWebFetch(ctx, "https://html.duckduckgo.com/html/?q=go"); !ok {
+		t.Fatalf("turn allow must permit the first host: %s", msg)
+	}
+	if n := len(*asks); n != 1 {
+		t.Fatalf("expected one modal, got %d", n)
+	}
+	if !(*asks)[0].AllowTurn {
+		t.Fatal("web_host ask must offer the turn-scoped option")
+	}
+	// دامنه‌ی دیگر همان نوبت: بدون مودال
+	if ok, msg := a.gateWebFetch(ctx, "https://example.com/result"); !ok {
+		t.Fatalf("turn grant must cover other hosts in the same turn: %s", msg)
+	}
+	if n := len(*asks); n != 1 {
+		t.Fatalf("turn grant must not ask again, got %d modals", n)
+	}
+	// هیچ قاعده‌ی ماندگار/نشستی ذخیره نشده است
+	if a.webHostAllowed("example.com") || len(a.sessionWebHosts) != 0 {
+		t.Fatalf("turn grant must not persist rules: session=%v persistent=%v",
+			a.sessionWebHosts, a.settings.Permissions.WebHosts)
+	}
+
+	// نوبت بعد: پرچم پاک می‌شود و دامنه‌ی تازه دوباره می‌پرسد (تصمیم بعدی: allow)
+	a.mu.Lock()
+	a.webTurnAllow = false
+	a.mu.Unlock()
+	if ok, msg := a.gateWebFetch(ctx, "https://third.example.net/x"); !ok {
+		t.Fatalf("next turn must ask again and allow on demand: %s", msg)
+	}
+	if n := len(*asks); n != 2 {
+		t.Fatalf("a new turn must prompt again, got %d modals", n)
+	}
+}

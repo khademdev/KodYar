@@ -131,19 +131,34 @@ func (a *App) gateWebFetch(ctx context.Context, rawURL string) (bool, string) {
 	if a.webHostAllowed(host) {
 		return true, ""
 	}
+	// «تا پایان همین درخواست»: یک تأیید برای همه‌ی دامنه‌های همان نوبت
+	// (جست‌وجو + چند نتیجه). با درخواست بعدی خودکار پاک می‌شود.
+	a.mu.Lock()
+	turnAllowed := a.webTurnAllow
+	a.mu.Unlock()
+	if turnAllowed {
+		return true, ""
+	}
 	ask := &permissionAsk{
-		ID:      "perm-" + newID(),
-		Kind:    "web_host",
-		URL:     rawURL,
-		Pattern: host,
-		Message: "اجازه‌ی دریافت از دامنه‌ی «" + host + "» را می‌دهید؟",
-		At:      timeNow(),
+		ID:        "perm-" + newID(),
+		Kind:      "web_host",
+		URL:       rawURL,
+		Pattern:   host,
+		AllowTurn: true,
+		Message:   "اجازه‌ی دریافت از دامنه‌ی «" + host + "» را می‌دهید؟",
+		At:        timeNow(),
 	}
 	switch a.requestPermissionConfirm(ctx, ask) {
 	case permRespondAllow:
 		return true, ""
 	case permRespondSession:
 		a.appendSessionWebHostRule(host)
+		return true, ""
+	case permRespondTurn:
+		// همه‌ی دامنه‌ها فقط تا پایان همین نوبت؛ هیچ قاعده‌ای ذخیره نمی‌شود.
+		a.mu.Lock()
+		a.webTurnAllow = true
+		a.mu.Unlock()
 		return true, ""
 	case permRespondAlways:
 		if err := a.appendWebHostRule(host, "allow"); err != nil {

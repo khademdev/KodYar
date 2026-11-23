@@ -286,7 +286,10 @@ const (
 	permRespondAllow   = "allow"   // یک‌بار
 	permRespondAlways  = "always"  // همیشه برای این الگو (ماندگار)
 	permRespondSession = "session" // تا پایان این نشست (حافظه‌ای)
-	permRespondReject  = "reject"  // رد
+	// permRespondTurn فقط برای web_host: همه‌ی دامنه‌ها تا پایان همین
+	// درخواست (یک نوبت)، بدون قاعده‌ی ماندگار.
+	permRespondTurn   = "turn"
+	permRespondReject = "reject" // رد
 )
 
 // permissionAsk یک درخواست تأیید دسترسی در انتظار پاسخ کاربر.
@@ -299,10 +302,13 @@ type permissionAsk struct {
 	Path     string `json:"path,omitempty"`     // فایل حساس (فقط kind=sensitive_read)
 	// Detail فهرست فایل‌های درگیر است (kind=git_write) — UI به‌صورت لیست
 	// LTR نمایش می‌دهد؛ برای پیام‌های دیگر خالی است.
-	Detail  []string `json:"detail,omitempty"`
-	URL     string   `json:"url,omitempty"` // آدرس درخواستی (فقط ابزار web_fetch) — نمایش با ایزوله‌سازی bidi
-	Message string   `json:"message"`       // فارسی — نمایش به کاربر
-	At      int64    `json:"at"`
+	Detail []string `json:"detail,omitempty"`
+	URL    string   `json:"url,omitempty"` // آدرس درخواستی (فقط ابزار web_fetch) — نمایش با ایزوله‌سازی bidi
+	// AllowTurn گزینه‌ی «تا پایان همین درخواست» را نشان می‌دهد (فقط
+	// web_host): یک تأیید برای همه‌ی دامنه‌های همان نوبت.
+	AllowTurn bool   `json:"allowTurn,omitempty"`
+	Message   string `json:"message"` // فارسی — نمایش به کاربر
+	At        int64  `json:"at"`
 	// TimeoutSec مهلت پاسخ (ثانیه) — UI با همین شمارش معکوس نشان می‌دهد تا
 	// کاربر پیش از ردِ خودکار بک‌اند بداند چقدر وقت دارد.
 	TimeoutSec int `json:"timeoutSec,omitempty"`
@@ -364,11 +370,11 @@ func (a *App) requestPermissionConfirm(ctx context.Context, ask *permissionAsk) 
 }
 
 // RespondPermissionConfirm پاسخ کاربر به مودال دسترسی را تحویل می‌دهد.
-// decision: allow | always | session | reject (مقدار نامعتبر = reject).
+// decision: allow | always | session | turn | reject (مقدار نامعتبر = reject).
 func (a *App) RespondPermissionConfirm(askID, decision string) error {
 	defer a.recoverBound("RespondPermissionConfirm")
 	switch strings.ToLower(strings.TrimSpace(decision)) {
-	case permRespondAllow, permRespondAlways, permRespondSession, permRespondReject:
+	case permRespondAllow, permRespondAlways, permRespondSession, permRespondTurn, permRespondReject:
 	default:
 		return errors.New("تصمیم نامعتبر است (allow | always | session | reject)")
 	}

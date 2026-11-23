@@ -438,6 +438,8 @@ func (a *App) SendMessage(convID, content string, images []string) (*Conversatio
 	}
 
 	a.mu.Lock()
+	// اجازه‌ی «تا پایان درخواست» فقط برای همین نوبت بود.
+	a.webTurnAllow = false
 	var conv *Conversation
 	if convID == "" {
 		conv = &Conversation{
@@ -517,6 +519,7 @@ func (a *App) Regenerate(convID string) (*Conversation, error) {
 	}
 
 	a.mu.Lock()
+	a.webTurnAllow = false
 	conv, err := a.loadConversation(convID)
 	if err != nil {
 		a.mu.Unlock()
@@ -618,6 +621,7 @@ func (a *App) EditMessage(convID, messageID, content string) (*Conversation, err
 	}
 
 	a.mu.Lock()
+	a.webTurnAllow = false
 	conv, err := a.loadConversation(convID)
 	if err != nil {
 		a.mu.Unlock()
@@ -690,6 +694,7 @@ func (a *App) ApprovePlan(convID string) (*Conversation, error) {
 		return nil, errors.New("پاسخ‌دهی قبلی هنوز در جریان است؛ ابتدا آن را متوقف کنید")
 	}
 	a.mu.Lock()
+	a.webTurnAllow = false
 	conv, err := a.loadConversation(convID)
 	if err != nil {
 		a.mu.Unlock()
@@ -755,6 +760,7 @@ func (a *App) ResumeAgent(convID string) (*Conversation, error) {
 		return nil, errors.New("پاسخ‌دهی دیگری در جریان است؛ ابتدا آن را متوقف کنید")
 	}
 	a.mu.Lock()
+	a.webTurnAllow = false
 	conv, err := a.loadConversation(convID)
 	if err != nil {
 		a.mu.Unlock()
