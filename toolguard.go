@@ -620,6 +620,29 @@ func isReasoningEffortUnsupported(status int, body string) bool {
 	return strings.Contains(b, "reasoning_effort") || strings.Contains(b, "reasoning effort")
 }
 
+// thinkingEffortForProvider «میزان فکر کردن»ی که برای این Provider باید
+// فرستاده شود؛ "" یعنی پارامتر اصلاً نرود (حالت خودکار، یا Providerی که
+// قبلاً ۴۰۰ داده و در حافظه نشانه خورده). مسیر اصلی، زیرایجنت و خلاصه‌ساز
+// همه از همین یک تابع استفاده می‌کنند تا سیاست یکسان بماند.
+func thinkingEffortForProvider(setting, baseURL string) string {
+	e := normalizeThinkingEffort(setting)
+	if e == thinkingEffortAuto || !providerSupportsReasoningEffort(baseURL) {
+		return ""
+	}
+	return e
+}
+
+// dropThinkingEffortOnRejection اگر این پاسخ ۴۰۰ به‌خاطر reasoning_effort
+// باشد، Provider را در حافظه نشانه می‌زند و true برمی‌گرداند تا caller همان
+// درخواست را یک‌بار — بدون پارامتر و بدون سوزاندن دور — تکرار کند.
+func dropThinkingEffortOnRejection(sentEffort string, status int, body, baseURL string) bool {
+	if sentEffort == "" || !isReasoningEffortUnsupported(status, body) {
+		return false
+	}
+	markReasoningEffortBroken(baseURL)
+	return true
+}
+
 // isStreamOptionsUnsupported آیا این پاسخ ۴۰۰ دقیقاً به‌خاطر stream_options
 // است؟ (متن خطا باید به آن اشاره کند — همان قرارداد isMaxTokensError برای
 // max_tokens در quickPing.)

@@ -471,8 +471,7 @@ func (a *App) runSubagent(ctx context.Context, task string) (report string, ok b
 					round--
 					continue
 				}
-				if res.reasoningEffort && isReasoningEffortUnsupported(httpErr.status, reason) {
-					markReasoningEffortBroken(baseURL)
+				if dropThinkingEffortOnRejection(res.reasoningEffort, httpErr.status, reason, baseURL) {
 					round--
 					continue
 				}
@@ -590,7 +589,8 @@ type subagentSession struct {
 	temperature         float64
 	maxTokens           int
 	supportsTemperature bool
-	// thinkingEffort همان تنظیم نوبت والد است؛ زیرایجنت‌ها هم کم‌فکر می‌کنند.
+	// thinkingEffort تنظیمِ خام «میزان فکر کردن» نوبت والد است؛ سیاست ارسال
+	// و عقب‌نشینی در subagentRequest با thinkingEffortForProvider یکی است.
 	thinkingEffort string
 }
 
@@ -604,9 +604,9 @@ type subagentRound struct {
 	// streamOptions یعنی این درخواست stream_options داشت — برای عقب‌نشینی
 	// یک‌باره‌ی حلقه در پاسخ ۴۰۰ مربوط به آن.
 	streamOptions bool
-	// reasoningEffort یعنی درخواست reasoning_effort داشت — برای عقب‌نشینی
-	// یک‌باره‌ی حلقه در ۴۰۰ِ مربوط به آن (مثل stream_options).
-	reasoningEffort bool
+	// reasoningEffort مقدارِ پارامتری است که این درخواست فرستاد (خالی = هیچ) —
+	// برای عقب‌نشینی یک‌باره‌ی حلقه در ۴۰۰ِ مربوط به آن (مثل stream_options).
+	reasoningEffort string
 }
 
 // subagentHTTPError پاسخ غیر-۲۰۰ سرویس‌دهنده در یک دور.
@@ -662,11 +662,11 @@ func (a *App) subagentRequest(ctx context.Context, s *subagentSession, history [
 	if providerSupportsStreamUsage(s.baseURL) {
 		reqBody.StreamOptions = &chatStreamOptions{IncludeUsage: true}
 	}
-	if s.thinkingEffort != thinkingEffortAuto && providerSupportsReasoningEffort(s.baseURL) {
-		reqBody.ReasoningEffort = s.thinkingEffort
+	if e := thinkingEffortForProvider(s.thinkingEffort, s.baseURL); e != "" {
+		reqBody.ReasoningEffort = e
 	}
 	out.streamOptions = reqBody.StreamOptions != nil
-	out.reasoningEffort = reqBody.ReasoningEffort != ""
+	out.reasoningEffort = reqBody.ReasoningEffort
 	body, _ := json.Marshal(reqBody)
 	// نگهبان سکون — همان سیاست گفتگوی اصلی؛ زیرایجنت هم نباید بی‌پایان
 	// «فکر کند». مهلت در شروع درخواست خوانده می‌شود.

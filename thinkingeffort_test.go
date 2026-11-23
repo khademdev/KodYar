@@ -296,3 +296,42 @@ func TestSummarizerRespectsAutoEffort(t *testing.T) {
 		t.Fatalf("auto mode must omit reasoning_effort, got %v", (*bodies)[0]["reasoning_effort"])
 	}
 }
+
+// TestThinkingEffortHelpers — سیاست مشترک سه مسیر: انتخاب مقدار قابل‌ارسال
+// و تصمیم عقب‌نشینی، هر دو از یک‌جا.
+func TestThinkingEffortHelpers(t *testing.T) {
+	base := "http://effort-helper.test/v1"
+	for setting, want := range map[string]string{
+		"":       thinkingEffortLow,
+		"medium": thinkingEffortMedium,
+		"HIGH":   thinkingEffortHigh,
+		"auto":   "",
+		"junk":   thinkingEffortLow,
+	} {
+		if got := thinkingEffortForProvider(setting, base); got != want {
+			t.Fatalf("thinkingEffortForProvider(%q) = %q, want %q", setting, got, want)
+		}
+	}
+
+	// ۴۰۰ِ نامربوط: نه عقب‌نشینی، نه علامت‌گذاری Provider.
+	if dropThinkingEffortOnRejection(thinkingEffortLow, 400, "invalid model", base) {
+		t.Fatal("unrelated 400 must not trigger the fallback")
+	}
+	if !providerSupportsReasoningEffort(base) {
+		t.Fatal("unrelated 400 must not mark the provider")
+	}
+	// هیچ پارامتری نفرستاده بودیم → هیچ عقب‌نشینی‌ای لازم نیست.
+	if dropThinkingEffortOnRejection("", 400, "unknown parameter reasoning_effort", base) {
+		t.Fatal("nothing was sent, so there is nothing to retry")
+	}
+	// ۴۰۰ِ مربوطه: عقب‌نشینی + حافظه، و از آن به بعد این Provider پارامتر نمی‌گیرد.
+	if !dropThinkingEffortOnRejection(thinkingEffortLow, 400, "unknown parameter: reasoning_effort", base) {
+		t.Fatal("reasoning_effort 400 must trigger the fallback")
+	}
+	if providerSupportsReasoningEffort(base) {
+		t.Fatal("provider memory must record the rejection")
+	}
+	if got := thinkingEffortForProvider("high", base); got != "" {
+		t.Fatalf("after rejection the provider must get no effort, got %q", got)
+	}
+}

@@ -174,7 +174,7 @@ func (a *App) oneShotChat(ctx context.Context, system, user string, maxTokens in
 	a.mu.Lock()
 	provider := a.findProvider(a.settings.Provider)
 	model := a.settings.Model
-	var baseURL, key string
+	var baseURL, key, thinkingEffortSetting string
 	if provider != nil {
 		baseURL = provider.BaseURL
 		if model == "" && len(provider.Models) > 0 {
@@ -184,6 +184,7 @@ func (a *App) oneShotChat(ctx context.Context, system, user string, maxTokens in
 			key = a.decryptKey(provider.ID)
 		}
 	}
+	thinkingEffortSetting = a.settings.ThinkingEffort
 	a.mu.Unlock()
 	if provider == nil || strings.TrimSpace(baseURL) == "" || strings.TrimSpace(model) == "" {
 		return "", fmt.Errorf("no provider/model configured")
@@ -195,10 +196,7 @@ func (a *App) oneShotChat(ctx context.Context, system, user string, maxTokens in
 	// «میزان فکر کردن» خلاصه‌ساز هم مثل نوبت اصلی: استدلال اضافی اینجا هم
 	// فقط توکن می‌سوزاند، کارِ خلاصه‌سازی را بهتر نمی‌کند. Provider ناشناس
 	// یک‌بار ۴۰۰ می‌دهد و پایین‌تر همان درخواست بدون پارامتر تکرار می‌شود.
-	thinkingEffort := normalizeThinkingEffort(a.settings.ThinkingEffort)
-	if thinkingEffort == thinkingEffortAuto || !providerSupportsReasoningEffort(baseURL) {
-		thinkingEffort = ""
-	}
+	thinkingEffort := thinkingEffortForProvider(thinkingEffortSetting, baseURL)
 	send := func(effort string) (*http.Response, error) {
 		payload := map[string]interface{}{
 			"model": model,
@@ -236,8 +234,7 @@ func (a *App) oneShotChat(ctx context.Context, system, user string, maxTokens in
 	if resp.StatusCode != 200 && thinkingEffort != "" {
 		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 8*1024))
 		resp.Body.Close()
-		if isReasoningEffortUnsupported(resp.StatusCode, string(errBody)) {
-			markReasoningEffortBroken(baseURL)
+		if dropThinkingEffortOnRejection(thinkingEffort, resp.StatusCode, string(errBody), baseURL) {
 			if resp, err = send(""); err != nil {
 				return "", err
 			}

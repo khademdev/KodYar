@@ -1417,8 +1417,8 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 		}
 		// «میزان فکر کردن» — پیش‌فرض low تا استدلال اضافی توکن نسوزاند؛
 		// Provider ناشناس یک‌بار ۴۰۰ می‌دهد و بعد از آن پارامتر حذف می‌شود.
-		if thinkingEffort != thinkingEffortAuto && providerSupportsReasoningEffort(baseURL) {
-			reqBody.ReasoningEffort = thinkingEffort
+		if e := thinkingEffortForProvider(thinkingEffort, baseURL); e != "" {
+			reqBody.ReasoningEffort = e
 		}
 		if supportsTemperature(model) {
 			t := temperature
@@ -1529,8 +1529,7 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 				continue
 			}
 			// ۴۰۰ِ مربوط به reasoning_effort → یک‌بار بدون آن؛ مثل بقیه، دور مصرف نمی‌شود.
-			if reqBody.ReasoningEffort != "" && isReasoningEffortUnsupported(resp.StatusCode, reason) {
-				markReasoningEffortBroken(baseURL)
+			if dropThinkingEffortOnRejection(reqBody.ReasoningEffort, resp.StatusCode, reason, baseURL) {
 				round--
 				continue
 			}
