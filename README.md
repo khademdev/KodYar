@@ -297,10 +297,10 @@ wails build
 
 # بستهٔ ویندوزی با متادیتای نسخه (Properties → Details) — این اسکریپت را
 # workflow انتشار هم صدا می‌زند؛ goversioninfo را خودکار با go run می‌آورد.
-bash build.sh 1.0.2
+bash build.sh 1.0.3
 
 # بدون متادیتای نسخه (فقط برای بررسی سریع کامپایل متقاطع)
-wails build -platform windows/amd64 -skipbindings -nopackage -ldflags "-s -w -X main.version=1.0.2"
+wails build -platform windows/amd64 -skipbindings -nopackage -ldflags "-s -w -X main.version=1.0.3"
 
 # خروجی این‌جا ساخته می‌شود:
 #   ویندوز: build/bin/KodYar.exe

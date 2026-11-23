@@ -15,10 +15,10 @@ cd "$(dirname "$0")"
 # و لینکر خطای «unknown relocation type 7» می‌دهد — پس خود اسکریپت پین می‌کند.
 export GOARCH=amd64
 
-VERSION="${1:-1.0.2}"  # با آخرین سرفصل CHANGELOG یکی بماند
+VERSION="${1:-1.0.3}"  # با آخرین سرفصل CHANGELOG یکی بماند
 
 # اجزای عددی نسخه برای resource ویندوز (x.y.z → x, y, z)
-VER_MAJOR=1; VER_MINOR=0; VER_PATCH=2
+VER_MAJOR=1; VER_MINOR=0; VER_PATCH=3
 if [[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
     VER_MAJOR="${BASH_REMATCH[1]}"
     VER_MINOR="${BASH_REMATCH[2]}"

@@ -178,7 +178,7 @@ jobs:
 
       # همان اسکریپت مستند: resource نسخه (Properties ویندوز) + wails build.
       - name: Build package (windows/amd64)
-        run: bash build.sh 1.0.2
+        run: bash build.sh 1.0.3
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
