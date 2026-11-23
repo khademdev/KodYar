@@ -174,6 +174,9 @@ func (a *App) startup(ctx context.Context) {
 		runtime.LogWarningf(ctx, "load settings: %v", err)
 		a.settings = defaultSettings()
 	}
+	// «این Provider reasoning_effort را رد کرده» از تنظیمات بازیابی می‌شود
+	// تا هر اجرا دوباره یک ۴۰۰ِ اضافی نگیرد.
+	seedReasoningEffortRejections(a.settings.ReasoningEffortRejected)
 
 	// پایش خودکار شارژ سرویس‌دهنده (usageguard.go): هر ۱۵ دقیقه موجودی Provider
 	// فعال بررسی می‌شود؛ افزایش موجودی یا بازیابی پس از خطای سهمیه → شمارنده‌های

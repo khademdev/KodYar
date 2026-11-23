@@ -39,12 +39,27 @@ jobs:
       - name: Sanity check (tests must pass before publishing)
         run: go test -count=1 ./...
 
-      - name: Wails build (windows/amd64, skipbindings)
+      # همان اسکریپت محلی: resource نسخه (Properties ویندوز) + بیلد wails.
+      - name: Build package (windows/amd64)
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           echo "building KodYar ${VERSION}"
-          wails build -platform windows/amd64 -skipbindings \
-            -ldflags "-s -w -H windowsgui -X main.version=${VERSION}"
+          bash build.sh "$VERSION"
+
+      # توضیح انتشار از همان بخش نسخه در CHANGELOG.md استخراج می‌شود تا
+      # فهرست تغییرها یک منبع داشته باشد و دستی تکرار نشود.
+      - name: Release notes from CHANGELOG
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v v="## ${VERSION}" '
+            index($0, v) == 1 { inside = 1 }
+            inside && /^## / && index($0, v) != 1 { exit }
+            inside { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "::error::CHANGELOG.md has no '## ${VERSION}' section"
+            exit 1
+          fi
 
       - name: Publish release with the Windows executable
         env:
@@ -55,11 +70,11 @@ jobs:
           # جدید با notes تولیدشده ساخته می‌شود.
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" build/bin/KodYar.exe --clobber
-          elif [ -f RELEASE_NOTES.md ]; then
-            # توضیح کوتاه و دست‌نویسِ همین نسخه (انگلیسی) در این فایل است.
+          elif [ -s release-notes.md ]; then
+            # همان بخش نسخه از CHANGELOG.md که مرحلهٔ بالا ساخت.
             gh release create "$GITHUB_REF_NAME" build/bin/KodYar.exe \
               --title "KodYar ${GITHUB_REF_NAME#v}" \
-              --notes-file RELEASE_NOTES.md \
+              --notes-file release-notes.md \
               --verify-tag
           else
             gh release create "$GITHUB_REF_NAME" build/bin/KodYar.exe \

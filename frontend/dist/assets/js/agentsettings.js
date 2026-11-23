@@ -445,8 +445,29 @@
       });
   }
 
+  // نسخهٔ اجراشده و وضعیت «میزان فکر کردن» در همان کارت «مدل و رفتار».
+  // نسخه از SettingsView می‌آید (همان مقدار ldflags) تا بستهٔ منتشرشده در UI هم
+  // قابل بررسی باشد؛ reasoningEffortLimited یعنی Provider فعلی پارامتر را ۴۰۰
+  // داده و از این پس بدون آن درخواست می‌رود.
+  function buildVersionRow() {
+    var host = document.querySelector("#model-panel .form-card");
+    if (!host || document.getElementById("gen-version-row")) return;
+    var view = (window.KodYarState && window.KodYarState.view) || {};
+    var v = view.version || "";
+    if (!v) return;
+    var row = document.createElement("div");
+    row.className = "hint-row";
+    row.id = "gen-version-row";
+    row.textContent = "نسخهٔ KodYar: " + v +
+      (view.reasoningEffortLimited
+        ? " — این سرویس‌دهنده «میزان فکر کردن» را نمی‌پذیرد؛ بدون آن درخواست می‌رود (تغییر دستی گزینه دوباره امتحان می‌کند)."
+        : "");
+    host.appendChild(row);
+  }
+
   function init() {
     buildIdleField();
+    buildVersionRow();
     buildCacheRow();
     syncCacheSwitch((window.KodYarState && window.KodYarState.view || {}).promptCache);
     buildAutoVerifyRow();

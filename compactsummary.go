@@ -235,6 +235,7 @@ func (a *App) oneShotChat(ctx context.Context, system, user string, maxTokens in
 		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 8*1024))
 		resp.Body.Close()
 		if dropThinkingEffortOnRejection(thinkingEffort, resp.StatusCode, string(errBody), baseURL) {
+			a.noteReasoningEffortRejected(baseURL)
 			if resp, err = send(""); err != nil {
 				return "", err
 			}

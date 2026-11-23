@@ -1,7 +1,7 @@
 # .github/workflows/ci.yml — CI برای KodYar.
 #
-# NOTE: این فایل با بازخوانی دقیق و parse آفلاین YAML اعتبارسنجی شده؛ روی
-# GitHub Actions اجرا نشده است (رانر محلی در دسترس نبود).
+# NOTE: این workflow روی GitHub Actions اجرا می‌شود (نسخهٔ 1.0.2 و تگ v1.0.2
+# واقعاً اجرا و سبز شدند)؛ تست‌های محلی ویندوز هم همان مسیر را پوشش می‌دهند.
 #
 #   - windows (اصلی): gofmt + vet + test -race — محصول روی ویندوز است.
 #   - linux (ثانویه): پکیج‌های GTK/WebKit که وایلز برای کامپایل لازم دارد؛
@@ -176,8 +176,9 @@ jobs:
       - name: Install Wails CLI (pinned to go.mod version)
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1
 
-      - name: Wails build (windows/amd64, skipbindings)
-        run: wails build -platform windows/amd64 -skipbindings -ldflags "-s -w -H windowsgui -X main.version=1.0.2"
+      # همان اسکریپت مستند: resource نسخه (Properties ویندوز) + wails build.
+      - name: Build package (windows/amd64)
+        run: bash build.sh 1.0.2
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

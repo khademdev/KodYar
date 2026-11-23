@@ -141,9 +141,14 @@ type Settings struct {
 	// ThinkingEffort سقف «فکر کردن» مدل برای Providerهایی که reasoning_effort را
 	// می‌پذیرند: low (پیش‌فرض) | medium | high | auto (پارامتر فرستاده نشود).
 	// استدلال اضافی توکن می‌سوزاند بدون آنکه کارِ انجام‌شده بیشتر شود.
-	ThinkingEffort    string `json:"thinkingEffort,omitempty"`
-	MaxAgentRounds    int    `json:"maxAgentRounds"`    // سقف دورهای اجرای ابزار ایجنت در یک پاسخ (پیش‌فرض ۲۵، محدوده ۵ تا ۲۰۰)
-	MaxSubagentRounds int    `json:"maxSubagentRounds"` // سقف دورهای ابزار زیرایجنتِ task پیش‌فرض ۸، محدوده ۳ تا ۵۰)
+	ThinkingEffort string `json:"thinkingEffort,omitempty"`
+	// ReasoningEffortRejected کلید سرویس‌دهنده‌هایی که reasoning_effort را با
+	// ۴۰۰ رد کرده‌اند (streamUsageProviderKey). قبلاً فقط در حافظه بود و هر
+	// اجرا دوباره یک ۴۰۰ِ اضافی می‌گرفت؛ حالا پایدار است و با تغییر دستی
+	// «میزان فکر کردن» پاک می‌شود تا کاربر بتواند دوباره امتحان کند.
+	ReasoningEffortRejected []string `json:"reasoningEffortRejected,omitempty"`
+	MaxAgentRounds          int      `json:"maxAgentRounds"`    // سقف دورهای اجرای ابزار ایجنت در یک پاسخ (پیش‌فرض ۲۵، محدوده ۵ تا ۲۰۰)
+	MaxSubagentRounds       int      `json:"maxSubagentRounds"` // سقف دورهای ابزار زیرایجنتِ task پیش‌فرض ۸، محدوده ۳ تا ۵۰)
 
 	// SubagentModel مدلِ اختیاری برای زیرایجنت task؛ خالی = همان مدل اصلی.
 	// برای «کاوش با مدل ارزان، اجرا با مدل قوی» است و Provider همان Provider فعال است.
@@ -995,19 +1000,26 @@ func (a *App) SettingsView() map[string]interface{} {
 		"maxConvKb":            s.MaxConvKB,
 		"maxAgentRounds":       clampMaxAgentRounds(s.MaxAgentRounds),
 		"thinkingEffort":       normalizeThinkingEffort(s.ThinkingEffort),
-		"maxSubagentRounds":    clampMaxSubagentRounds(s.MaxSubagentRounds),
-		"maxHistory":           s.MaxHistory,
-		"theme":                s.Theme,
-		"fontSize":             s.FontSize,
-		"density":              s.Density,
-		"customTools":          copyCustomTools(s.CustomTools),
-		"mcpServers":           maskedMCPServers(s.MCPServers),
-		"pendingChanges":       pending,
-		"proxyMode":            normalizeProxyMode(s.ProxyMode),
-		"proxyURL":             s.ProxyURL,
-		"sandbox":              sandboxEnabledLocked(s),
-		"sandboxNetwork":       !s.SandboxNoNetwork,
-		"sandboxAvailable":     sandboxSupported(),
+		"reasoningEffortLimited": func() bool {
+			if p := a.findProvider(s.Provider); p != nil {
+				return !providerSupportsReasoningEffort(p.BaseURL)
+			}
+			return false
+		}(),
+		"version":           version,
+		"maxSubagentRounds": clampMaxSubagentRounds(s.MaxSubagentRounds),
+		"maxHistory":        s.MaxHistory,
+		"theme":             s.Theme,
+		"fontSize":          s.FontSize,
+		"density":           s.Density,
+		"customTools":       copyCustomTools(s.CustomTools),
+		"mcpServers":        maskedMCPServers(s.MCPServers),
+		"pendingChanges":    pending,
+		"proxyMode":         normalizeProxyMode(s.ProxyMode),
+		"proxyURL":          s.ProxyURL,
+		"sandbox":           sandboxEnabledLocked(s),
+		"sandboxNetwork":    !s.SandboxNoNetwork,
+		"sandboxAvailable":  sandboxSupported(),
 	}
 }
 
@@ -1284,6 +1296,9 @@ func (a *App) SetThinkingEffort(mode string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.settings.ThinkingEffort = normalizeThinkingEffort(mode)
+	// انتخاب دستی یعنی «از نو امتحان کن»: هم حافظه و هم فهرست پایدار پاک می‌شود.
+	a.settings.ReasoningEffortRejected = nil
+	resetReasoningEffortMemo()
 	return a.saveSettings()
 }
 

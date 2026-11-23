@@ -600,6 +600,52 @@ func providerSupportsReasoningEffort(baseURL string) bool {
 	return !reasoningEffortMem.broken[k]
 }
 
+// seedReasoningEffortRejections حافظه را از فهرست پایدار تنظیمات پر می‌کند
+// (startup) تا درخواست اولِ هر اجرا دوباره ۴۰۰ نگیرد.
+func seedReasoningEffortRejections(keys []string) {
+	reasoningEffortMem.mu.Lock()
+	defer reasoningEffortMem.mu.Unlock()
+	reasoningEffortMem.broken = nil
+	for _, k := range keys {
+		if k == "" {
+			continue
+		}
+		if reasoningEffortMem.broken == nil {
+			reasoningEffortMem.broken = map[string]bool{}
+		}
+		reasoningEffortMem.broken[k] = true
+	}
+}
+
+// resetReasoningEffortMemo حافظه را پاک می‌کند؛ وقتی کاربر «میزان فکر کردن»
+// را دستی عوض می‌کند صدا زده می‌شود تا دوباره تلاش شود.
+func resetReasoningEffortMemo() {
+	reasoningEffortMem.mu.Lock()
+	defer reasoningEffortMem.mu.Unlock()
+	reasoningEffortMem.broken = nil
+}
+
+// noteReasoningEffortRejected رد شدن را هم در حافظه و هم در تنظیمات ثبت
+// می‌کند؛ بدون این، هر اجرای دوبارهٔ برنامه یک ۴۰۰ِ بی‌فایده می‌فرستاد.
+func (a *App) noteReasoningEffortRejected(baseURL string) {
+	markReasoningEffortBroken(baseURL)
+	key := streamUsageProviderKey(baseURL)
+	if key == "" {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, k := range a.settings.ReasoningEffortRejected {
+		if k == key {
+			return
+		}
+	}
+	a.settings.ReasoningEffortRejected = append(a.settings.ReasoningEffortRejected, key)
+	if err := a.saveSettings(); err != nil {
+		logAppErrorFor(a, "settings", "persist reasoning_effort rejection: "+err.Error())
+	}
+}
+
 // markReasoningEffortBroken سرویس‌دهنده را در حافظه نشانه‌گذاری می‌کند.
 func markReasoningEffortBroken(baseURL string) {
 	k := streamUsageProviderKey(baseURL)

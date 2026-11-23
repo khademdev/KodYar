@@ -355,6 +355,14 @@ func streamReadErrorText(err error) string {
 	return err.Error()
 }
 
+// streamCutToolRoundComplete آیا قطع استریم پس از یک دورِ ابزارِ کامل رخ داده؟
+// finish_reason در چانک آخر می‌آید؛ بعضی Providerها اتصال را کمی زودتر
+// می‌بندند و آن را نمی‌فرستند، ولی JSON آرگومان‌ها کامل پارس شده است — پس
+// اجرای همان ابزارها درست است، نه پیام «پاسخ نیمه‌کاره».
+func streamCutToolRoundComplete(finish string, parsedCalls int) bool {
+	return parsedCalls > 0 && (finish == "" || finish == "tool_calls")
+}
+
 // streamCutText پیام یکتای «قطع استریم» — برای سقف توکن خروجی راه‌حل مشخص
 // می‌دهد و بقیه را به streamReadErrorText (که پس از EOF پیام فارسی می‌سازد) می‌سپارد.
 func streamCutText(err error, finishReason string) string {
@@ -1551,6 +1559,7 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 			}
 			// ۴۰۰ِ مربوط به reasoning_effort → یک‌بار بدون آن؛ مثل بقیه، دور مصرف نمی‌شود.
 			if dropThinkingEffortOnRejection(reqBody.ReasoningEffort, resp.StatusCode, reason, baseURL) {
+				a.noteReasoningEffortRejected(baseURL)
 				round--
 				continue
 			}
@@ -1805,11 +1814,11 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 				providerID, model, roundContent.Len()+roundThinking.Len(), roundFinish,
 				sanitizeErrorSnippet(scanErr.Error(), 160)))
 			// سه حالت ممکن بعد از قطع استریم:
-			//  ۱) دورِ ابزارِ کامل (finish_reason=tool_calls) → حلقه عادی ادامه می‌دهد،
+			//  ۱) دورِ ابزارِ کامل (فراخوانی‌های پارس‌شده) → حلقه عادی ادامه می‌دهد،
 			//  ۲) پاسخ کامل (پایانی غیر از length) → پیام خنثی و ذخیرهٔ کامل،
 			//  ۳) نیمه‌کاره (بدون finish_reason یا سقف توکن خروجی) → ذخیرهٔ بخش + «ادامه».
 			switch {
-			case roundFinish == "tool_calls" && len(pend) > 0:
+			case streamCutToolRoundComplete(roundFinish, len(pend)):
 				// فقط بستن غیراستاندارد استریم پس از یک دور کامل؛ بدون خطا ادامه بده.
 			case roundFinish != "" && roundFinish != "length":
 				runtimeEmit(a, "chat:notice", map[string]interface{}{

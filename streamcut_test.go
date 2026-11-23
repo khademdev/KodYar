@@ -222,3 +222,119 @@ func TestStreamCutAfterToolRoundContinues(t *testing.T) {
 		t.Fatalf("turn must continue with a normal next round, got %q", lastAssistantOf(t, conv).Content)
 	}
 }
+
+// TestStreamCutWithoutFinishAfterToolRoundContinues — Providerی که finish_reason
+// را نمی‌فرستد و اتصال را می‌بندد: فراخوانی‌های پارس‌شده یعنی دورِ ابزار کامل
+// است، پس ابزار اجرا می‌شود و نوبت ادامه می‌یابد (نه پیام «نیمه‌کاره»).
+func TestStreamCutWithoutFinishAfterToolRoundContinues(t *testing.T) {
+	var mu sync.Mutex
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests++
+		n := requests
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		if n == 1 {
+			w.Header().Set("Content-Length", "99999")
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, "data: "+`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"write_file","arguments":"{\"path\":\"cutnofinish.txt\",\"content\":\"ok\"}"}}]}}]}`+"\n\n")
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "data: "+`{"choices":[{"delta":{"content":"ادامه دادم."}}]}`+"\n\n")
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	env := newE2E(t, stepText("unused"))
+	env.app.mu.Lock()
+	env.app.settings.Providers[0].BaseURL = srv.URL
+	env.app.mu.Unlock()
+
+	env.send("یک فایل بساز")
+
+	if n := len(env.eventsByName("chat:error")); n != 0 {
+		t.Fatalf("cut after a parsed tool round must not raise chat:error, got %d", n)
+	}
+	if got := env.readFile("cutnofinish.txt"); got != "ok" {
+		t.Fatalf("tool from the cut round must run, file=%q", got)
+	}
+	conv := env.lastConv(t)
+	if !strings.Contains(lastAssistantOf(t, conv).Content, "ادامه دادم.") {
+		t.Fatalf("turn must continue after the cut, got %q", lastAssistantOf(t, conv).Content)
+	}
+}
+
+// TestSubagentToleratesCutAfterToolRound — همان سیاست در زیرایجنت: قطع استریم
+// پس از فراخوانیِ کاملِ پارس‌شده دور را شکست نمی‌دهد.
+func TestSubagentToleratesCutAfterToolRound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Content-Length", "99999")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "data: "+`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"s1","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"a.txt\"}"}}]}}]}`+"\n\n")
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	a := newTestApp(t)
+	sess := &subagentSession{baseURL: srv.URL, model: "m", maxTokens: 64, thinkingEffort: "auto"}
+	round, err := a.subagentRequest(t.Context(), sess, []chatMessage{{Role: "user", Content: "go"}}, nil)
+	if err != nil {
+		t.Fatalf("cut after a complete tool round must not fail the sub-agent round: %v", err)
+	}
+	if len(round.calls) != 1 || round.calls[0].Function.Name != "read_file" {
+		t.Fatalf("parsed tool calls must survive the cut, got %+v", round.calls)
+	}
+}
+
+// TestReasoningEffortRejectionPersists — رد شدن reasoning_effort در تنظیمات
+// می‌ماند (هر اجرا یک ۴۰۰ِ اضافی نمی‌گیرد) و تغییر دستی آن را پاک می‌کند.
+func TestReasoningEffortRejectionPersists(t *testing.T) {
+	a := newTestApp(t)
+	base := "http://localhost:11434/v1"
+	if !providerSupportsReasoningEffort(base) {
+		t.Fatal("fresh memo must allow reasoning_effort")
+	}
+	a.noteReasoningEffortRejected(base)
+	if providerSupportsReasoningEffort(base) {
+		t.Fatal("rejection must mark the provider in memory")
+	}
+	if len(a.settings.ReasoningEffortRejected) != 1 {
+		t.Fatalf("rejection must be persisted, got %v", a.settings.ReasoningEffortRejected)
+	}
+
+	// اجرای دوباره: همان فهرست از دیسک خوانده و حافظه پر می‌شود.
+	b := NewApp()
+	if err := b.loadSettings(); err != nil {
+		t.Fatalf("reload settings: %v", err)
+	}
+	if len(b.settings.ReasoningEffortRejected) != 1 {
+		t.Fatalf("persisted rejection lost on reload, got %v", b.settings.ReasoningEffortRejected)
+	}
+	resetReasoningEffortMemo()
+	seedReasoningEffortRejections(b.settings.ReasoningEffortRejected)
+	if providerSupportsReasoningEffort(base) {
+		t.Fatal("seed after restart must keep the provider marked")
+	}
+
+	// تغییر دستی = امتحان دوباره.
+	if err := b.SetThinkingEffort("medium"); err != nil {
+		t.Fatalf("SetThinkingEffort: %v", err)
+	}
+	if !providerSupportsReasoningEffort(base) {
+		t.Fatal("changing thinking effort must clear the memo")
+	}
+	if len(b.settings.ReasoningEffortRejected) != 0 {
+		t.Fatalf("changing thinking effort must clear the persisted list, got %v", b.settings.ReasoningEffortRejected)
+	}
+}

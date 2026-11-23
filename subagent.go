@@ -472,6 +472,7 @@ func (a *App) runSubagent(ctx context.Context, task string) (report string, ok b
 					continue
 				}
 				if dropThinkingEffortOnRejection(res.reasoningEffort, httpErr.status, reason, baseURL) {
+					a.noteReasoningEffortRejected(baseURL)
 					round--
 					continue
 				}
@@ -754,8 +755,14 @@ func (a *App) subagentRequest(ctx context.Context, s *subagentSession, history [
 	if modelErr != "" {
 		return out, &subagentModelError{message: modelErr}
 	}
-	if scanErr != nil {
+	// همان سیاست نوبت اصلی: اگر فراخوانی‌ها کامل پارس شده‌اند، بستن زودهنگام
+	// اتصال یعنی دورِ ابزار تمام شده، نه خطای نیمه‌کاره.
+	if scanErr != nil && !streamCutToolRoundComplete(out.finish, len(pend)) {
 		return out, scanErr
+	}
+	if scanErr != nil {
+		logAppErrorFor(a, "subagent", fmt.Sprintf(
+			"stream cut after a complete tool round (finish=%q calls=%d)", out.finish, len(pend)))
 	}
 	out.content = content.String()
 	out.calls = collectToolCalls(pend)

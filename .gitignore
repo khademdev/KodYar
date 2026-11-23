@@ -38,3 +38,5 @@ frontend/tests/playwright-report/
 
 # اسکرین‌شات‌های ابزار browser_screenshot (خروجی موقت، نه سورس)
 screenshots/
+# generated Windows version resource (build.sh)
+resource.syso
