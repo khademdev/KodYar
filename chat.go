@@ -438,8 +438,6 @@ func (a *App) SendMessage(convID, content string, images []string) (*Conversatio
 	}
 
 	a.mu.Lock()
-	// اجازه‌ی «تا پایان درخواست» فقط برای همین نوبت بود.
-	a.webTurnAllow = false
 	var conv *Conversation
 	if convID == "" {
 		conv = &Conversation{
@@ -519,7 +517,6 @@ func (a *App) Regenerate(convID string) (*Conversation, error) {
 	}
 
 	a.mu.Lock()
-	a.webTurnAllow = false
 	conv, err := a.loadConversation(convID)
 	if err != nil {
 		a.mu.Unlock()
@@ -621,7 +618,6 @@ func (a *App) EditMessage(convID, messageID, content string) (*Conversation, err
 	}
 
 	a.mu.Lock()
-	a.webTurnAllow = false
 	conv, err := a.loadConversation(convID)
 	if err != nil {
 		a.mu.Unlock()
@@ -694,7 +690,6 @@ func (a *App) ApprovePlan(convID string) (*Conversation, error) {
 		return nil, errors.New("پاسخ‌دهی قبلی هنوز در جریان است؛ ابتدا آن را متوقف کنید")
 	}
 	a.mu.Lock()
-	a.webTurnAllow = false
 	conv, err := a.loadConversation(convID)
 	if err != nil {
 		a.mu.Unlock()
@@ -760,7 +755,6 @@ func (a *App) ResumeAgent(convID string) (*Conversation, error) {
 		return nil, errors.New("پاسخ‌دهی دیگری در جریان است؛ ابتدا آن را متوقف کنید")
 	}
 	a.mu.Lock()
-	a.webTurnAllow = false
 	conv, err := a.loadConversation(convID)
 	if err != nil {
 		a.mu.Unlock()
@@ -1221,6 +1215,11 @@ func (a *App) persistAgentRound(convID, assistantContent string, calls []apiTool
 // و نه در صورت بازگشت مدل اجرا می‌شوند — اجبار در لایهٔ اجرا، نه فقط prompt.
 func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, model string, temperature float64, history []chatMessage, allowTools bool) {
 	convID := myGen.convID
+	// هر نوبت از صفر شروع می‌شود: «تا پایان این درخواست» مربوط به نوبت قبل
+	// است، نه این یکی. این تنها نقطه‌ی شروع اجرای ابزار در همه‌ی مسیرهاست
+	// (SendMessage / Regenerate / EditMessage / ApprovePlan / ResumeAgent)،
+	// پس پاک‌سازی اینجا هیچ مسیر تازه‌ای را جا نمی‌گذارد.
+	a.resetWebTurnGrant()
 	// آمار مصرف زیرایجنت‌ها (ابزار task) در همین نوبت (Bug 8): اتمیک و بدون
 	// قفل، از طریق ctx به ابزارها/زیرایجنت می‌رسد و پیش از finishChat با آمار
 	// خودِ نوبت جمع می‌شود. قالب‌های ذخیره‌شده تغییری نمی‌کنند.
@@ -2165,6 +2164,8 @@ func (a *App) streamChat(ctx context.Context, myGen *genState, baseURL, key, mod
 // model مدلِ همین نوبت است — مصرف به تفکیک مدل ثبت و به UI گزارش می‌شود.
 func (a *App) finishChat(myGen *genState, model, content string, aborted bool, promptTokens, completionTokens, estPrompt int64) {
 	convID := myGen.convID
+	// پایان نوبت = پایان اجازه‌ی «تا پایان این درخواست» (حتی پیش از نوبت بعد).
+	a.resetWebTurnGrant()
 
 	// آزادسازی gen قبل از هر emit (فقط اگر همان gen خودمان باشد)
 	a.genMu.Lock()

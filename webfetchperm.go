@@ -118,6 +118,29 @@ func (a *App) webHostAllowed(host string) bool {
 	return webHostRuleListAllowed(sess, host) || webHostRuleListAllowed(persistent, host)
 }
 
+// resetWebTurnGrant پرچم «همه‌ی دامنه‌ها تا پایان همین درخواست» را پاک
+// می‌کند؛ در شروع هر نوبت و در پایان آن صدا زده می‌شود تا اجازه هرگز از
+// یک درخواست به درخواست بعد نشت نکند.
+func (a *App) resetWebTurnGrant() {
+	a.mu.Lock()
+	a.webTurnAllow = false
+	a.mu.Unlock()
+}
+
+// webTurnGranted آیا کاربر برای همین نوبت «همه‌ی دامنه‌ها» را تأیید کرده است؟
+func (a *App) webTurnGranted() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.webTurnAllow
+}
+
+// grantWebTurn اجازه‌ی همه‌ی دامنه‌ها را تا پایان همین نوبت ثبت می‌کند.
+func (a *App) grantWebTurn() {
+	a.mu.Lock()
+	a.webTurnAllow = true
+	a.mu.Unlock()
+}
+
 // gateWebFetch دروازه‌ی web_fetch: قاعده‌ی دامنه، وگرنه مودال «اجازه‌ی این
 // دامنه» (یک‌بار / تا پایان نشست / همیشه برای همین دامنه). تصمیم deny سراسری
 // ابزار در execToolCtx پیش از این تابع گرفته می‌شود.
@@ -132,11 +155,9 @@ func (a *App) gateWebFetch(ctx context.Context, rawURL string) (bool, string) {
 		return true, ""
 	}
 	// «تا پایان همین درخواست»: یک تأیید برای همه‌ی دامنه‌های همان نوبت
-	// (جست‌وجو + چند نتیجه). با درخواست بعدی خودکار پاک می‌شود.
-	a.mu.Lock()
-	turnAllowed := a.webTurnAllow
-	a.mu.Unlock()
-	if turnAllowed {
+	// (جست‌وجو + چند نتیجه). محافظ SSRF در webfetch.go سر جایش می‌ماند؛
+	// این پرچم فقط «آیا می‌پرسیم؟» را عوض می‌کند.
+	if a.webTurnGranted() {
 		return true, ""
 	}
 	ask := &permissionAsk{
@@ -156,9 +177,7 @@ func (a *App) gateWebFetch(ctx context.Context, rawURL string) (bool, string) {
 		return true, ""
 	case permRespondTurn:
 		// همه‌ی دامنه‌ها فقط تا پایان همین نوبت؛ هیچ قاعده‌ای ذخیره نمی‌شود.
-		a.mu.Lock()
-		a.webTurnAllow = true
-		a.mu.Unlock()
+		a.grantWebTurn()
 		return true, ""
 	case permRespondAlways:
 		if err := a.appendWebHostRule(host, "allow"); err != nil {

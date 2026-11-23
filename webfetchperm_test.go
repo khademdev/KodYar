@@ -294,10 +294,12 @@ func TestGateWebFetchTurnAllow(t *testing.T) {
 			a.sessionWebHosts, a.settings.Permissions.WebHosts)
 	}
 
-	// نوبت بعد: پرچم پاک می‌شود و دامنه‌ی تازه دوباره می‌پرسد (تصمیم بعدی: allow)
-	a.mu.Lock()
-	a.webTurnAllow = false
-	a.mu.Unlock()
+	// نوبت بعد: streamChat/finishChat همین helper را صدا می‌زنند، پس دامنه‌ی
+	// تازه دوباره می‌پرسد (تصمیم بعدی: allow).
+	if !a.webTurnGranted() {
+		t.Fatal("turn grant must be visible through webTurnGranted")
+	}
+	a.resetWebTurnGrant()
 	if ok, msg := a.gateWebFetch(ctx, "https://third.example.net/x"); !ok {
 		t.Fatalf("next turn must ask again and allow on demand: %s", msg)
 	}
