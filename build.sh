@@ -10,6 +10,11 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# بسته همیشه windows/amd64 است. اگر این متغیر از محیط نیامده باشد (مثلاً روی
+# ماشین ۳۸۶)، resourceی که goversioninfo می‌سازد با کامپایل هدف جور در نمی‌آید
+# و لینکر خطای «unknown relocation type 7» می‌دهد — پس خود اسکریپت پین می‌کند.
+export GOARCH=amd64
+
 VERSION="${1:-1.0.2}"  # با آخرین سرفصل CHANGELOG یکی بماند
 
 # اجزای عددی نسخه برای resource ویندوز (x.y.z → x, y, z)
@@ -49,7 +54,7 @@ cat > "$VERDIR/versioninfo.json" <<EOF
   "VarFileInfo": {"Translation": {"LangID": "0409", "CharsetID": "04B0"}}
 }
 EOF
-go run github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0 \
+go run github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0 -64 \
     -icon build/windows/icon.ico -o resource.syso "$VERDIR/versioninfo.json"
 
 # -nopackage: Wails خودش یک بخش .rsrc می‌سازد (آیکون + نسخهٔ ناخوانا) و Go با دو
