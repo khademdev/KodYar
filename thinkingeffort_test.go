@@ -1,7 +1,11 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -200,5 +204,95 @@ func TestSubagentRequestCarriesThinkingEffort(t *testing.T) {
 	}
 	if mainEffort != thinkingEffortLow {
 		t.Fatalf("main turn reasoning_effort = %q, want low", mainEffort)
+	}
+}
+
+// captureOneShotBodies یک سرور غیراستریمی می‌سازد که بدنهٔ درخواست‌ها را ثبت
+// می‌کند؛ اولین پاسخ ۴۰۰ است (اگر rejectFirst) و بقیه ۲۰۰ با متن خلاصه.
+func captureOneShotBodies(t *testing.T, rejectFirst bool) (*httptest.Server, *[]map[string]interface{}) {
+	t.Helper()
+	bodies := &[]map[string]interface{}{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = r.Body.Close()
+		var m map[string]interface{}
+		if err := json.Unmarshal(raw, &m); err != nil {
+			t.Errorf("summarizer body is not JSON: %v", err)
+		}
+		*bodies = append(*bodies, m)
+		if rejectFirst && len(*bodies) == 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"error":{"message":"unknown parameter: reasoning_effort"}}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"خلاصهٔ کوتاه"}}]}`)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, bodies
+}
+
+// TestSummarizerSendsThinkingEffort — خلاصه‌ساز (oneShotChat) هم مثل نوبت
+// اصلی reasoning_effort را می‌فرستد؛ استدلال اضافی در فشرده‌سازی فقط توکن
+// می‌سوزاند و خلاصه را بهتر نمی‌کند.
+func TestSummarizerSendsThinkingEffort(t *testing.T) {
+	srv, bodies := captureOneShotBodies(t, false)
+	a := newTestApp(t)
+	a.settings.Providers[0].BaseURL = srv.URL
+	out, err := a.oneShotChat(context.Background(), "system", "user", 120)
+	if err != nil {
+		t.Fatalf("oneShotChat: %v", err)
+	}
+	if out != "خلاصهٔ کوتاه" {
+		t.Fatalf("summary = %q", out)
+	}
+	if len(*bodies) != 1 {
+		t.Fatalf("summarizer sent %d requests, want 1", len(*bodies))
+	}
+	if got := (*bodies)[0]["reasoning_effort"]; got != thinkingEffortLow {
+		t.Fatalf("summarizer reasoning_effort = %v, want low", got)
+	}
+}
+
+// TestSummarizerDropsThinkingEffortOnRejection — همان عقب‌نشینی نوبت اصلی:
+// ۴۰۰ِ مربوط به reasoning_effort → یک‌بار بدون پارامتر، بدون شکست خلاصه‌سازی.
+func TestSummarizerDropsThinkingEffortOnRejection(t *testing.T) {
+	srv, bodies := captureOneShotBodies(t, true)
+	a := newTestApp(t)
+	a.settings.Providers[0].BaseURL = srv.URL
+	out, err := a.oneShotChat(context.Background(), "system", "user", 120)
+	if err != nil {
+		t.Fatalf("summarizer must retry without reasoning_effort: %v", err)
+	}
+	if out != "خلاصهٔ کوتاه" {
+		t.Fatalf("summary after retry = %q", out)
+	}
+	if len(*bodies) != 2 {
+		t.Fatalf("want rejected request + retry, got %d", len(*bodies))
+	}
+	if got := (*bodies)[0]["reasoning_effort"]; got != thinkingEffortLow {
+		t.Fatalf("first request reasoning_effort = %v, want low", got)
+	}
+	if _, exists := (*bodies)[1]["reasoning_effort"]; exists {
+		t.Fatalf("retry must omit reasoning_effort, got %v", (*bodies)[1]["reasoning_effort"])
+	}
+	if providerSupportsReasoningEffort(srv.URL) {
+		t.Fatal("provider memory must remember the rejection")
+	}
+}
+
+// TestSummarizerRespectsAutoEffort — حالت «خودکار» هیچ پارامتری نمی‌فرستد.
+func TestSummarizerRespectsAutoEffort(t *testing.T) {
+	srv, bodies := captureOneShotBodies(t, false)
+	a := newTestApp(t)
+	a.settings.Providers[0].BaseURL = srv.URL
+	if err := a.SetThinkingEffort("auto"); err != nil {
+		t.Fatalf("SetThinkingEffort: %v", err)
+	}
+	if _, err := a.oneShotChat(context.Background(), "system", "user", 120); err != nil {
+		t.Fatalf("oneShotChat: %v", err)
+	}
+	if _, exists := (*bodies)[0]["reasoning_effort"]; exists {
+		t.Fatalf("auto mode must omit reasoning_effort, got %v", (*bodies)[0]["reasoning_effort"])
 	}
 }

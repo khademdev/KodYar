@@ -192,32 +192,58 @@ func (a *App) oneShotChat(ctx context.Context, system, user string, maxTokens in
 		return "", fmt.Errorf("provider key is missing")
 	}
 
-	body, err := json.Marshal(map[string]interface{}{
-		"model": model,
-		"messages": []chatMessage{
-			{Role: "system", Content: system},
-			{Role: "user", Content: user},
-		},
-		"stream":     false,
-		"max_tokens": maxTokens,
-	})
-	if err != nil {
-		return "", err
+	// «میزان فکر کردن» خلاصه‌ساز هم مثل نوبت اصلی: استدلال اضافی اینجا هم
+	// فقط توکن می‌سوزاند، کارِ خلاصه‌سازی را بهتر نمی‌کند. Provider ناشناس
+	// یک‌بار ۴۰۰ می‌دهد و پایین‌تر همان درخواست بدون پارامتر تکرار می‌شود.
+	thinkingEffort := normalizeThinkingEffort(a.settings.ThinkingEffort)
+	if thinkingEffort == thinkingEffortAuto || !providerSupportsReasoningEffort(baseURL) {
+		thinkingEffort = ""
+	}
+	send := func(effort string) (*http.Response, error) {
+		payload := map[string]interface{}{
+			"model": model,
+			"messages": []chatMessage{
+				{Role: "system", Content: system},
+				{Role: "user", Content: user},
+			},
+			"stream":     false,
+			"max_tokens": maxTokens,
+		}
+		if effort != "" {
+			payload["reasoning_effort"] = effort
+		}
+		body, merr := json.Marshal(payload)
+		if merr != nil {
+			return nil, merr
+		}
+		req, rerr := http.NewRequestWithContext(ctx, http.MethodPost,
+			strings.TrimRight(baseURL, "/")+"/chat/completions", bytes.NewReader(body))
+		if rerr != nil {
+			return nil, rerr
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if key != "" {
+			req.Header.Set("Authorization", "Bearer "+key)
+		}
+		return chatHTTPClient.Do(req)
 	}
 	ctx, cancel := context.WithTimeout(ctx, compactSummaryTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		strings.TrimRight(baseURL, "/")+"/chat/completions", bytes.NewReader(body))
+	resp, err := send(thinkingEffort)
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	if key != "" {
-		req.Header.Set("Authorization", "Bearer "+key)
-	}
-	resp, err := chatHTTPClient.Do(req)
-	if err != nil {
-		return "", err
+	if resp.StatusCode != 200 && thinkingEffort != "" {
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 8*1024))
+		resp.Body.Close()
+		if isReasoningEffortUnsupported(resp.StatusCode, string(errBody)) {
+			markReasoningEffortBroken(baseURL)
+			if resp, err = send(""); err != nil {
+				return "", err
+			}
+		} else {
+			return "", fmt.Errorf("summarizer HTTP %d", resp.StatusCode)
+		}
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 256*1024))
