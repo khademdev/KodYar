@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -167,5 +168,57 @@ func TestStreamCutText(t *testing.T) {
 	}
 	if got := streamCutText(errors.New("boom"), ""); got != "boom" {
 		t.Fatalf("other errors must stay raw, got %q", got)
+	}
+}
+
+// TestStreamCutAfterToolRoundContinues — قطع استریم بعد از یک دورِ ابزارِ کامل
+// (finish_reason=tool_calls با فراخوانی پارس‌شده) خطا نیست: ابزار اجرا می‌شود و
+// نوبت با درخواست بعدی عادی ادامه می‌یابد.
+func TestStreamCutAfterToolRoundContinues(t *testing.T) {
+	var mu sync.Mutex
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests++
+		n := requests
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		if n == 1 {
+			// دورِ اول: فراخوانی ابزار + finish_reason، سپس بستن پیش از پایان.
+			w.Header().Set("Content-Length", "99999")
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, "data: "+`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"write_file","arguments":"{\"path\":\"cut.txt\",\"content\":\"ok\"}"}}]}}]}`+"\n\n"+
+				"data: "+`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`+"\n\n")
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			return
+		}
+		// دورِ دوم: پاسخ کامل و تمیز.
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "data: "+`{"choices":[{"delta":{"content":"تمام شد."}}]}`+"\n\n")
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	env := newE2E(t, stepText("unused"))
+	env.app.mu.Lock()
+	env.app.settings.Providers[0].BaseURL = srv.URL
+	env.app.mu.Unlock()
+
+	env.send("یک فایل بساز")
+
+	if n := len(env.eventsByName("chat:error")); n != 0 {
+		t.Fatalf("a complete tool round must not raise chat:error, got %d", n)
+	}
+	if got := env.readFile("cut.txt"); got != "ok" {
+		t.Fatalf("tool from the cut round must run, file=%q", got)
+	}
+	conv := env.lastConv(t)
+	if !strings.Contains(lastAssistantOf(t, conv).Content, "تمام شد.") {
+		t.Fatalf("turn must continue with a normal next round, got %q", lastAssistantOf(t, conv).Content)
 	}
 }
