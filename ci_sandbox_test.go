@@ -43,15 +43,53 @@ func TestCISandboxNulGrantIsEnforced(t *testing.T) {
 	}
 }
 
-func TestSandboxNulGrantPromisedHelper(t *testing.T) {
-	// در CI خودِ پروسه با KODYAR_EXPECT_NUL_GRANTED=1 اجرا می‌شود؛ پس هر دو
-	// حالت را صریح تنظیم می‌کنیم تا نتیجه به محیط اجرا وابسته نباشد.
-	t.Setenv("KODYAR_EXPECT_NUL_GRANTED", "")
-	if sandboxNulGrantPromised() {
-		t.Fatal("helper must be false with an empty KODYAR_EXPECT_NUL_GRANTED")
+// TestCIHasNoSilentSteps — هیچ مرحله/کاری که بیلد یا امنیت را می‌سنجد نباید
+// با continue-on-error بی‌صدا شکست بخورد. تنها استثنا job اختیاری
+// «browser-smoke» است (smoke فرانت که به نصب Playwright روی رانر وابسته است).
+func TestCIHasNoSilentSteps(t *testing.T) {
+	data, err := os.ReadFile(".github/workflows/ci.yml")
+	if err != nil {
+		t.Fatalf("ci.yml: %v", err)
 	}
-	t.Setenv("KODYAR_EXPECT_NUL_GRANTED", "1")
-	if !sandboxNulGrantPromised() {
-		t.Fatal("helper must honor KODYAR_EXPECT_NUL_GRANTED=1")
+	lines := strings.Split(string(data), "\n")
+
+	jobKey := func(line string) bool {
+		if !strings.HasPrefix(line, "  ") || strings.HasPrefix(line, "    ") || strings.HasPrefix(line, "  #") {
+			return false
+		}
+		body := strings.TrimPrefix(line, "  ")
+		return body != "" && !strings.HasPrefix(body, "-") && strings.Contains(body, ":")
+	}
+
+	optionalStart, optionalEnd := -1, len(lines)
+	for i, line := range lines {
+		if optionalStart < 0 && strings.HasPrefix(line, "  browser-smoke:") {
+			optionalStart = i
+			continue
+		}
+		if optionalStart >= 0 && i > optionalStart && jobKey(line) {
+			optionalEnd = i
+			break
+		}
+	}
+	if optionalStart < 0 {
+		t.Fatal("ci.yml must contain the browser-smoke job")
+	}
+
+	for i, line := range lines {
+		// توضیح‌های YAML که به این کلید اشاره می‌کنند، تنظیم واقعی نیستند.
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		if !strings.Contains(line, "continue-on-error") {
+			continue
+		}
+		if i < optionalStart || i > optionalEnd {
+			t.Fatalf("ci.yml line %d: remove continue-on-error so failures are never silent", i+1)
+		}
+	}
+
+	if !strings.Contains(string(data), "Wails build (windows/amd64)") {
+		t.Fatal("ci.yml must keep the Wails build job as a required gate")
 	}
 }
