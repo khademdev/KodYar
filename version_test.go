@@ -8,53 +8,82 @@ import (
 	"testing"
 )
 
-// changelogLatestVersion اولین سرفصل نسخه در CHANGELOG.md را برمی‌گرداند.
-func changelogLatestVersion(t *testing.T) string {
+// canonicalVersion محتوای فایل VERSION (تک‌منبع نسخه) را می‌خواند.
+func canonicalVersion(t *testing.T) string {
 	t.Helper()
-	data, err := os.ReadFile("CHANGELOG.md")
+	data, err := os.ReadFile("VERSION")
 	if err != nil {
-		t.Fatalf("CHANGELOG.md: %v", err)
+		t.Fatalf("VERSION: %v", err)
 	}
-	re := regexp.MustCompile(`(?m)^## (\d+\.\d+(?:\.\d+)?)`)
-	m := re.FindStringSubmatch(string(data))
-	if m == nil {
-		t.Fatal("no version heading (## X.Y) found in CHANGELOG.md")
+	v := strings.TrimSpace(string(data))
+	if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(v) {
+		t.Fatalf("VERSION = %q must be MAJOR.MINOR.PATCH", v)
 	}
-	return m[1]
+	return v
 }
 
-func TestVersionMatchesChangelog(t *testing.T) {
-	want := changelogLatestVersion(t)
-	// نسخهٔ کامل (1.13.0) یا دو‌بخشی (1.13) هر دو پذیرفته‌اند.
-	if version != want && !strings.HasPrefix(version, want+".") {
-		t.Fatalf("main.version = %q but CHANGELOG.md starts at %q — bump one of them", version, want)
-	}
-}
+// TestVersionSingleSource — نسخه در یک فایل است و هیچ مصرف‌کننده‌ای عدد دستی
+// نگه نمی‌دارد؛ ناهماهنگی در CI شکست می‌خورد (پیش‌تر ۵ فایل دستی هماهنگ می‌شد).
+func TestVersionSingleSource(t *testing.T) {
+	want := canonicalVersion(t)
 
-func TestWailsProductVersionMatches(t *testing.T) {
-	data, err := os.ReadFile("wails.json")
+	if version != want {
+		t.Errorf("main.version = %q but VERSION = %q", version, want)
+	}
+
+	wailsJSON, err := os.ReadFile("wails.json")
 	if err != nil {
 		t.Fatalf("wails.json: %v", err)
 	}
-	re := regexp.MustCompile(`"productVersion"\s*:\s*"([^"]+)"`)
-	m := re.FindStringSubmatch(string(data))
+	m := regexp.MustCompile(`"productVersion"\s*:\s*"([^"]+)"`).FindStringSubmatch(string(wailsJSON))
 	if m == nil {
 		t.Fatal("productVersion missing from wails.json")
 	}
-	if m[1] != version {
-		t.Fatalf("wails.json productVersion = %q but main.version = %q", m[1], version)
+	if m[1] != want {
+		t.Errorf("wails.json productVersion = %q but VERSION = %q", m[1], want)
 	}
 }
 
-func TestBuildScriptAndCLIUseTheSameVersion(t *testing.T) {
-	for _, f := range []string{"build.sh", ".github/workflows/ci.yml"} {
+// TestVersionConsumersReadTheFile — اسکریپت بیلد، CI و README باید از VERSION
+// بخوانند، نه عدد ثابت.
+func TestVersionConsumersReadTheFile(t *testing.T) {
+	for _, f := range []string{"build.sh", ".github/workflows/ci.yml", "README.md"} {
 		data, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatalf("%s: %v", f, err)
 		}
-		if !strings.Contains(string(data), version) {
-			t.Fatalf("%s does not carry the current version %q (build artifacts would report a different version)", f, version)
+		s := string(data)
+		if !strings.Contains(s, "cat VERSION") {
+			t.Errorf("%s must read the version from VERSION (cat VERSION)", f)
 		}
+		if loc := regexp.MustCompile(`build\.sh \d+\.\d+`).FindString(s); loc != "" {
+			t.Errorf("%s hardcodes a version (%q); read VERSION instead", f, loc)
+		}
+	}
+	// build.sh نباید پیش‌فرض عددی داشته باشد.
+	build, err := os.ReadFile("build.sh")
+	if err != nil {
+		t.Fatalf("build.sh: %v", err)
+	}
+	if regexp.MustCompile(`VERSION="\$\{1:-\d`).MatchString(string(build)) {
+		t.Error(`build.sh default version must come from VERSION, not a number`)
+	}
+}
+
+// TestVersionMatchesChangelog — آخرین سرفصل شماره‌دار CHANGELOG با VERSION یکی
+// است؛ یک بخش Unreleased می‌تواند بالاتر باشد.
+func TestVersionMatchesChangelog(t *testing.T) {
+	want := canonicalVersion(t)
+	data, err := os.ReadFile("CHANGELOG.md")
+	if err != nil {
+		t.Fatalf("CHANGELOG.md: %v", err)
+	}
+	headings := regexp.MustCompile(`(?m)^## (\d+\.\d+\.\d+)`).FindAllStringSubmatch(string(data), -1)
+	if len(headings) == 0 {
+		t.Fatal("no version heading (## X.Y.Z) found in CHANGELOG.md")
+	}
+	if got := headings[0][1]; got != want {
+		t.Fatalf("CHANGELOG.md latest version = %q but VERSION = %q — bump one of them", got, want)
 	}
 }
 

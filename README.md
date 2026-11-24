@@ -299,10 +299,10 @@ wails build
 # workflow انتشار هم صدا می‌زند. اگر goversioninfo نصب باشد (go install
 # github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0) از همان
 # باینری استفاده می‌شود و بیلد آفلاین هم کار می‌کند؛ وگرنه با go run می‌آید.
-bash build.sh 1.0.3
+bash build.sh "$(cat VERSION)"
 
 # بدون متادیتای نسخه (فقط برای بررسی سریع کامپایل متقاطع)
-wails build -platform windows/amd64 -skipbindings -nopackage -ldflags "-s -w -X main.version=1.0.3"
+wails build -platform windows/amd64 -skipbindings -nopackage -ldflags "-s -w -X main.version="$(cat VERSION)""
 
 # خروجی این‌جا ساخته می‌شود:
 #   ویندوز: build/bin/KodYar.exe

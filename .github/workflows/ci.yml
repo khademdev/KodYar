@@ -158,6 +158,28 @@ jobs:
       - name: Run browser smoke tests
         run: npm test
 
+  # ----------------------------------------------------------------govulncheck
+  # آسیب‌پذیری‌های شناخته‌شدهٔ وابستگی‌ها (crypto، proxy، HTTP) و کد خودمان.
+  # فقط مسیرهای واقعاً فراخوانی‌شده را گزارش می‌کند، پس نویز کمی دارد.
+  vulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go (from go.mod)
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install govulncheck (pinned)
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+
+      - name: Run govulncheck
+        run: govulncheck ./...
+
   # ---------------------------------------------------------------- بیلد ویندوز (اختیاری)
   windows-build:
     name: Wails build (windows/amd64)
@@ -178,15 +200,15 @@ jobs:
 
       # همان اسکریپت مستند: resource نسخه (Properties ویندوز) + wails build.
       - name: Build package (windows/amd64)
-        run: bash build.sh 1.0.3
+        run: bash build.sh "$(cat VERSION)"
 
       # exe باید مانیفست رندرشده (dpiAware) و FileVersion درست داشته باشد؛
       # بدون این چک، بیلد سبز می‌شد ولی باینری منتشرشده ناقص بود (1.0.2/1.0.3).
       - name: Verify executable manifest and FileVersion
-        env:
-          KODYAR_EXE: build/bin/KodYar.exe
-          KODYAR_EXPECTED_VERSION: "1.0.3"
-        run: go test -count=1 -run TestWindowsExecutableManifestAndVersion .
+        run: |
+          export KODYAR_EXE=build/bin/KodYar.exe
+          export KODYAR_EXPECTED_VERSION="$(cat VERSION)"
+          go test -count=1 -run TestWindowsExecutableManifestAndVersion .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

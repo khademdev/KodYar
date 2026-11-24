@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -20,13 +21,15 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-// version در زمان ساخت با ldflags قابل بازنویسی است:
+// VERSION تک‌منبعِ نسخه است: build.sh، wails.json، CI و README از همین فایل
+// می‌خوانند و تست TestVersionSingleSource ناهماهنگی را می‌گیرد. مقدار در زمان
+// ساخت با ldflags هم قابل بازنویسی است (-X main.version=…)، ولی پیش‌فرضِ
+// باینری همان محتوای این فایل است.
 //
-// -ldflags "-X main.version=1.0.3"
-//
-// عدد باید با آخرین سرفصل CHANGELOG یکی بماند (تست TestVersionMatchesChangelog
-// همین را تضمین می‌کند).
-var version = "1.0.3"
+//go:embed VERSION
+var versionFile string
+
+var version = strings.TrimSpace(versionFile)
 
 func main() {
 	app := NewApp()
