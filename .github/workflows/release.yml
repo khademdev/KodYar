@@ -46,6 +46,13 @@ jobs:
           echo "building KodYar ${VERSION}"
           bash build.sh "$VERSION"
 
+      # تا وقتی exe مانیفست رندرشده و FileVersion همان تگ را ندارد، منتشر نشود.
+      - name: Verify executable manifest and FileVersion
+        env:
+          KODYAR_EXE: build/bin/KodYar.exe
+        run: |
+          KODYAR_EXPECTED_VERSION="${GITHUB_REF_NAME#v}"             go test -count=1 -run TestWindowsExecutableManifestAndVersion .
+
       # توضیح انتشار از همان بخش نسخه در CHANGELOG.md استخراج می‌شود تا
       # فهرست تغییرها یک منبع داشته باشد و دستی تکرار نشود.
       - name: Release notes from CHANGELOG
