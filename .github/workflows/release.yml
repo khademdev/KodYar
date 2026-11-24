@@ -53,6 +53,13 @@ jobs:
         run: |
           KODYAR_EXPECTED_VERSION="${GITHUB_REF_NAME#v}"             go test -count=1 -run TestWindowsExecutableManifestAndVersion .
 
+      # چکسام کنار باینری منتشر می‌شود تا کاربر بتواند دانلود را بررسی کند.
+      - name: Generate SHA256SUMS
+        run: |
+          cd build/bin
+          sha256sum KodYar.exe > SHA256SUMS
+          cat SHA256SUMS
+
       # توضیح انتشار از همان بخش نسخه در CHANGELOG.md استخراج می‌شود تا
       # فهرست تغییرها یک منبع داشته باشد و دستی تکرار نشود.
       - name: Release notes from CHANGELOG
@@ -76,15 +83,18 @@ jobs:
           # اصلاحات): آن‌گاه فقط باینری تازه جایگزین می‌شود، وگرنه ریلیز
           # جدید با notes تولیدشده ساخته می‌شود.
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" build/bin/KodYar.exe --clobber
+            gh release upload "$GITHUB_REF_NAME" \
+              build/bin/KodYar.exe build/bin/SHA256SUMS --clobber
           elif [ -s release-notes.md ]; then
             # همان بخش نسخه از CHANGELOG.md که مرحلهٔ بالا ساخت.
-            gh release create "$GITHUB_REF_NAME" build/bin/KodYar.exe \
+            gh release create "$GITHUB_REF_NAME" \
+              build/bin/KodYar.exe build/bin/SHA256SUMS \
               --title "KodYar ${GITHUB_REF_NAME#v}" \
               --notes-file release-notes.md \
               --verify-tag
           else
-            gh release create "$GITHUB_REF_NAME" build/bin/KodYar.exe \
+            gh release create "$GITHUB_REF_NAME" \
+              build/bin/KodYar.exe build/bin/SHA256SUMS \
               --title "KodYar ${GITHUB_REF_NAME#v}" \
               --generate-notes \
               --verify-tag

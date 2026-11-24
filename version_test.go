@@ -106,6 +106,23 @@ func TestSettingsViewCarriesVersion(t *testing.T) {
 
 // TestReleaseWorkflowUsesChangelog — توضیح انتشار از CHANGELOG استخراج می‌شود،
 // نه از فایل دستیِ جدا که ممکن است همگام بماند.
+// TestReleaseWorkflowPublishesChecksum — باینری منتشرشده باید SHA256SUMS داشته
+// باشد؛ هم ساخته شود و هم در هر دو مسیر انتشار (ساخت تازه / جایگزینی دارایی)
+// پیوست شود.
+func TestReleaseWorkflowPublishesChecksum(t *testing.T) {
+	data, err := os.ReadFile(".github/workflows/release.yml")
+	if err != nil {
+		t.Fatalf("release.yml: %v", err)
+	}
+	s := string(data)
+	if !strings.Contains(s, "sha256sum KodYar.exe") {
+		t.Error("release.yml must generate SHA256SUMS with sha256sum")
+	}
+	if n := strings.Count(s, "SHA256SUMS"); n < 3 {
+		t.Errorf("release.yml must attach SHA256SUMS on every release path (found %d mentions)", n)
+	}
+}
+
 func TestReleaseWorkflowUsesChangelog(t *testing.T) {
 	data, err := os.ReadFile(".github/workflows/release.yml")
 	if err != nil {

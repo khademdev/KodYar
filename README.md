@@ -263,6 +263,22 @@ go test -run TestVisionLiveImageReachesModel -v .
 از صفحهٔ [Releases](https://github.com/khademdev/KodYar/releases/latest) فایل `KodYar.exe` را دانلود و اجرا کنید
 (ویندوز ۱۰/۱۱، بدون نیاز به نصب — WebView2 روی ویندوز ۱۱ و اکثر ویندوزهای ۱۰ از قبل نصب است).
 
+هر ریلیز فایل `SHA256SUMS` هم دارد؛ برای اطمینان از سالم‌بودن دانلود، همان پوشه‌ای که
+`KodYar.exe` را ذخیره کرده‌اید:
+
+```powershell
+# ویندوز (PowerShell) — خروجی باید با خط KodYar.exe در SHA256SUMS یکی باشد
+(Get-FileHash .\KodYar.exe -Algorithm SHA256).Hash.ToLower()
+Get-Content .\SHA256SUMS
+```
+
+```bash
+# لینوکس/مک/گیت‌بش — بررسی خودکار
+curl -fLO https://github.com/khademdev/KodYar/releases/latest/download/KodYar.exe
+curl -fLO https://github.com/khademdev/KodYar/releases/latest/download/SHA256SUMS
+sha256sum -c SHA256SUMS
+```
+
 ### 🛠️ ساخت از سورس
 
 **پیش‌نیازها**
