@@ -124,13 +124,20 @@ func TestSandboxNulProbeReportsRealState(t *testing.T) {
 		t.Skip("sandbox not supported on this platform")
 	}
 	invalidateSandboxNulProbe()
+	// warm-up: اولین اجرای سندباکس روی ماشین/رانر سرد، پروفایل AppContainer
+	// و ACL مسیرهای ابزار را می‌سازد (در CI تا ~۹۰ ثانیه). نتیجهٔ همین پروب
+	// گرم‌کردن، سنجش پایداری نیست؛ وگرنه یک false منفی گذرای سرد، تست را
+	// قرمز می‌کند بدون اینکه کد مشکلی داشته باشد.
+	_, _ = probeSandboxNul()
+	invalidateSandboxNulProbe()
+
 	granted, detail := probeSandboxNul()
 	if strings.TrimSpace(detail) == "" {
 		t.Fatal("probe must explain its verdict")
 	}
 	again, _ := probeSandboxNul()
 	if again != granted {
-		t.Fatalf("probe must be deterministic within a boot: %v then %v", granted, again)
+		t.Fatalf("probe must be deterministic within a boot: %v then %v (detail: %s)", granted, again, detail)
 	}
 	if sandboxNulGrantPromised() && !granted {
 		t.Fatalf("expected the NUL grant to be in effect, probe said: %s", detail)
