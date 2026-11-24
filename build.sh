@@ -61,10 +61,23 @@ sed -e "s/{{.Name}}/KodYar/g" \
     -e "s/{{.Info.ProductVersion}}/${VERSION}/g" \
     build/windows/wails.exe.manifest > "$VERDIR/wails.exe.manifest"
 
-go run github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0 -64 \
-    -icon build/windows/icon.ico \
-    -manifest "$VERDIR/wails.exe.manifest" \
-    -o resource.syso "$VERDIR/versioninfo.json"
+# اگر goversioninfo از قبل نصب شده باشد (GOPATH/bin یا bin/windows_amd64) از
+# همان باینری استفاده می‌شود تا بیلد بدون شبکه هم کار کند؛ `go run ...@v1.7.0`
+# برای گرفتن خودِ ابزار به پراکسی ماژول نیاز دارد.
+GOVERSIONINFO_BIN="$(go env GOPATH)/bin/windows_amd64/goversioninfo.exe"
+[ -x "$GOVERSIONINFO_BIN" ] || GOVERSIONINFO_BIN="$(go env GOPATH)/bin/goversioninfo"
+if [ -x "$GOVERSIONINFO_BIN" ]; then
+    "$GOVERSIONINFO_BIN" -64 \
+        -icon build/windows/icon.ico \
+        -manifest "$VERDIR/wails.exe.manifest" \
+        -o resource.syso "$VERDIR/versioninfo.json"
+else
+    echo "==> goversioninfo محلی پیدا نشد؛ از ماژول اجرا می‌شود (نیازمند شبکه)"
+    go run github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0 -64 \
+        -icon build/windows/icon.ico \
+        -manifest "$VERDIR/wails.exe.manifest" \
+        -o resource.syso "$VERDIR/versioninfo.json"
+fi
 
 # -nopackage: Wails خودش یک بخش .rsrc می‌سازد (آیکون + نسخهٔ ناخوانا) و Go با دو
 # بخش .rsrc خطای «too many .rsrc sections» می‌دهد؛ پس resource ما تنها منبع است.

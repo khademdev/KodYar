@@ -296,7 +296,9 @@ wails dev
 wails build
 
 # بستهٔ ویندوزی با متادیتای نسخه (Properties → Details) — این اسکریپت را
-# workflow انتشار هم صدا می‌زند؛ goversioninfo را خودکار با go run می‌آورد.
+# workflow انتشار هم صدا می‌زند. اگر goversioninfo نصب باشد (go install
+# github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0) از همان
+# باینری استفاده می‌شود و بیلد آفلاین هم کار می‌کند؛ وگرنه با go run می‌آید.
 bash build.sh 1.0.3
 
 # بدون متادیتای نسخه (فقط برای بررسی سریع کامپایل متقاطع)
