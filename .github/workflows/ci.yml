@@ -49,14 +49,12 @@ jobs:
       - name: go vet
         run: go vet ./...
 
-      # پیش‌نیاز محیطی مستند: توکن AppContainer به \Device\Null دسترسی ندارد و
-      # go/git داخل سندباکس می‌میرند (تست‌های TestSandboxDirInComposite و
-      # TestMCPRunsInsideAppContainer همین را نشان دادند). رانر ویندوزی
-      # Administrator است، پس همان اسکریپت مستند را قبل از تست اجرا می‌کنیم;
-      # اگر شکست بخورد تست‌ها با همان دلیل skip می‌شوند، نه قرمز.
-      - name: Grant NUL device to the sandbox SID (documented prerequisite)
+      # پیش‌نیاز محیطی: توکن AppContainer به \Device\Null دسترسی ندارد و
+      # go/git داخل سندباکس می‌میرند. رانر ویندوزی Administrator است، پس همان
+      # اسکریپت مستند را اجباری اجرا می‌کنیم: اگر مجوز ثبت نشود job قرمز
+      # می‌شود — وعدهٔ امنیتی نباید بی‌صدا skip شود.
+      - name: Grant NUL device to the sandbox SID (required)
         shell: pwsh
-        continue-on-error: true
         run: powershell -ExecutionPolicy Bypass -File scripts\grant-sandbox-nul.ps1
 
       # شکست تست‌ها به شکل annotation منتشر می‌شود تا نام تستِ قرمز و
@@ -64,6 +62,10 @@ jobs:
       # از API/صفحه‌ی Actions هم دیده شود. کد خروج همان کد go test است.
       - name: go test (race)
         shell: bash
+        env:
+          # مجوز NUL در مرحلهٔ بالا اجباری شد؛ پس نبودش در تست‌های سندباکس
+          # شکست است، نه skip.
+          KODYAR_EXPECT_NUL_GRANTED: "1"
         run: |
           set -o pipefail
           # مهلت طولانی‌تر: اولین تست سندباکس روی رانر سرد، مجوزهای ACL مسیرهای
@@ -78,9 +80,13 @@ jobs:
 
       # خروجی کامل زنجیرهٔ git + go داخل AppContainer — مدرک اجرای واقعی،
       # چون مرحلهٔ بالا بدون -v فقط شکست‌ها را چاپ می‌کند.
-      - name: Sandbox git+go chain (verbose proof)
+      - name: Sandbox NUL + git+go proof (verbose)
         shell: bash
-        run: go test -race -count=1 -timeout 10m -v -run 'TestSandboxCompositeExternalChildren' .
+        env:
+          KODYAR_EXPECT_NUL_GRANTED: "1"
+        run: |
+          go test -race -count=1 -timeout 10m -v \
+            -run 'TestSandboxNulProbeReportsRealState|TestSandboxGoWorksAfterNulGrant|TestSandboxCompositeExternalChildren' .
 
       # کامپایل واقعی اپ ویندوزی (WebView2 — بدون نیاز به پکیج سیستمی)
       - name: Desktop compile check (production)

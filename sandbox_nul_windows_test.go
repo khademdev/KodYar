@@ -99,6 +99,23 @@ func TestSandboxNulDeniedHintOnlyWhenUseful(t *testing.T) {
 	}
 }
 
+// sandboxNulGrantPromised یعنی محیط قول داده ACE دستگاه NUL برای SID
+// سندباکس ثبت شده است (CI قبل از تست‌ها scripts/grant-sandbox-nul.ps1 را
+// اجرا می‌کند). در این حالت نبودِ مجوز «پیش‌نیاز محیطی» نیست، شکست است.
+func sandboxNulGrantPromised() bool {
+	return os.Getenv("KODYAR_EXPECT_NUL_GRANTED") == "1"
+}
+
+// skipOrFailNulGrant: در حالت promised تست باید قرمز شود تا وعدهٔ امنیتی
+// واقعاً سنجیده شود؛ در غیر این صورت skip با دلیل روشن.
+func skipOrFailNulGrant(t *testing.T, msg string) {
+	t.Helper()
+	if sandboxNulGrantPromised() {
+		t.Fatalf("the NUL grant was promised (KODYAR_EXPECT_NUL_GRANTED=1) but is missing: %s", msg)
+	}
+	t.Skip(msg)
+}
+
 // پروب باید واقعاً داخل AppContainer اجرا شود و نتیجهٔ قطعی بدهد؛ اگر مجوز
 // فعال است، KODYAR_EXPECT_NUL_GRANTED=1 این را هم تأیید می‌کند (برای سنجش
 // دستی روی ماشینی که یک‌بار فعال‌سازی انجام شده).
@@ -115,7 +132,7 @@ func TestSandboxNulProbeReportsRealState(t *testing.T) {
 	if again != granted {
 		t.Fatalf("probe must be deterministic within a boot: %v then %v", granted, again)
 	}
-	if os.Getenv("KODYAR_EXPECT_NUL_GRANTED") == "1" && !granted {
+	if sandboxNulGrantPromised() && !granted {
 		t.Fatalf("expected the NUL grant to be in effect, probe said: %s", detail)
 	}
 	invalidateSandboxNulProbe()
@@ -128,7 +145,7 @@ func TestSandboxNulProbeReportsRealState(t *testing.T) {
 //
 //	KODYAR_EXPECT_NUL_GRANTED=1 go test -run TestSandboxGoWorksAfterNulGrant -v .
 func TestSandboxGoWorksAfterNulGrant(t *testing.T) {
-	if os.Getenv("KODYAR_EXPECT_NUL_GRANTED") != "1" {
+	if !sandboxNulGrantPromised() {
 		t.Skip("set KODYAR_EXPECT_NUL_GRANTED=1 after enabling the NUL grant")
 	}
 	if !sandboxSupported() {

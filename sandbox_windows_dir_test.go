@@ -119,7 +119,7 @@ func TestSandboxCompositeExternalChildren(t *testing.T) {
 	// startup هم همین کار را می‌کند). بدون این skip سویت روی ماشین‌هایی که
 	// همراستاز نکرده‌اند همیشه قرمز می‌شد.
 	if strings.Contains(out, "could not open '/dev/null'") && strings.Contains(out, "Permission denied") {
-		t.Skip("git cannot open \\Device\\Null inside AppContainer on this boot — run scripts/grant-sandbox-nul.ps1 (environment prerequisite, not a code defect)")
+		skipOrFailNulGrant(t, "git cannot open the NUL device inside AppContainer on this boot — run scripts/grant-sandbox-nul.ps1")
 	}
 	// اگر ACE روی والدهای GOROOT رد شود (رانرهای CI: نصب Go در
 	// C:\hostedtoolcache است و ویندوز اجازه‌ی تغییر ACL آن را نمی‌دهد)،
@@ -166,7 +166,7 @@ func TestSandboxDirInComposite(t *testing.T) {
 	// پیش‌نیاز محیطی مستند (\Device\Null + env) است، نه باگ این تست.
 	out, code, err = runSandboxedShell(context.Background(), ws, `echo start && dir && git --version`, 120*time.Second, nil, pol)
 	if strings.Contains(out, "could not open '/dev/null'") && strings.Contains(out, "Permission denied") {
-		t.Skip("git cannot open \\Device\\Null inside AppContainer on this boot — run scripts/grant-sandbox-nul.ps1 (environment prerequisite, not a code defect)")
+		skipOrFailNulGrant(t, "git cannot open the NUL device inside AppContainer on this boot — run scripts/grant-sandbox-nul.ps1")
 	}
 	if err != nil || code != 0 || !strings.Contains(out, "start") || !strings.Contains(out, "inside.txt") || !strings.Contains(out, "git version") {
 		t.Fatalf("dir+external chain failed: code=%d err=%v out=%q", code, err, out)

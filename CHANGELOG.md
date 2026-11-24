@@ -1,3 +1,12 @@
+## Unreleased — سندباکس واقعاً در CI سنجیده می‌شود
+
+- **مجوز NUL اجباری:** مرحلهٔ `grant-sandbox-nul.ps1` در CI دیگر
+  `continue-on-error` نیست؛ اگر مجوز ثبت نشود job قرمز می‌شود.
+- **بدون skip محیطی:** با `KODYAR_EXPECT_NUL_GRANTED=1` تست‌های سندباکس
+  (پروب NUL، `go version` داخل AppContainer و زنجیرهٔ git+go) به‌جای
+  skip شکست می‌دهند؛ تست `TestCISandboxNulGrantIsEnforced` برگشتن این
+  تنظیمات را در CI می‌گیرد.
+
 ## 1.0.5 — چکسام SHA256 برای باینری منتشرشده (۲۰۲۶-۱۱-۲۴)
 
 - **`SHA256SUMS` در هر ریلیز:** workflow انتشار علاوه بر `KodYar.exe` یک فایل
