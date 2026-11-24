@@ -44,8 +44,11 @@ func TestCISandboxNulGrantIsEnforced(t *testing.T) {
 }
 
 func TestSandboxNulGrantPromisedHelper(t *testing.T) {
+	// در CI خودِ پروسه با KODYAR_EXPECT_NUL_GRANTED=1 اجرا می‌شود؛ پس هر دو
+	// حالت را صریح تنظیم می‌کنیم تا نتیجه به محیط اجرا وابسته نباشد.
+	t.Setenv("KODYAR_EXPECT_NUL_GRANTED", "")
 	if sandboxNulGrantPromised() {
-		t.Fatal("helper must be false without KODYAR_EXPECT_NUL_GRANTED=1")
+		t.Fatal("helper must be false with an empty KODYAR_EXPECT_NUL_GRANTED")
 	}
 	t.Setenv("KODYAR_EXPECT_NUL_GRANTED", "1")
 	if !sandboxNulGrantPromised() {
