@@ -19,6 +19,8 @@
 - **کش مرورگر Playwright:** پوشهٔ `~/.cache/ms-playwright` با کلید
   `playwright-chromium-<os>-<نسخهٔ Playwright>` کش می‌شود (نسخه از lockfile
   خوانده می‌شود) تا هر push دوباره کرومیوم ~۱۰۰ مگابایتی را دانلود نکند.
+  پیش از نصب، وجود مرورگر در کش بازیابی‌شده چاپ می‌شود تا hit بودن کش در
+  لاگ قابل بررسی باشد.
 - **بدون skip محیطی:** با `KODYAR_EXPECT_NUL_GRANTED=1` تست‌های سندباکس
   (پروب NUL، `go version` داخل AppContainer و زنجیرهٔ git+go) به‌جای
   skip شکست می‌دهند؛ تست `TestCISandboxNulGrantIsEnforced` برگشتن این

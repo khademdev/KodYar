@@ -184,7 +184,15 @@ jobs:
           key: playwright-chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
 
       - name: Install Chromium
-        run: npx playwright install chromium --with-deps
+        run: |
+          # مدرک قابل‌خواندن برای کش: اگر بازیابی موفق بوده باشد، مرورگر پیش از
+          # نصب حاضر است و Playwright دانلودی انجام نمی‌دهد.
+          if compgen -G "$HOME/.cache/ms-playwright/chromium-*" > /dev/null; then
+            echo "chromium found in restored cache: $(ls -d "$HOME/.cache/ms-playwright"/chromium-* | tr '\n' ' ')"
+          else
+            echo "chromium not in cache; it will be downloaded"
+          fi
+          npx playwright install chromium --with-deps
 
       - name: Run browser smoke tests
         run: npm test
