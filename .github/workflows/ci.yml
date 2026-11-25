@@ -6,7 +6,9 @@
 #   - windows (اصلی): gofmt + vet + test -race — محصول روی ویندوز است.
 #   - linux (ثانویه): پکیج‌های GTK/WebKit که وایلز برای کامپایل لازم دارد؛
 #     اوبونتو ۲۴.۰۴ فقط webkit2gtk-4.1 دارد، پس تگ webkit2_41 لازم است.
-#   - windows-build (اختیاری): بیلد واقعی با Wails CLI پین‌شده به go.mod.
+#   - windows-build: بیلد واقعی با Wails CLI پین‌شده به go.mod (اجباری).
+#   - browser-smoke: تست دود فرانت با Playwright (اجباری).
+# هیچ jobی continue-on-error ندارد: شکست هر گام CI را قرمز می‌کند.
 name: CI
 
 on:
@@ -134,16 +136,16 @@ jobs:
       - name: Desktop compile check (production, webkit2_41)
         run: go build -tags "production webkit2_41" ./...
 
-  # ------------------------------------------------ تست مرورگری (اختیاری، غیربلاک‌کننده)
+  # ------------------------------------------------ تست مرورگری (اجباری)
   # بند D.2.2 مأموریت ۳ — تست دود UI با Playwright در حالت Mock:
   # مودال دسترسی، مودال Diff، کارت خلاصه‌ی نوبت و مودال پیش‌نمایش نقطه‌ی
-  # بازگشت باید واقعاً «قابل‌مشاهده» و «قابل‌کلیک» باشند. شکست این job
-  # release را بلاک نمی‌کند (continue-on-error) ولی باید جدی گرفته شود؛
-  # چکِ معادلِ همیشه‌روان در Go داخل خود تست‌هاست (uicontract_test.go).
+  # بازگشت باید واقعاً «قابل‌مشاهده» و «قابل‌کلیک» باشند. شکست این job CI را
+  # قرمز می‌کند؛ چکِ معادلِ همیشه‌روان در Go هم داخل تست‌هاست
+  # (uicontract_test.go) و تست TestCIHasNoSilentSteps برگشتن
+  # continue-on-error را می‌گیرد.
   browser-smoke:
-    name: Browser smoke (frontend, optional)
+    name: Browser smoke (frontend)
     runs-on: ubuntu-latest
-    continue-on-error: true
     defaults:
       run:
         working-directory: frontend/tests
@@ -186,7 +188,7 @@ jobs:
       - name: Run govulncheck
         run: govulncheck ./...
 
-  # ---------------------------------------------------------------- بیلد ویندوز (اختیاری)
+  # ---------------------------------------------------------------- بیلد ویندوز (اجباری)
   windows-build:
     name: Wails build (windows/amd64)
     runs-on: ubuntu-latest

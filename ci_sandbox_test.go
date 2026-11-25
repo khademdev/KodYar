@@ -43,53 +43,33 @@ func TestCISandboxNulGrantIsEnforced(t *testing.T) {
 	}
 }
 
-// TestCIHasNoSilentSteps — هیچ مرحله/کاری که بیلد یا امنیت را می‌سنجد نباید
-// با continue-on-error بی‌صدا شکست بخورد. تنها استثنا job اختیاری
-// «browser-smoke» است (smoke فرانت که به نصب Playwright روی رانر وابسته است).
+// TestCIHasNoSilentSteps — هیچ مرحله یا jobی در CI نباید با continue-on-error
+// بی‌صدا شکست بخورد: هر گامی که تست، بیلد یا امنیت را می‌سنجد باید CI را قرمز
+// کند. استثنایی وجود ندارد (حتی browser-smoke).
 func TestCIHasNoSilentSteps(t *testing.T) {
 	data, err := os.ReadFile(".github/workflows/ci.yml")
 	if err != nil {
 		t.Fatalf("ci.yml: %v", err)
 	}
-	lines := strings.Split(string(data), "\n")
+	s := string(data)
 
-	jobKey := func(line string) bool {
-		if !strings.HasPrefix(line, "  ") || strings.HasPrefix(line, "    ") || strings.HasPrefix(line, "  #") {
-			return false
-		}
-		body := strings.TrimPrefix(line, "  ")
-		return body != "" && !strings.HasPrefix(body, "-") && strings.Contains(body, ":")
-	}
-
-	optionalStart, optionalEnd := -1, len(lines)
-	for i, line := range lines {
-		if optionalStart < 0 && strings.HasPrefix(line, "  browser-smoke:") {
-			optionalStart = i
-			continue
-		}
-		if optionalStart >= 0 && i > optionalStart && jobKey(line) {
-			optionalEnd = i
-			break
-		}
-	}
-	if optionalStart < 0 {
-		t.Fatal("ci.yml must contain the browser-smoke job")
-	}
-
-	for i, line := range lines {
+	for i, line := range strings.Split(s, "\n") {
 		// توضیح‌های YAML که به این کلید اشاره می‌کنند، تنظیم واقعی نیستند.
 		if strings.HasPrefix(strings.TrimSpace(line), "#") {
 			continue
 		}
-		if !strings.Contains(line, "continue-on-error") {
-			continue
-		}
-		if i < optionalStart || i > optionalEnd {
+		if strings.Contains(line, "continue-on-error") {
 			t.Fatalf("ci.yml line %d: remove continue-on-error so failures are never silent", i+1)
 		}
 	}
 
-	if !strings.Contains(string(data), "Wails build (windows/amd64)") {
-		t.Fatal("ci.yml must keep the Wails build job as a required gate")
+	// jobهای اجباری نباید حذف شوند.
+	for _, gate := range []string{
+		"Wails build (windows/amd64)",
+		"Browser smoke (frontend)",
+	} {
+		if !strings.Contains(s, gate) {
+			t.Fatalf("ci.yml must keep the %q job as a required gate", gate)
+		}
 	}
 }

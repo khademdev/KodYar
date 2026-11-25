@@ -5,6 +5,9 @@
 - **بیلد ویندوزی اجباری:** job `windows-build` در CI دیگر
   `continue-on-error` ندارد؛ شکست بیلد یا چک exe، CI را قرمز می‌کند و تست
   `TestCIHasNoSilentSteps` برگشتن آن را می‌گیرد.
+- **بدون هیچ گام بی‌صدایی:** job `browser-smoke` (تست دود فرانت با Playwright)
+  هم اجباری شد؛ `continue-on-error` دیگر در هیچ جای CI نیست و
+  `TestCIHasNoSilentSteps` استثنا ندارد.
 - **بدون skip محیطی:** با `KODYAR_EXPECT_NUL_GRANTED=1` تست‌های سندباکس
   (پروب NUL، `go version` داخل AppContainer و زنجیرهٔ git+go) به‌جای
   skip شکست می‌دهند؛ تست `TestCISandboxNulGrantIsEnforced` برگشتن این
