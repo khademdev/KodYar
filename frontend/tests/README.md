@@ -76,3 +76,7 @@ localStorage می‌ریزند تا حتماً deterministic باشند.
 lockfile را از نو ساختنید، همان ورودی را (با `resolved`/`integrity` از
 رجیستری) برگردانید؛ تست `TestBrowserSmokeInstallsFromLockfile` نبودش را
 می‌گیرد.
+
+مرورگر هم کش می‌شود: `actions/cache` پوشهٔ `~/.cache/ms-playwright` را با کلید
+`playwright-chromium-<os>-<نسخهٔ Playwright>` نگه می‌دارد (نسخه از lockfile
+خوانده می‌شود)، پس هر push دوباره کرومیوم ~۱۰۰ مگابایتی را دانلود نمی‌کند.

@@ -16,6 +16,9 @@
   نگه داشته شد چون نبودش `npm ci` را روی هر پلتفرمی قرمز می‌کند.
   `TestBrowserSmokeInstallsFromLockfile` برگشتن به `npm install` یا حذف آن
   ورودی را می‌گیرد.
+- **کش مرورگر Playwright:** پوشهٔ `~/.cache/ms-playwright` با کلید
+  `playwright-chromium-<os>-<نسخهٔ Playwright>` کش می‌شود (نسخه از lockfile
+  خوانده می‌شود) تا هر push دوباره کرومیوم ~۱۰۰ مگابایتی را دانلود نکند.
 - **بدون skip محیطی:** با `KODYAR_EXPECT_NUL_GRANTED=1` تست‌های سندباکس
   (پروب NUL، `go version` داخل AppContainer و زنجیرهٔ git+go) به‌جای
   skip شکست می‌دهند؛ تست `TestCISandboxNulGrantIsEnforced` برگشتن این

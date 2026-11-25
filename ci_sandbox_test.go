@@ -76,6 +76,14 @@ func TestBrowserSmokeInstallsFromLockfile(t *testing.T) {
 	if !strings.Contains(s, "cache-dependency-path: frontend/tests/package-lock.json") {
 		t.Fatal("ci.yml must key the npm cache on frontend/tests/package-lock.json")
 	}
+	// مرورگر کرومیوم (~۱۰۰MB) باید کش شود و کلیدش به نسخهٔ Playwright گره
+	// بخورد، وگرنه هر push دوباره دانلود می‌کند یا کش کهنه استفاده می‌شود.
+	if !strings.Contains(s, "path: ~/.cache/ms-playwright") {
+		t.Fatal("ci.yml must cache ~/.cache/ms-playwright for the smoke job")
+	}
+	if !strings.Contains(s, "steps.playwright.outputs.version") {
+		t.Fatal("the ms-playwright cache key must include the resolved Playwright version")
+	}
 	lock, err := os.ReadFile("frontend/tests/package-lock.json")
 	if err != nil {
 		t.Fatalf("committed lockfile for the smoke tests is missing: %v", err)

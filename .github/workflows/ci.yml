@@ -164,9 +164,27 @@ jobs:
       # نصب قطعی از lockfileِ کامیت‌شده: با `npm install` نسخهٔ شناور ^1.49.0
       # می‌توانست هر روز عوض شود و این job بلاک‌کننده را بی‌دلیل قرمز کند.
       - name: Install Playwright (npm ci)
+        run: npm ci --no-audit --no-fund
+
+      # نسخهٔ واقعی Playwright از lockfile خوانده می‌شود تا کلید کش مرورگر
+      # دقیقاً با همان نسخه عوض شود (نه هر push).
+      - name: Read Playwright version
+        id: playwright
         run: |
-          npm ci --no-audit --no-fund
-          npx playwright install chromium --with-deps
+          version="$(node -p 'require("@playwright/test/package.json").version')"
+          echo "playwright=$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # کش ~/.cache/ms-playwright: بدون آن هر push حدود ۱۰۰ مگابایت کرومیوم
+      # را دوباره دانلود می‌کرد و این job بلاک‌کننده کند و شکننده می‌شد.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
+      - name: Install Chromium
+        run: npx playwright install chromium --with-deps
 
       - name: Run browser smoke tests
         run: npm test
