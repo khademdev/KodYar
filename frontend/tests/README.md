@@ -20,7 +20,7 @@
 
 ```bash
 cd frontend/tests
-npm install            # فقط @playwright/test را می‌آورد
+npm ci                 # فقط @playwright/test را از lockfile کامیت‌شده می‌آورد
 npx playwright install chromium
 npm test
 ```
@@ -62,7 +62,17 @@ localStorage می‌ریزند تا حتماً deterministic باشند.
 
 ## CI
 
-این تست‌ها در CI به‌صورت **غیربلاک‌کننده** اجرا می‌شوند
-(`continue-on-error: true` — کاری که این‌جا ممکن نیست، اجرای مرورگر است)؛
-شکستش release را بلاک نمی‌کند ولی باید جدی گرفته شود و در چک‌لیست دستی هم
-تکرار شود.
+این تست‌ها در CI **بلاک‌کننده** هستند: شکست job `Browser smoke (frontend)`
+کل CI را قرمز می‌کند. به همین دلیل نصب وابستگی‌ها قطعی است — `npm ci` از
+`package-lock.json` کامیت‌شده (نسخه‌ها قفل‌اند) و کش npm در `setup-node` با
+`cache-dependency-path` روی همان lockfile. اگر وابستگی عوض شد، lockfile را
+هم با `npm install --package-lock-only` به‌روز و کامیت کنید؛ تست
+`TestBrowserSmokeInstallsFromLockfile` برگشتن به `npm install` شناور را
+می‌گیرد.
+
+نکتهٔ مهم دربارهٔ lockfile: npm روی ویندوز ورودی وابستگی اختیاری macOS
+(`node_modules/fsevents`، نسخهٔ 2.3.2) را از lockfile حذف می‌کند و بعد
+`npm ci` با خطای «Missing: fsevents@ from lock file» قرمز می‌شود. اگر
+lockfile را از نو ساختنید، همان ورودی را (با `resolved`/`integrity` از
+رجیستری) برگردانید؛ تست `TestBrowserSmokeInstallsFromLockfile` نبودش را
+می‌گیرد.

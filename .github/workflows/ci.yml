@@ -157,10 +157,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          # کش npm روی lockfile کلید می‌خورد؛ نصب تکراری رانر را کند و شکننده می‌کرد.
+          cache: npm
+          cache-dependency-path: frontend/tests/package-lock.json
 
-      - name: Install Playwright
+      # نصب قطعی از lockfileِ کامیت‌شده: با `npm install` نسخهٔ شناور ^1.49.0
+      # می‌توانست هر روز عوض شود و این job بلاک‌کننده را بی‌دلیل قرمز کند.
+      - name: Install Playwright (npm ci)
         run: |
-          npm install
+          npm ci --no-audit --no-fund
           npx playwright install chromium --with-deps
 
       - name: Run browser smoke tests

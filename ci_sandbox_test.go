@@ -43,6 +43,51 @@ func TestCISandboxNulGrantIsEnforced(t *testing.T) {
 	}
 }
 
+// TestBrowserSmokeInstallsFromLockfile — job اجباری browser-smoke باید با
+// `npm ci` از lockfileِ کامیت‌شده نصب کند (نه `npm install` شناور) و کش npm
+// را روی همان lockfile کلید بزند؛ وگرنه نسخه‌ی شناور وابستگی می‌تواند این
+// job بلاک‌کننده را بی‌دلیل قرمز کند.
+func TestBrowserSmokeInstallsFromLockfile(t *testing.T) {
+	data, err := os.ReadFile(".github/workflows/ci.yml")
+	if err != nil {
+		t.Fatalf("ci.yml: %v", err)
+	}
+	s := string(data)
+
+	// خط‌محور: کامنت‌های YAML که به این فرمان‌ها اشاره می‌کنند، تنظیم واقعی نیستند.
+	var usesCleanInstall, usesPlainInstall bool
+	for _, line := range strings.Split(s, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		if strings.Contains(line, "npm ci") {
+			usesCleanInstall = true
+		}
+		if strings.Contains(line, "npm install") {
+			usesPlainInstall = true
+		}
+	}
+	if !usesCleanInstall {
+		t.Fatal("ci.yml must install the browser-smoke dependencies with `npm ci`")
+	}
+	if usesPlainInstall {
+		t.Fatal("ci.yml must not use `npm install` for the smoke dependencies; it ignores the lockfile")
+	}
+	if !strings.Contains(s, "cache-dependency-path: frontend/tests/package-lock.json") {
+		t.Fatal("ci.yml must key the npm cache on frontend/tests/package-lock.json")
+	}
+	lock, err := os.ReadFile("frontend/tests/package-lock.json")
+	if err != nil {
+		t.Fatalf("committed lockfile for the smoke tests is missing: %v", err)
+	}
+	// npm روی ویندوز ورودی وابستگی اختیاری macOS (fsevents) را از lockfile
+	// حذف می‌کند و بعد `npm ci` با «Missing: fsevents@ from lock file» قرمز
+	// می‌شود؛ پس وجود همان ورودی هم جزء قرارداد است.
+	if !strings.Contains(string(lock), "\"node_modules/fsevents\"") {
+		t.Fatal("frontend/tests/package-lock.json must keep the node_modules/fsevents entry or `npm ci` fails")
+	}
+}
+
 // TestCIHasNoSilentSteps — هیچ مرحله یا jobی در CI نباید با continue-on-error
 // بی‌صدا شکست بخورد: هر گامی که تست، بیلد یا امنیت را می‌سنجد باید CI را قرمز
 // کند. استثنایی وجود ندارد (حتی browser-smoke).

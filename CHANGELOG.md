@@ -8,6 +8,14 @@
 - **بدون هیچ گام بی‌صدایی:** job `browser-smoke` (تست دود فرانت با Playwright)
   هم اجباری شد؛ `continue-on-error` دیگر در هیچ جای CI نیست و
   `TestCIHasNoSilentSteps` استثنا ندارد.
+- **نصب قطعی تست مرورگری:** job بلاک‌کنندهٔ `browser-smoke` با `npm ci` از
+  `frontend/tests/package-lock.json` کامیت‌شده نصب می‌کند — نسخهٔ Playwright
+  روی `1.49.1` قفل شد (نه شناور) و هر بستهٔ lockfile با `resolved`/`integrity`
+  امضا شده — و کش npm در `setup-node` با `cache-dependency-path` روی همان
+  lockfile کلید می‌خورد. ورودی وابستگی اختیاری macOS (`fsevents`) در lockfile
+  نگه داشته شد چون نبودش `npm ci` را روی هر پلتفرمی قرمز می‌کند.
+  `TestBrowserSmokeInstallsFromLockfile` برگشتن به `npm install` یا حذف آن
+  ورودی را می‌گیرد.
 - **بدون skip محیطی:** با `KODYAR_EXPECT_NUL_GRANTED=1` تست‌های سندباکس
   (پروب NUL، `go version` داخل AppContainer و زنجیرهٔ git+go) به‌جای
   skip شکست می‌دهند؛ تست `TestCISandboxNulGrantIsEnforced` برگشتن این
