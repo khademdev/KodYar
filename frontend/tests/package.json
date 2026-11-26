@@ -1,6 +1,6 @@
 {
   "name": "kodyar-frontend-tests",
-  "version": "1.0.6",
+  "version": "1.0.5",
   "private": true,
   "description": "Optional Playwright smoke tests for the KodYar frontend (dev-only; not part of the app build).",
   "scripts": {

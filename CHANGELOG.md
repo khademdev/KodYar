@@ -25,6 +25,11 @@
   (پروب NUL، `go version` داخل AppContainer و زنجیرهٔ git+go) به‌جای
   skip شکست می‌دهند؛ تست `TestCISandboxNulGrantIsEnforced` برگشتن این
   تنظیمات را در CI می‌گیرد.
+- **نسخهٔ تک‌منبع برای پکیج تست مرورگری:** `frontend/tests/package.json`
+  عدد `1.0.6` را در برابر `VERSION = 1.0.5` نگه داشته بود؛ به `1.0.5` هم‌تراز
+  شد و `TestVersionSingleSource` حالا نسخهٔ `package.json` و هر دو جای
+  `package-lock.json` (بالای فایل و ریشهٔ `packages`) را با `VERSION` مقایسه
+  می‌کند.
 - **fsevents قطعی به‌جای ورودی دستی:** `fsevents@2.3.2` در
   `frontend/tests/package.json` به‌عنوان `optionalDependencies` اعلام شد،
   پس npm آن را در هر بازسازی lockfile (حتی روی ویندوز) خودش می‌نویسد و

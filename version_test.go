@@ -2,6 +2,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"regexp"
 	"strings"
@@ -41,6 +42,43 @@ func TestVersionSingleSource(t *testing.T) {
 	}
 	if m[1] != want {
 		t.Errorf("wails.json productVersion = %q but VERSION = %q", m[1], want)
+	}
+
+	// پکیج تست‌های مرورگری هم عدد نسخه دارد و بی‌صدا دریفت کرده بود
+	// (1.0.6 در برابر 1.0.5)؛ حالا از همان VERSION می‌خواند یا CI قرمز می‌شود.
+	var smokePkg struct {
+		Version string `json:"version"`
+	}
+	pkgData, err := os.ReadFile("frontend/tests/package.json")
+	if err != nil {
+		t.Fatalf("frontend/tests/package.json: %v", err)
+	}
+	if err := json.Unmarshal(pkgData, &smokePkg); err != nil {
+		t.Fatalf("frontend/tests/package.json: %v", err)
+	}
+	if smokePkg.Version != want {
+		t.Errorf("frontend/tests/package.json version = %q but VERSION = %q — run `npm install --package-lock-only` after fixing it", smokePkg.Version, want)
+	}
+
+	// lockfile نسخه را در ریشه و در ابتدای فایل تکرار می‌کند؛ هر دو باید یکی باشند.
+	var smokeLock struct {
+		Version  string `json:"version"`
+		Packages map[string]struct {
+			Version string `json:"version"`
+		} `json:"packages"`
+	}
+	lockData, err := os.ReadFile("frontend/tests/package-lock.json")
+	if err != nil {
+		t.Fatalf("frontend/tests/package-lock.json: %v", err)
+	}
+	if err := json.Unmarshal(lockData, &smokeLock); err != nil {
+		t.Fatalf("frontend/tests/package-lock.json: %v", err)
+	}
+	if smokeLock.Version != want {
+		t.Errorf("frontend/tests/package-lock.json version = %q but VERSION = %q", smokeLock.Version, want)
+	}
+	if root, ok := smokeLock.Packages[""]; !ok || root.Version != want {
+		t.Errorf("frontend/tests/package-lock.json root version = %q but VERSION = %q", root.Version, want)
 	}
 }
 
