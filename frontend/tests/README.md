@@ -70,12 +70,16 @@ localStorage می‌ریزند تا حتماً deterministic باشند.
 `TestBrowserSmokeInstallsFromLockfile` برگشتن به `npm install` شناور را
 می‌گیرد.
 
-نکتهٔ مهم دربارهٔ lockfile: npm روی ویندوز ورودی وابستگی اختیاری macOS
-(`node_modules/fsevents`، نسخهٔ 2.3.2) را از lockfile حذف می‌کند و بعد
-`npm ci` با خطای «Missing: fsevents@ from lock file» قرمز می‌شود. اگر
-lockfile را از نو ساختنید، همان ورودی را (با `resolved`/`integrity` از
-رجیستری) برگردانید؛ تست `TestBrowserSmokeInstallsFromLockfile` نبودش را
-می‌گیرد.
+نکتهٔ مهم دربارهٔ lockfile: `playwright` وابستگی اختیاری macOS
+(`fsevents@2.3.2`) دارد؛ npm روی ویندوز گاهی این ورودی را از lockfile
+می‌انداخت و بعد `npm ci` با «Missing: fsevents@ from lock file» قرمز می‌شد.
+حالا `fsevents` **در `optionalDependencies` خودِ `package.json` اعلام شده**،
+پس npm همیشه آن را در lockfile می‌نویسد و ورودی دستی و شکننده لازم نیست:
+بازسازی lockfile روی ویندوز (با `npm install --package-lock-only`) خروجی
+بیتبه‌بایت یکسان می‌دهد و `npm ci` سبز می‌ماند.
+`TestSmokeLockfileFseventsIsDeterministic` هر سه شرط را می‌پاید: اعلام در
+`package.json`، ثبت در ریشهٔ lockfile، و وجود ورودی
+`node_modules/fsevents` با `resolved`/`integrity`.
 
 مرورگر هم کش می‌شود: `actions/cache` پوشهٔ `~/.cache/ms-playwright` را با کلید
 `playwright-chromium-<os>-<نسخهٔ Playwright>` نگه می‌دارد (نسخه از lockfile

@@ -7,6 +7,7 @@ package main
 // `continue-on-error` را برگرداند یا env را بردارد، همین تست قرمز می‌شود.
 
 import (
+	"encoding/json"
 	"os"
 	"strconv"
 	"strings"
@@ -140,6 +141,57 @@ func TestBrowserSmokeInstallsFromLockfile(t *testing.T) {
 // TestCIUsesNode24ActionRuntimes — هر دو workflow باید اکشن‌ها را روی نسخه‌ای
 // پین کنند که خودش node24 را هدف می‌گیرد؛ نسخه‌های node20 باعث هشدار در هر
 // ران می‌شدند.
+// TestSmokeLockfileFseventsIsDeterministic — ورودی fsevents نباید دستی نگه
+// داشته شود: وقتی به‌عنوان optionalDependency در package.json اعلام شود، npm
+// خودش آن را در هر بازسازی lockfile (حتی روی ویندوز) می‌نویسد و `npm ci`
+// هرگز با «Missing: fsevents@ from lock file» شکست نمی‌خورد.
+func TestSmokeLockfileFseventsIsDeterministic(t *testing.T) {
+	var pkg struct {
+		OptionalDependencies map[string]string `json:"optionalDependencies"`
+	}
+	pkgData, err := os.ReadFile("frontend/tests/package.json")
+	if err != nil {
+		t.Fatalf("package.json: %v", err)
+	}
+	if err := json.Unmarshal(pkgData, &pkg); err != nil {
+		t.Fatalf("package.json: %v", err)
+	}
+	if got := pkg.OptionalDependencies["fsevents"]; got != "2.3.2" {
+		t.Fatalf("frontend/tests/package.json must declare fsevents 2.3.2 in optionalDependencies (got %q)", got)
+	}
+
+	var lock struct {
+		Packages map[string]struct {
+			Version      string            `json:"version"`
+			Resolved     string            `json:"resolved"`
+			Integrity    string            `json:"integrity"`
+			OptionalDeps map[string]string `json:"optionalDependencies"`
+		} `json:"packages"`
+	}
+	lockData, err := os.ReadFile("frontend/tests/package-lock.json")
+	if err != nil {
+		t.Fatalf("package-lock.json: %v", err)
+	}
+	if err := json.Unmarshal(lockData, &lock); err != nil {
+		t.Fatalf("package-lock.json: %v", err)
+	}
+	root, ok := lock.Packages[""]
+	if !ok {
+		t.Fatal("lockfile has no root package entry")
+	}
+	if got := root.OptionalDeps["fsevents"]; got != "2.3.2" {
+		t.Fatalf("lockfile root must list fsevents in optionalDependencies (got %q); run `npm install --package-lock-only`", got)
+	}
+	fs, ok := lock.Packages["node_modules/fsevents"]
+	if !ok {
+		t.Fatal("lockfile is missing node_modules/fsevents; `npm ci` would fail with «Missing: fsevents@ from lock file»")
+	}
+	if fs.Version != "2.3.2" || fs.Resolved == "" || fs.Integrity == "" {
+		t.Fatalf("fsevents entry must be 2.3.2 with resolved+integrity, got version=%q resolved=%q integrity=%q",
+			fs.Version, fs.Resolved, fs.Integrity)
+	}
+}
+
 func TestCIUsesNode24ActionRuntimes(t *testing.T) {
 	// اکشن‌های node20 در هر دو workflow هشدار می‌دادند: CI و انتشار.
 	for _, path := range []string{".github/workflows/ci.yml", ".github/workflows/release.yml"} {

@@ -25,6 +25,13 @@
   (پروب NUL، `go version` داخل AppContainer و زنجیرهٔ git+go) به‌جای
   skip شکست می‌دهند؛ تست `TestCISandboxNulGrantIsEnforced` برگشتن این
   تنظیمات را در CI می‌گیرد.
+- **fsevents قطعی به‌جای ورودی دستی:** `fsevents@2.3.2` در
+  `frontend/tests/package.json` به‌عنوان `optionalDependencies` اعلام شد،
+  پس npm آن را در هر بازسازی lockfile (حتی روی ویندوز) خودش می‌نویسد و
+  `npm ci` دیگر با «Missing: fsevents@ from lock file» شکست نمی‌خورد.
+  بازسازی از صفر روی ویندوز خروجی بی‌تبه‌بایت یکسان می‌دهد و
+  `TestSmokeLockfileFseventsIsDeterministic` اعلام در `package.json`، ثبت
+  در ریشهٔ lockfile و وجود `resolved`/`integrity` را می‌پاید.
 - **اکشن‌های سازگار با Node 24:** همهٔ اکشن‌های CI و انتشار روی اولین نسخهٔ
   node24 خود پین شدند — `actions/setup-node@v5.0.0` و `actions/cache@v5.0.0`
   در job `browser-smoke`، و `actions/setup-go@v6.2.0` و
