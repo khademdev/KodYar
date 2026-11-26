@@ -25,10 +25,13 @@
   (پروب NUL، `go version` داخل AppContainer و زنجیرهٔ git+go) به‌جای
   skip شکست می‌دهند؛ تست `TestCISandboxNulGrantIsEnforced` برگشتن این
   تنظیمات را در CI می‌گیرد.
-- **اکشن‌های سازگار با Node 24:** `actions/setup-node` و `actions/cache` در
-  job `browser-smoke` روی `v5.0.0` پین شدند (اولین نسخه‌های node24)؛ نسخهٔ
-  v4 با هشدار «Node.js 20 is deprecated» تنها به زور روی Node 24 اجرا
-  می‌شد. `TestCIUsesNode24ActionRuntimes` برگشتن به v4 را می‌گیرد. کش npm
+- **اکشن‌های سازگار با Node 24:** همهٔ اکشن‌های CI و انتشار روی اولین نسخهٔ
+  node24 خود پین شدند — `actions/setup-node@v5.0.0` و `actions/cache@v5.0.0`
+  در job `browser-smoke`، و `actions/setup-go@v6.0.0` و
+  `actions/upload-artifact@v6.0.0` در بقیهٔ jobها و در `release.yml`؛ نسخه‌های
+  قدیمی با هشدار «Node.js 20 is deprecated» تنها به زور روی Node 24 اجرا
+  می‌شدند. `TestCIUsesNode24ActionRuntimes` هر دو workflow را می‌پاید و
+  برگشتن به نسخهٔ node20 را قرمز می‌کند. کش npm
   (`cache-dependency-path`) و کش مرورگر (`~/.cache/ms-playwright`) بدون
   تغییر کلید باقی ماندند.
 - **ترتیب اعتبارسنجی ابزارهای مرورگر:** `browser_console` و

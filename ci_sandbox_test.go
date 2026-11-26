@@ -23,10 +23,22 @@ func actionMajor(ref string) int {
 	return n
 }
 
-// TestCIUsesNode24ActionRuntimes — اکشن‌هایی که روی runtimeِ node20 هستند با
-// هشدار «Node.js 20 is deprecated» مجبور به اجرا روی Node 24 می‌شوند و با
-// حذف node20 از رانرها از کار می‌افتند. setup-node و cache باید روی نسخه‌ای
-// پین شوند که خودش node24 را هدف می‌گیرد (v5.0.0 یا بالاتر).
+// node24Actions حداقل نسخه‌ای از هر اکشن که خودش runtimeِ node24 را هدف
+// می‌گیرد. اکشن‌های node20 با هشدار «Node.js 20 is deprecated» مجبور به اجرا
+// روی Node 24 می‌شوند و با حذف node20 از رانرها از کار می‌افتند.
+var node24Actions = []struct {
+	action string
+	min    int
+}{
+	{"actions/setup-node@", 5},
+	{"actions/cache@", 5},
+	{"actions/setup-go@", 6},
+	{"actions/upload-artifact@", 6},
+}
+
+// TestCIUsesNode24ActionRuntimes — هر دو workflow باید اکشن‌ها را روی نسخه‌ای
+// پین کنند که خودش node24 را هدف می‌گیرد؛ نسخهٔ v4/v5 روی node20 اعلام شده
+// بود و همین باعث هشدار در هر ران بود.
 
 func TestCISandboxNulGrantIsEnforced(t *testing.T) {
 	data, err := os.ReadFile(".github/workflows/ci.yml")
@@ -113,28 +125,42 @@ func TestBrowserSmokeInstallsFromLockfile(t *testing.T) {
 }
 
 func TestCIUsesNode24ActionRuntimes(t *testing.T) {
-	data, err := os.ReadFile(".github/workflows/ci.yml")
-	if err != nil {
-		t.Fatalf("ci.yml: %v", err)
-	}
-	s := string(data)
+	// اکشن‌های node20 در هر دو workflow هشدار می‌دادند: CI و انتشار.
+	for _, path := range []string{".github/workflows/ci.yml", ".github/workflows/release.yml"} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
 
-	for _, action := range []string{"actions/setup-node@", "actions/cache@"} {
-		seen := false
-		for _, line := range strings.Split(s, "\n") {
+		seen := map[string]bool{}
+		for _, line := range strings.Split(string(data), "\n") {
 			trimmed := strings.TrimSpace(line)
 			// توضیح‌های YAML تنظیم واقعی نیستند.
-			if strings.HasPrefix(trimmed, "#") || !strings.Contains(trimmed, "uses: "+action) {
+			if strings.HasPrefix(trimmed, "#") {
 				continue
 			}
-			seen = true
-			ref := strings.TrimSpace(strings.SplitN(trimmed, action, 2)[1])
-			if actionMajor(ref) < 5 {
-				t.Fatalf("ci.yml: %s%s targets the deprecated node20 runtime; pin v5.0.0 or newer", action, ref)
+			for _, a := range node24Actions {
+				if !strings.Contains(trimmed, "uses: "+a.action) {
+					continue
+				}
+				seen[a.action] = true
+				ref := strings.TrimSpace(strings.SplitN(trimmed, a.action, 2)[1])
+				if actionMajor(ref) < a.min {
+					t.Fatalf("%s: %s%s targets the deprecated node20 runtime; pin v%d.0.0 or newer", path, a.action, ref, a.min)
+				}
 			}
 		}
-		if !seen {
-			t.Fatalf("ci.yml no longer uses %s; update this guard if the action was replaced", action)
+
+		// هر فایل فقط اکشن‌هایی را که واقعاً دارد بررسی می‌کند، ولی حذف
+		// اکشن‌های حساس باید همین تست را قرمز کند.
+		required := []string{"actions/setup-go@"}
+		if strings.HasSuffix(path, "ci.yml") {
+			required = []string{"actions/setup-node@", "actions/cache@", "actions/setup-go@", "actions/upload-artifact@"}
+		}
+		for _, action := range required {
+			if !seen[action] {
+				t.Fatalf("%s no longer uses %s; update this guard if the action was replaced", path, action)
+			}
 		}
 	}
 }
