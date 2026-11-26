@@ -25,6 +25,10 @@
   (پروب NUL، `go version` داخل AppContainer و زنجیرهٔ git+go) به‌جای
   skip شکست می‌دهند؛ تست `TestCISandboxNulGrantIsEnforced` برگشتن این
   تنظیمات را در CI می‌گیرد.
+- **اسکریپت همگام‌سازی نسخه:** `scripts/set-version.sh X.Y.Z` در یک قدم
+  `VERSION`، `wails.json` (`productVersion`) و `frontend/tests/package.json`
+  را همگام و `package-lock.json` را با npm بازسازی می‌کند؛ شمارهٔ نسخه دیگر
+  دستی در سه فایل عوض نمی‌شود و عدد نامعتبر را با کد خروج ۲ رد می‌کند.
 - **نسخهٔ تک‌منبع برای پکیج تست مرورگری:** `frontend/tests/package.json`
   عدد `1.0.6` را در برابر `VERSION = 1.0.5` نگه داشته بود؛ به `1.0.5` هم‌تراز
   شد و `TestVersionSingleSource` حالا نسخهٔ `package.json` و هر دو جای

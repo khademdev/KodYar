@@ -332,6 +332,21 @@ wails build -platform windows/amd64 -skipbindings -nopackage -ldflags "-s -w -X 
 
 > پوشه‌ی `build/bin` محل خروجی کامپایل شماست؛ باینریِ آماده‌ی ویندوز در همین بسته تحویل شده است.
 
+### بالا بردن نسخه
+
+عدد نسخه فقط در `VERSION` نگه داشته می‌شود و بقیه از همان می‌خوانند. برای
+بالا بردن یک‌جا (به‌جای دست‌زدن به سه فایل):
+
+```bash
+scripts/set-version.sh 1.0.6
+```
+
+این اسکریپت `VERSION`، `wails.json` (`productVersion`) و
+`frontend/tests/package.json` را همگام می‌کند و `frontend/tests/package-lock.json`
+را هم با npm بازسازی می‌کند. بعد فقط بخش تازهٔ `CHANGELOG.md` را با همان شماره
+اضافه کنید؛ `TestVersionSingleSource` و `TestVersionMatchesChangelog` هر دریفتی
+را در CI می‌گیرند.
+
 ### 🖥️ پیش‌نمایش سریع UI در مرورگر (اختیاری)
 
 فرانت‌اند به‌صورت مستقل هم اجرا می‌شود (با بک‌اند Mock و داده‌ی نمونه) — برای بازبینی طراحی
