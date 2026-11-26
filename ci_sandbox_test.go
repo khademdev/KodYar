@@ -13,32 +13,45 @@ import (
 	"testing"
 )
 
-// actionMajor شمارهٔ major یک ref مثل `v5.0.0` را برمی‌گرداند (۰ اگر نامعتبر).
-func actionMajor(ref string) int {
+// actionVersion نسخهٔ یک ref مثل `v6.2.0` را به [major, minor, patch] تبدیل
+// می‌کند؛ ref نامعتبر همه صفر می‌شود تا هر حداقلی را رد کند.
+func actionVersion(ref string) [3]int {
 	ref = strings.TrimPrefix(strings.TrimSpace(ref), "v")
-	n, err := strconv.Atoi(strings.SplitN(ref, ".", 2)[0])
-	if err != nil {
-		return 0
+	var out [3]int
+	for i, part := range strings.SplitN(ref, ".", 3) {
+		n, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil {
+			return [3]int{}
+		}
+		out[i] = n
 	}
-	return n
+	return out
 }
 
-// node24Actions حداقل نسخه‌ای از هر اکشن که خودش runtimeِ node24 را هدف
+// versionLess آیا نسخهٔ a کوچک‌تر از b است؟
+func versionLess(a, b [3]int) bool {
+	for i := range a {
+		if a[i] != b[i] {
+			return a[i] < b[i]
+		}
+	}
+	return false
+}
+
+// node24Actions اولین نسخه‌ای از هر اکشن که خودش runtimeِ node24 را هدف
 // می‌گیرد. اکشن‌های node20 با هشدار «Node.js 20 is deprecated» مجبور به اجرا
-// روی Node 24 می‌شوند و با حذف node20 از رانرها از کار می‌افتند.
+// روی Node 24 می‌شوند و با حذف node20 از رانرها از کار می‌افتند. شمارهٔ major
+// بالا کافی نیست: setup-go@v6.0.0 هنوز در action.yml خودش node20 اعلام
+// می‌کرد و فقط v6.2.0 روی node24 رفت.
 var node24Actions = []struct {
 	action string
-	min    int
+	min    [3]int
 }{
-	{"actions/setup-node@", 5},
-	{"actions/cache@", 5},
-	{"actions/setup-go@", 6},
-	{"actions/upload-artifact@", 6},
+	{"actions/setup-node@", [3]int{5, 0, 0}},
+	{"actions/cache@", [3]int{5, 0, 0}},
+	{"actions/setup-go@", [3]int{6, 2, 0}},
+	{"actions/upload-artifact@", [3]int{6, 0, 0}},
 }
-
-// TestCIUsesNode24ActionRuntimes — هر دو workflow باید اکشن‌ها را روی نسخه‌ای
-// پین کنند که خودش node24 را هدف می‌گیرد؛ نسخهٔ v4/v5 روی node20 اعلام شده
-// بود و همین باعث هشدار در هر ران بود.
 
 func TestCISandboxNulGrantIsEnforced(t *testing.T) {
 	data, err := os.ReadFile(".github/workflows/ci.yml")
@@ -124,6 +137,9 @@ func TestBrowserSmokeInstallsFromLockfile(t *testing.T) {
 	}
 }
 
+// TestCIUsesNode24ActionRuntimes — هر دو workflow باید اکشن‌ها را روی نسخه‌ای
+// پین کنند که خودش node24 را هدف می‌گیرد؛ نسخه‌های node20 باعث هشدار در هر
+// ران می‌شدند.
 func TestCIUsesNode24ActionRuntimes(t *testing.T) {
 	// اکشن‌های node20 در هر دو workflow هشدار می‌دادند: CI و انتشار.
 	for _, path := range []string{".github/workflows/ci.yml", ".github/workflows/release.yml"} {
@@ -145,8 +161,9 @@ func TestCIUsesNode24ActionRuntimes(t *testing.T) {
 				}
 				seen[a.action] = true
 				ref := strings.TrimSpace(strings.SplitN(trimmed, a.action, 2)[1])
-				if actionMajor(ref) < a.min {
-					t.Fatalf("%s: %s%s targets the deprecated node20 runtime; pin v%d.0.0 or newer", path, a.action, ref, a.min)
+				if versionLess(actionVersion(ref), a.min) {
+					t.Fatalf("%s: %s%s targets the deprecated node20 runtime; pin v%d.%d.%d or newer",
+						path, a.action, ref, a.min[0], a.min[1], a.min[2])
 				}
 			}
 		}

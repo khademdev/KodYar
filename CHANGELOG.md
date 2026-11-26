@@ -27,8 +27,10 @@
   تنظیمات را در CI می‌گیرد.
 - **اکشن‌های سازگار با Node 24:** همهٔ اکشن‌های CI و انتشار روی اولین نسخهٔ
   node24 خود پین شدند — `actions/setup-node@v5.0.0` و `actions/cache@v5.0.0`
-  در job `browser-smoke`، و `actions/setup-go@v6.0.0` و
-  `actions/upload-artifact@v6.0.0` در بقیهٔ jobها و در `release.yml`؛ نسخه‌های
+  در job `browser-smoke`، و `actions/setup-go@v6.2.0` و
+  `actions/upload-artifact@v6.0.0` در بقیهٔ jobها و در `release.yml` (در
+  `setup-go` شمارهٔ major کافی نبود: خود `v6.0.0` هم هنوز `node20` اعلام
+  می‌کرد و فقط از `v6.2.0` روی `node24` رفت)؛ نسخه‌های
   قدیمی با هشدار «Node.js 20 is deprecated» تنها به زور روی Node 24 اجرا
   می‌شدند. `TestCIUsesNode24ActionRuntimes` هر دو workflow را می‌پاید و
   برگشتن به نسخهٔ node20 را قرمز می‌کند. کش npm
