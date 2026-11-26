@@ -25,6 +25,11 @@
   (پروب NUL، `go version` داخل AppContainer و زنجیرهٔ git+go) به‌جای
   skip شکست می‌دهند؛ تست `TestCISandboxNulGrantIsEnforced` برگشتن این
   تنظیمات را در CI می‌گیرد.
+- **ترتیب اعتبارسنجی ابزارهای مرورگر:** `browser_console` و
+  `browser_screenshot` اول آدرس را بررسی می‌کنند و بعد مرورگر را بالا
+  می‌آورند؛ قبلاً `browserEnsure` جلوتر بود و روی ماشینی بدون کروم/اج خطای
+  «مرورگری پیدا نشد» به‌جای رد صریح `file:`/`javascript:` برمی‌گشت
+  (`TestBrowserToolsRejectNonHTTP`).
 
 ## 1.0.5 — چکسام SHA256 برای باینری منتشرشده (۲۰۲۶-۱۱-۲۴)
 

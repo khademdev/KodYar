@@ -658,14 +658,17 @@ func (a *App) toolBrowserOpen(rawURL string, width, height int) (string, bool) {
 
 // toolBrowserConsole پیام‌های کنسول/استثناها/خطاهای شبکه را برمی‌گرداند.
 func (a *App) toolBrowserConsole(rawURL string, clear bool) (string, bool) {
+	// اعتبارسنجی آدرس قبل از هر کار با مرورگر: ورودی غیر-http(s) باید همیشه
+	// همین پیام را بدهد، حتی اگر مرورگری نصب نباشد.
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL != "" && !wsIsLocalURL(rawURL) {
+		return "ERROR: browser_console accepts only http(s) URLs.", false
+	}
 	s, err := a.browserEnsure()
 	if err != nil {
 		return "ERROR: " + err.Error(), false
 	}
-	if rawURL = strings.TrimSpace(rawURL); rawURL != "" {
-		if !wsIsLocalURL(rawURL) {
-			return "ERROR: browser_console accepts only http(s) URLs.", false
-		}
+	if rawURL != "" {
 		if _, err := browserNavigate(s, rawURL); err != nil {
 			return "ERROR: " + err.Error(), false
 		}
@@ -773,14 +776,16 @@ func (a *App) toolBrowserConsole(rawURL string, clear bool) (string, bool) {
 // toolBrowserScreenshot از صفحهٔ جاری (یا آدرس داده‌شده) PNG می‌گیرد و داخل
 // workspace ذخیره می‌کند.
 func (a *App) toolBrowserScreenshot(rawURL string, fullPage bool, relPath string) (string, bool) {
+	// همان ترتیب browser_console: رد آدرس غیر-http(s) پیش از راه‌اندازی مرورگر.
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL != "" && !wsIsLocalURL(rawURL) {
+		return "ERROR: browser_screenshot accepts only http(s) URLs.", false
+	}
 	s, err := a.browserEnsure()
 	if err != nil {
 		return "ERROR: " + err.Error(), false
 	}
-	if rawURL = strings.TrimSpace(rawURL); rawURL != "" {
-		if !wsIsLocalURL(rawURL) {
-			return "ERROR: browser_screenshot accepts only http(s) URLs.", false
-		}
+	if rawURL != "" {
 		if _, err := browserNavigate(s, rawURL); err != nil {
 			return "ERROR: " + err.Error(), false
 		}
