@@ -8,9 +8,25 @@ package main
 
 import (
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 )
+
+// actionMajor شمارهٔ major یک ref مثل `v5.0.0` را برمی‌گرداند (۰ اگر نامعتبر).
+func actionMajor(ref string) int {
+	ref = strings.TrimPrefix(strings.TrimSpace(ref), "v")
+	n, err := strconv.Atoi(strings.SplitN(ref, ".", 2)[0])
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+// TestCIUsesNode24ActionRuntimes — اکشن‌هایی که روی runtimeِ node20 هستند با
+// هشدار «Node.js 20 is deprecated» مجبور به اجرا روی Node 24 می‌شوند و با
+// حذف node20 از رانرها از کار می‌افتند. setup-node و cache باید روی نسخه‌ای
+// پین شوند که خودش node24 را هدف می‌گیرد (v5.0.0 یا بالاتر).
 
 func TestCISandboxNulGrantIsEnforced(t *testing.T) {
 	data, err := os.ReadFile(".github/workflows/ci.yml")
@@ -93,6 +109,33 @@ func TestBrowserSmokeInstallsFromLockfile(t *testing.T) {
 	// می‌شود؛ پس وجود همان ورودی هم جزء قرارداد است.
 	if !strings.Contains(string(lock), "\"node_modules/fsevents\"") {
 		t.Fatal("frontend/tests/package-lock.json must keep the node_modules/fsevents entry or `npm ci` fails")
+	}
+}
+
+func TestCIUsesNode24ActionRuntimes(t *testing.T) {
+	data, err := os.ReadFile(".github/workflows/ci.yml")
+	if err != nil {
+		t.Fatalf("ci.yml: %v", err)
+	}
+	s := string(data)
+
+	for _, action := range []string{"actions/setup-node@", "actions/cache@"} {
+		seen := false
+		for _, line := range strings.Split(s, "\n") {
+			trimmed := strings.TrimSpace(line)
+			// توضیح‌های YAML تنظیم واقعی نیستند.
+			if strings.HasPrefix(trimmed, "#") || !strings.Contains(trimmed, "uses: "+action) {
+				continue
+			}
+			seen = true
+			ref := strings.TrimSpace(strings.SplitN(trimmed, action, 2)[1])
+			if actionMajor(ref) < 5 {
+				t.Fatalf("ci.yml: %s%s targets the deprecated node20 runtime; pin v5.0.0 or newer", action, ref)
+			}
+		}
+		if !seen {
+			t.Fatalf("ci.yml no longer uses %s; update this guard if the action was replaced", action)
+		}
 	}
 }
 

@@ -154,7 +154,9 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        # v5.0.0 اولین نسخه‌ای است که روی runtimeِ node24 اجرا می‌شود؛ v4 با
+        # هشدار «Node.js 20 is deprecated» مجبور به اجرا روی Node 24 می‌شد.
+        uses: actions/setup-node@v5.0.0
         with:
           node-version: 22
           # کش npm روی lockfile کلید می‌خورد؛ نصب تکراری رانر را کند و شکننده می‌کرد.
@@ -178,7 +180,8 @@ jobs:
       # کش ~/.cache/ms-playwright: بدون آن هر push حدود ۱۰۰ مگابایت کرومیوم
       # را دوباره دانلود می‌کرد و این job بلاک‌کننده کند و شکننده می‌شد.
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
+        # مثل setup-node: v5.0.0 اولین اکشنی است که node24 را هدف می‌گیرد.
+        uses: actions/cache@v5.0.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
